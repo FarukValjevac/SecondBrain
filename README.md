@@ -89,7 +89,7 @@ Use `\q` to exit. Run the application again and repeat the queries to inspect th
 
 `verify` also runs the required Testcontainers integration test, compiler/static checks, packaging, and Java formatting checks. The integration test starts its own isolated PostgreSQL/pgvector container, applies the real Flyway migration through application startup, checks vector operations, and restarts the application to check data and migration history. It does not use the Compose database or `.env`. Docker must be running and accessible; unavailable Docker fails the test rather than skipping it. No AI credentials are needed, and tests tagged `live-ai` remain excluded.
 
-The [GitHub Actions workflow](.github/workflows/verify.yml) runs `./mvnw --batch-mode --no-transfer-progress verify` on pushes and pull requests, using Java 25. It can also be started manually from the Actions tab. The extra flags keep CI logs concise; they do not change the checks.
+The [GitHub Actions workflow](.github/workflows/verify.yml) runs `./mvnw --batch-mode --no-transfer-progress verify` on pushes, using Java 25. It can also be started manually from the Actions tab. The extra flags keep CI logs concise; they do not change the checks.
 
 Apply Java formatting with:
 
