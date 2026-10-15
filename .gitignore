@@ -1,0 +1,33 @@
+# Maven
+target/
+
+# Local IDE configuration
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Local agent guidance, skills, and planning
+/AGENTS.md
+/.agents/
+/.task/
+
+# OS files
+.DS_Store
+
+# Local credentials
+.env
+.env.*
+!.env.example
+*.local.properties
+
+# Private documents and generated application data
+/data/
+/uploads/
+/logs/
+/evaluation-runs/
+*.log
+
+# Keep Maven Wrapper artifacts trackable
