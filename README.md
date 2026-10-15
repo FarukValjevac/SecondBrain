@@ -1,4 +1,6 @@
-# SecondBrain
+# SecondBrain (WIP)
+
+SecondBrain is a local, single-user knowledge library being built to help you find information in your own documents. Its goal is to let you upload documents, search by meaning, and ask questions with answers linked to supporting passages in your sources.
 
 A local Java 25 Spring Boot application that displays an empty document library in the browser. It uses PostgreSQL with pgvector and applies Flyway database migrations on startup.
 
