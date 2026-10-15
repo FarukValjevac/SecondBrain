@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document library | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" th:href="@{/}">SecondBrain</a>
+  </header>
+  <main>
+    <div class="library-heading">
+      <h1>Document library</h1>
+      <p class="document-count">0 documents</p>
+    </div>
+    <section class="empty-library" aria-labelledby="empty-library-title">
+      <svg class="document-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M14 6h14l8 8v28H14z"/>
+        <path d="M28 6v10h8M20 24h10M20 31h10"/>
+      </svg>
+      <h2 id="empty-library-title">No documents yet</h2>
+      <p>Your library is empty.</p>
+    </section>
+  </main>
+</body>
+</html>

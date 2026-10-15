@@ -1,0 +1,96 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #202d2a;
+  background: #f5f7f6;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.site-header {
+  padding: 1.25rem max(1.25rem, calc((100% - 64rem) / 2));
+  background: #fff;
+  border-bottom: 1px solid #dce4df;
+}
+
+.brand {
+  color: #205c48;
+  font-size: 1.125rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+a:focus-visible {
+  outline: 3px solid #205c48;
+  outline-offset: 5px;
+}
+
+main {
+  max-width: 66.5rem;
+  margin: 3.5rem auto;
+  padding: 0 1.25rem;
+}
+
+.library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.document-count {
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #dce4df;
+  border-radius: 2rem;
+  font-size: 0.875rem;
+  background: #fff;
+}
+
+.empty-library {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 22rem;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  background: #fff;
+  border: 1px solid #dce4df;
+  border-radius: 1rem;
+}
+
+.document-icon {
+  width: 3rem;
+  height: 3rem;
+  margin-bottom: 1rem;
+  stroke: #47715f;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.empty-library h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.empty-library p {
+  margin: 0.5rem 0 0;
+  color: #52665d;
+}
