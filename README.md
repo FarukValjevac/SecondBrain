@@ -1,6 +1,6 @@
 # SecondBrain
 
-A minimal Java 25 Spring Boot application with PostgreSQL, pgvector, and Flyway database migrations. Startup applies pending migrations and exits; it does not start an HTTP server.
+A local Java 25 Spring Boot application that displays an empty document library in the browser. It uses PostgreSQL with pgvector and applies Flyway database migrations on startup.
 
 ## Requirements
 
@@ -33,12 +33,16 @@ The database uses `pgvector/pgvector:0.8.7-pg18-bookworm` and listens on `127.0.
 ./mvnw spring-boot:run
 ```
 
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/) to see the document library and its empty state. The server listens on loopback and stays running until you stop it with `Ctrl+C`. The library currently contains no documents or document-management controls.
+
 Or build and run the executable JAR:
 
 ```sh
 ./mvnw verify
 java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 ```
+
+The JAR serves the same local URL. To use another HTTP port, set `SERVER_PORT`; for example, `SERVER_PORT=8081 ./mvnw spring-boot:run` on macOS/Linux.
 
 Flyway applies `src/main/resources/db/migration/V1__enable_pgvector.sql` on first startup, enabling the `vector` extension and recording the migration in `flyway_schema_history`. Subsequent startups validate migration history and apply only pending migrations. The application requires database credentials but no AI credentials.
 
@@ -53,7 +57,7 @@ Flyway applies `src/main/resources/db/migration/V1__enable_pgvector.sql` on firs
 
 These settings can be supplied through `.env` or environment variables. For an existing database, the application also accepts standard Spring settings: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD`. That database must have pgvector installed and permit the configured user to enable the extension.
 
-PostgreSQL stores data in a Docker-managed named volume. Stop it with:
+PostgreSQL stores data in a Docker-managed named volume. After stopping the application with `Ctrl+C`, stop the database with:
 
 ```sh
 docker compose down
@@ -76,7 +80,7 @@ SELECT version, description, success FROM flyway_schema_history ORDER BY install
 SELECT extversion FROM pg_extension WHERE extname = 'vector';
 ```
 
-Use `\q` to exit. Run the application again and repeat the queries to inspect the unchanged migration history.
+Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat the queries to inspect the unchanged migration history.
 
 ## Development checks
 
@@ -85,11 +89,11 @@ Use `\q` to exit. Run the application again and repeat the queries to inspect th
 ./mvnw verify
 ```
 
-`test` runs fast tests without Docker or database credentials. Its startup smoke test explicitly excludes database and Flyway auto-configuration; it checks only the remaining application wiring.
+`test` runs fast tests without Docker or database credentials. Its startup smoke test explicitly excludes database and Flyway auto-configuration; it checks only the remaining application wiring. A Spring MVC web test renders the real Thymeleaf library template and checks the HTML response and empty state without starting an HTTP server.
 
 `verify` also runs the required Testcontainers integration test, compiler/static checks, packaging, and Java formatting checks. The integration test starts its own isolated PostgreSQL/pgvector container, applies the real Flyway migration through application startup, checks vector operations, and restarts the application to check data and migration history. It does not use the Compose database or `.env`. Docker must be running and accessible; unavailable Docker fails the test rather than skipping it. No AI credentials are needed, and tests tagged `live-ai` remain excluded.
 
-The [GitHub Actions workflow](.github/workflows/verify.yml) runs `./mvnw --batch-mode --no-transfer-progress verify` on pushes and pull requests, using Java 25. It can also be started manually from the Actions tab. The extra flags keep CI logs concise; they do not change the checks.
+The [GitHub Actions workflow](.github/workflows/verify.yml) runs `./mvnw --batch-mode --no-transfer-progress verify` on pushes, using Java 25. It can also be started manually from the Actions tab. The extra flags keep CI logs concise; they do not change the checks.
 
 Apply Java formatting with:
 
