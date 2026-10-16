@@ -96,7 +96,19 @@ Reading the filtered request timer does not increase the count for `GET /`. Requ
 
 Application logs are written as one JSON object per entry using Spring Boot's built-in Logstash format. Restart the application with `./mvnw spring-boot:run` and inspect the startup messages: each has `@timestamp`, `level`, `logger_name`, `thread_name`, and `message` fields. Structured key/value fields supplied by a logger are included as additional JSON fields.
 
-Logs stay on the console; no Logstash server, log file, or external collector is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. Existing event diagnostics are wrapped in JSON; their operation/outcome/ID text remains within `message`. Request and event correlation fields are not populated automatically by selecting a JSON format. Formatting preserves message contents; application logs must use safe messages and metadata.
+Logs stay on the console; no Logstash server, log file, or external collector is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. Existing event diagnostics are wrapped in JSON; their operation/outcome/ID text remains within `message`. Event/worker correlation and tracing are not instrumented. Formatting preserves message contents; application logs must use safe messages and metadata.
+
+### Request correlation
+
+Each synchronous HTTP request returns an `X-Correlation-ID` response header. Supply one canonical lowercase UUID to reuse it; missing, malformed, or repeated header values receive a generated UUID. For example:
+
+```sh
+curl -i -H 'X-Correlation-ID: 11111111-1111-4111-8111-111111111111' http://127.0.0.1:8080/
+```
+
+The response header and the JSON completion log share `correlation_id`. Logs emitted during synchronous handling also receive this context. The summary records `operation=http_request`, `duration_ms`, `outcome`, and the response `status` when handling returns normally. `outcome=completed` means the handler chain returned; inspect `status` for HTTP success or failure. An escaping exception produces `outcome=failed` and `code=REQUEST_FAILED`, with no guessed status or exception text.
+
+The summary omits URLs, queries, bodies, cookies, and arbitrary headers. The ID is removed from the thread's logging context after handling, or the previous value is restored. This step covers synchronous request handling; it does not propagate context into async tasks or durable event workers. Correlation IDs are log fields, not metric tags.
 
 ## Durable event processing
 
