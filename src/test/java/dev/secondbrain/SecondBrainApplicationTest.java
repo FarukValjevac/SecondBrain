@@ -11,7 +11,11 @@ import org.springframework.context.ConfigurableApplicationContext;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
-        properties = "secondbrain.events.enabled=false")
+        properties = {
+            "secondbrain.events.enabled=false",
+            // This smoke test deliberately has no database to include in readiness.
+            "management.endpoint.health.group.readiness.include=readinessState"
+        })
 @ImportAutoConfiguration(
         exclude = {DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class})
 class SecondBrainApplicationTest {

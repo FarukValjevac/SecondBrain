@@ -84,6 +84,20 @@ SELECT extversion FROM pg_extension WHERE extname = 'vector';
 
 Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat the queries to inspect the unchanged migration history.
 
+## Health checks
+
+With the application running, inspect its local health endpoints:
+
+```sh
+curl -i http://127.0.0.1:8080/actuator/health
+curl -i http://127.0.0.1:8080/actuator/health/liveness
+curl -i http://127.0.0.1:8080/actuator/health/readiness
+```
+
+Liveness reports Spring's application viability state and does not check PostgreSQL. Readiness combines Spring's readiness state with a database connectivity check. After successful startup with a healthy database, both return HTTP 200 and `{"status":"UP"}`. If the running application loses database connectivity, readiness returns HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
+
+The overall health response also lists the `liveness` and `readiness` groups. Responses hide component details and error messages. Health uses the application's loopback listener; only the health endpoint is exposed, with Actuator discovery and JMX exposure disabled. Metrics, environment, configuration, and heap-dump endpoints are not exposed. No model APIs or external telemetry services are called by these checks.
+
 ## Development checks
 
 ```sh
@@ -92,6 +106,8 @@ Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat
 ```
 
 `test` runs fast tests without Docker or database credentials. Its startup smoke test explicitly excludes database, Flyway, and durable event processing; it checks only the remaining application wiring. A Spring MVC web test renders the real Thymeleaf library template. Event tests check input/configuration validation, retry timing, Spring wiring, and bounded worker cancellation. Maven loads the managed Mockito version as a startup test agent for Java 25.
+
+Health endpoint tests use the real HTTP mappings with a simulated database health indicator. They check readiness failure/recovery, independent liveness, hidden private details, and unavailable management endpoints; they do not establish real PostgreSQL connectivity.
 
 `verify` also runs required Testcontainers integration tests, compiler/static checks, packaging, and Java formatting checks. These use isolated PostgreSQL/pgvector containers for migrations, vector operations, restart recovery, transactional event publication, duplicate delivery, lease fencing, retry limits, timeouts, and retention. They do not use the Compose database or `.env`. Docker must be running and accessible; unavailable Docker fails the tests rather than skipping them. No AI credentials are needed, and tests tagged `live-ai` remain excluded.
 
