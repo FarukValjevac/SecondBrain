@@ -42,6 +42,16 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 It serves the same local URL and reads configuration from the working directory, just like the Maven startup command.
 
+## Uploading documents in the browser
+
+Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT or Markdown file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+
+The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. The page provides upload controls and feedback, while stored-document listing is not available. When durable events are disabled, the form is hidden and the page reports that uploads are unavailable.
+
+Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
+
+For a manual check, upload a small TXT file and a Markdown file, then submit an empty file and confirm the error. Refresh after success and check that acceptance is not repeated.
+
 ## Uploading documents over HTTP
 
 With the application running, submit one existing TXT or Markdown file using the `file` field:
@@ -58,7 +68,7 @@ A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header 
 {"documentId":"00000000-0000-4000-8000-000000000001","state":"QUEUED"}
 ```
 
-The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Accepted documents currently remain queued, and the browser library still shows its empty state.
+The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Accepted documents currently remain queued. The browser form uses `/documents/upload` and redirects to the page with feedback; `/documents` continues to return JSON with the status codes below.
 
 Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
 

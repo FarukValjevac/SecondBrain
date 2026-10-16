@@ -5,12 +5,8 @@ import dev.secondbrain.documents.ExtractionState;
 import dev.secondbrain.documents.UploadRejectedException;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.TransactionException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -53,15 +49,6 @@ final class DocumentUploadController {
                             file.getOriginalFilename(), file.getSize(), input, correlationId);
             return new UploadResponse(receipt.documentId(), receipt.state());
         }
-    }
-
-    @ExceptionHandler({IOException.class, DataAccessException.class, TransactionException.class})
-    ResponseEntity<DocumentUploadErrors.ErrorResponse> unavailable() {
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(
-                        new DocumentUploadErrors.ErrorResponse(
-                                "UPLOAD_UNAVAILABLE",
-                                "The upload could not be completed. Try again later."));
     }
 
     record UploadResponse(UUID documentId, ExtractionState state) {}

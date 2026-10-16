@@ -1,5 +1,21 @@
 package dev.secondbrain.web;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import dev.secondbrain.documents.DocumentAcceptanceService;
+import dev.secondbrain.documents.ExtractionState;
+import dev.secondbrain.documents.UploadRejectedException;
+
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -8,21 +24,31 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
-@WebMvcTest(LibraryController.class)
+@WebMvcTest(
+        controllers = {LibraryController.class, DocumentUploadFormController.class},
+        properties = "secondbrain.documents.max-upload-size=2KB")
 @ExtendWith(OutputCaptureExtension.class)
 class LibraryControllerTest {
 
     private final MockMvc mvc;
+    @MockitoBean private DocumentAcceptanceService acceptanceService;
 
     @Autowired
     LibraryControllerTest(MockMvc mvc) {
@@ -30,7 +56,7 @@ class LibraryControllerTest {
     }
 
     @Test
-    void rendersTheEmptyLibraryWithoutUnimplementedControls() throws Exception {
+    void rendersTheNativeUploadFormWithConfiguredGuidance() throws Exception {
         var response =
                 mvc.perform(MockMvcRequestBuilders.get("/"))
                         .andExpect(MockMvcResultMatchers.status().isOk())
@@ -44,11 +70,182 @@ class LibraryControllerTest {
         Assertions.assertThat(response.getContentAsString(StandardCharsets.UTF_8))
                 .contains(
                         "Document library",
-                        "No documents yet",
-                        "Your library is empty.",
-                        "0 documents")
+                        "Add a document",
+                        "action=\"/documents/upload\"",
+                        "enctype=\"multipart/form-data\"",
+                        "method=\"post\"",
+                        "name=\"file\"",
+                        "accept=\".txt,.md,.markdown\"",
+                        "aria-describedby=\"upload-help\"",
+                        "2KB",
+                        "Upload document")
                 .contains("href=\"/css/library.css\"")
-                .doesNotContain("<form", "<button", "type=\"file\"", "th:href");
+                .doesNotContain("0 documents", "Your library is empty.", "th:href");
+    }
+
+    @Test
+    void redirectsAcceptedMarkdownAndShowsOneTimeQueuedFeedback(CapturedOutput output)
+            throws Exception {
+        var correlationId = UUID.randomUUID();
+        var receipt =
+                new DocumentAcceptanceService.Receipt(UUID.randomUUID(), ExtractionState.QUEUED);
+        var bytes = "sentinel-private-content".getBytes(StandardCharsets.UTF_8);
+        when(acceptanceService.accept(
+                        eq("sentinel-private-name.md"),
+                        eq((long) bytes.length),
+                        any(InputStream.class),
+                        eq(correlationId)))
+                .thenAnswer(
+                        invocation -> {
+                            Assertions.assertThat(
+                                            ((InputStream) invocation.getArgument(2))
+                                                    .readAllBytes())
+                                    .containsExactly(bytes);
+                            return receipt;
+                        });
+        var result =
+                mvc.perform(
+                                multipart("/documents/upload")
+                                        .file(
+                                                new MockMultipartFile(
+                                                        "file",
+                                                        "sentinel-private-name.md",
+                                                        "text/markdown",
+                                                        bytes))
+                                        .header("X-Correlation-ID", correlationId))
+                        .andExpect(status().isSeeOther())
+                        .andExpect(redirectedUrl("/"))
+                        .andExpect(flash().attribute("uploadReceipt", receipt))
+                        .andReturn();
+        var session = (MockHttpSession) result.getRequest().getSession(false);
+        Assertions.assertThat(session).isNotNull();
+        var firstPage =
+                mvc.perform(MockMvcRequestBuilders.get("/").session(session))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        Assertions.assertThat(firstPage).contains("Saved and queued", "QUEUED", "role=\"status\"");
+        var refreshedPage =
+                mvc.perform(MockMvcRequestBuilders.get("/").session(session))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        Assertions.assertThat(refreshedPage).doesNotContain("Saved and queued");
+        verify(acceptanceService)
+                .accept(
+                        eq("sentinel-private-name.md"),
+                        eq((long) bytes.length),
+                        any(InputStream.class),
+                        eq(correlationId));
+        Assertions.assertThat(output.getOut()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void redirectsEachValidationFailureToSafeBrowserFeedback() throws Exception {
+        for (var reason : UploadRejectedException.Reason.values()) {
+            doThrow(new UploadRejectedException(reason))
+                    .when(acceptanceService)
+                    .accept(any(), anyLong(), any(), any());
+            var result =
+                    mvc.perform(multipart("/documents/upload").file(file()))
+                            .andExpect(status().isSeeOther())
+                            .andExpect(redirectedUrl("/"))
+                            .andExpect(flash().attribute("uploadError", reason.message()))
+                            .andReturn();
+            var page =
+                    mvc.perform(MockMvcRequestBuilders.get("/").flashAttrs(result.getFlashMap()))
+                            .andExpect(status().isOk())
+                            .andReturn()
+                            .getResponse()
+                            .getContentAsString();
+            Assertions.assertThat(page)
+                    .contains("role=\"alert\"", reason.message())
+                    .doesNotContain("sentinel-private");
+        }
+    }
+
+    @Test
+    void redirectsMissingAndRepeatedFilePartsWithoutCallingAcceptance() throws Exception {
+        mvc.perform(multipart("/documents/upload"))
+                .andExpect(status().isSeeOther())
+                .andExpect(redirectedUrl("/"))
+                .andExpect(flash().attributeExists("uploadError"));
+        mvc.perform(multipart("/documents/upload").file(file()).file(file()))
+                .andExpect(status().isSeeOther())
+                .andExpect(redirectedUrl("/"))
+                .andExpect(flash().attribute("uploadError", "Upload one file at a time."));
+        verifyNoInteractions(acceptanceService);
+    }
+
+    @Test
+    void rendersStorageAndDatabaseFailuresWithoutPrivateMessages(CapturedOutput output)
+            throws Exception {
+        for (var failure :
+                new Exception[] {
+                    new IOException("sentinel-private-storage"),
+                    new DataAccessResourceFailureException("sentinel-private-database")
+                }) {
+            doThrow(failure).when(acceptanceService).accept(any(), anyLong(), any(), any());
+            var result =
+                    mvc.perform(multipart("/documents/upload").file(file()))
+                            .andExpect(status().isSeeOther())
+                            .andExpect(redirectedUrl("/"))
+                            .andExpect(
+                                    flash().attribute(
+                                                    "uploadError",
+                                                    "The upload could not be completed. Try again later."))
+                            .andReturn();
+            var page =
+                    mvc.perform(MockMvcRequestBuilders.get("/").flashAttrs(result.getFlashMap()))
+                            .andExpect(status().isOk())
+                            .andReturn()
+                            .getResponse()
+                            .getContentAsString();
+            Assertions.assertThat(page)
+                    .contains("Upload could not be completed")
+                    .doesNotContain("sentinel-private");
+        }
+        Assertions.assertThat(output.getOut()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void escapesFeedbackTextBeforeRenderingIt() throws Exception {
+        var page =
+                mvc.perform(
+                                MockMvcRequestBuilders.get("/")
+                                        .flashAttr(
+                                                "uploadError", "<script>alert('example')</script>"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        Assertions.assertThat(page).contains("&lt;script&gt;").doesNotContain("<script>");
+    }
+
+    private static MockMultipartFile file() {
+        return new MockMultipartFile(
+                "file", "sentinel-private-name.txt", "text/plain", new byte[] {1});
+    }
+
+    @Test
+    void redirectsMultipartLimitFailuresToTheForm() throws Exception {
+        var file =
+                new MockMultipartFile("file", "notes.txt", "text/plain", new byte[] {1}) {
+                    @Override
+                    public InputStream getInputStream() {
+                        throw new MaxUploadSizeExceededException(1);
+                    }
+                };
+        mvc.perform(multipart("/documents/upload").file(file))
+                .andExpect(status().isSeeOther())
+                .andExpect(redirectedUrl("/"))
+                .andExpect(
+                        flash().attribute(
+                                        "uploadError",
+                                        UploadRejectedException.Reason.FILE_TOO_LARGE.message()));
+        verifyNoInteractions(acceptanceService);
     }
 
     @Test

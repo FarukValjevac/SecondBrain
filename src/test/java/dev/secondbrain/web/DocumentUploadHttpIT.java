@@ -5,11 +5,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.ExtractionState;
+import dev.secondbrain.documents.UploadRejectedException;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -28,6 +30,8 @@ import org.springframework.context.annotation.Import;
 
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.CookieManager;
+import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -99,6 +103,68 @@ class DocumentUploadHttpIT {
     }
 
     @Test
+    void firstBrowserUploadRedirectsToTheLibraryWithoutASessionIdInTheUrl() throws Exception {
+        when(acceptanceService.accept(any(), anyLong(), any(), any()))
+                .thenReturn(
+                        new DocumentAcceptanceService.Receipt(
+                                UUID.randomUUID(), ExtractionState.QUEUED));
+        var cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        try (var client =
+                HttpClient.newBuilder()
+                        .cookieHandler(cookies)
+                        .connectTimeout(Duration.ofSeconds(5))
+                        .build()) {
+            var library = URI.create("http://127.0.0.1:" + port + "/");
+            var pageRequest =
+                    HttpRequest.newBuilder(library).timeout(Duration.ofSeconds(5)).GET().build();
+            assertThat(client.send(pageRequest, HttpResponse.BodyHandlers.ofString()).statusCode())
+                    .isEqualTo(200);
+            assertThat(cookies.getCookieStore().getCookies()).isEmpty();
+
+            var response = sendMultipart(client, "/documents/upload", "browser note");
+            assertThat(response.statusCode()).isEqualTo(303);
+            var location = response.headers().firstValue("Location").orElseThrow();
+            assertThat(library.resolve(location)).isEqualTo(library);
+            assertThat(response.headers().firstValue("Set-Cookie")).isPresent();
+            assertThat(cookies.getCookieStore().getCookies()).hasSize(1);
+
+            var page = client.send(pageRequest, HttpResponse.BodyHandlers.ofString());
+            assertThat(page.statusCode()).isEqualTo(200);
+            assertThat(page.body())
+                    .contains("Saved and queued", "QUEUED")
+                    .doesNotContain("sentinel-private", ";jsessionid=");
+            var refreshed = client.send(pageRequest, HttpResponse.BodyHandlers.ofString());
+            assertThat(refreshed.statusCode()).isEqualTo(200);
+            assertThat(refreshed.body()).doesNotContain("Saved and queued");
+            verify(acceptanceService).accept(any(), anyLong(), any(), any());
+        }
+    }
+
+    @Test
+    void redirectsAnOversizedBrowserUploadToEscapedFeedback() throws Exception {
+        var response = sendMultipart("/documents/upload", "x".repeat(33));
+        assertThat(response.statusCode()).isEqualTo(303);
+        assertThat(response.headers().firstValue("Location")).contains("/");
+        var cookie = response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+        try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()) {
+            var request =
+                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/"))
+                            .timeout(Duration.ofSeconds(5))
+                            .header("Cookie", cookie)
+                            .GET()
+                            .build();
+            var page = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertThat(page.statusCode()).isEqualTo(200);
+            assertThat(page.body())
+                    .contains(
+                            UploadRejectedException.Reason.FILE_TOO_LARGE.message(),
+                            "role=\"alert\"")
+                    .doesNotContain("sentinel-private");
+        }
+        verifyNoInteractions(acceptanceService);
+    }
+
+    @Test
     void boundsTheCompleteMultipartRequest() throws Exception {
         var boundary = "secondbrain-boundary";
         var body =
@@ -124,6 +190,17 @@ class DocumentUploadHttpIT {
     }
 
     private HttpResponse<String> sendMultipart(String content) throws Exception {
+        return sendMultipart("/documents", content);
+    }
+
+    private HttpResponse<String> sendMultipart(String path, String content) throws Exception {
+        try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()) {
+            return sendMultipart(client, path, content);
+        }
+    }
+
+    private HttpResponse<String> sendMultipart(HttpClient client, String path, String content)
+            throws Exception {
         var boundary = "secondbrain-boundary";
         var body =
                 "--"
@@ -134,19 +211,29 @@ class DocumentUploadHttpIT {
                         + "\r\n--"
                         + boundary
                         + "--\r\n";
-        return send("multipart/form-data; boundary=" + boundary, body);
+        return send(client, path, "multipart/form-data; boundary=" + boundary, body);
     }
 
     private HttpResponse<String> send(String contentType, String body) throws Exception {
+        return send("/documents", contentType, body);
+    }
+
+    private HttpResponse<String> send(String path, String contentType, String body)
+            throws Exception {
         try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()) {
-            var request =
-                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/documents"))
-                            .timeout(Duration.ofSeconds(5))
-                            .header("Content-Type", contentType)
-                            .POST(HttpRequest.BodyPublishers.ofString(body))
-                            .build();
-            return client.send(request, HttpResponse.BodyHandlers.ofString());
+            return send(client, path, contentType, body);
         }
+    }
+
+    private HttpResponse<String> send(
+            HttpClient client, String path, String contentType, String body) throws Exception {
+        var request =
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                        .timeout(Duration.ofSeconds(5))
+                        .header("Content-Type", contentType)
+                        .POST(HttpRequest.BodyPublishers.ofString(body))
+                        .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -154,6 +241,8 @@ class DocumentUploadHttpIT {
             exclude = {DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class})
     @Import({
         DocumentUploadController.class,
+        DocumentUploadFormController.class,
+        LibraryController.class,
         DocumentUploadErrors.class,
         DocumentUploadConfiguration.class,
         RequestCorrelationFilter.class

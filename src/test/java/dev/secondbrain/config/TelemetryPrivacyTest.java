@@ -41,13 +41,15 @@ class TelemetryPrivacyTest {
                             Assertions.assertThat(tag.getValue()).isEqualTo("OTHER");
                         });
         request.setMethod("POST");
-        context.setPathPattern("/documents");
-        Assertions.assertThat(convention.getLowCardinalityKeyValues(context))
-                .anySatisfy(
-                        tag -> {
-                            Assertions.assertThat(tag.getKey()).isEqualTo("uri");
-                            Assertions.assertThat(tag.getValue()).isEqualTo("/documents");
-                        });
+        for (String route : new String[] {"/documents", "/documents/upload"}) {
+            context.setPathPattern(route);
+            Assertions.assertThat(convention.getLowCardinalityKeyValues(context))
+                    .anySatisfy(
+                            tag -> {
+                                Assertions.assertThat(tag.getKey()).isEqualTo("uri");
+                                Assertions.assertThat(tag.getValue()).isEqualTo(route);
+                            });
+        }
     }
 
     @Test

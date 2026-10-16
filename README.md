@@ -1,6 +1,6 @@
 # SecondBrain
 
-SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. It accepts TXT and Markdown files over HTTP, stores originals privately, and records queued processing in PostgreSQL. The browser displays an empty library. Health checks, local metrics, and JSON console logs support diagnostics.
+SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. It accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and records queued processing in PostgreSQL. Health checks, local metrics, and JSON console logs support diagnostics.
 
 ## Requirements
 
@@ -28,7 +28,7 @@ docker compose up -d --wait --wait-timeout 60 postgres
 ./mvnw spring-boot:run
 ```
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The application listens on loopback and applies pending database migrations automatically. The library currently has no document-management controls.
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT or Markdown file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Accepted documents currently remain queued. The application listens on loopback and applies pending database migrations automatically.
 
 On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw`.
 
