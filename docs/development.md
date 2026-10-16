@@ -17,6 +17,10 @@ These settings can be supplied through `.env` or environment variables. For an e
 
 Compose uses `pgvector/pgvector:0.8.7-pg18-bookworm` and binds PostgreSQL to `127.0.0.1:5432` by default. Its named volume preserves data across `docker compose down`. PostgreSQL's initial user, password, and database settings apply when the volume is first initialized; editing `.env` later does not change existing database credentials.
 
+### Original document storage
+
+The upload size limit defaults to `10MB` (`secondbrain.documents.max-upload-size`). The private original-file directory defaults to `./data/documents` (`secondbrain.documents.storage-directory`), relative to the application's working directory. The default directory is excluded from Git and is not served as a web resource. On POSIX filesystems, new storage directories and files receive owner-only permissions; an existing directory with group or other access is rejected. Other filesystems use their normal access controls. Both settings can be overridden with Spring environment variables such as `SECONDBRAIN_DOCUMENTS_MAX_UPLOAD_SIZE` and `SECONDBRAIN_DOCUMENTS_STORAGE_DIRECTORY`.
+
 ### HTTP port
 
 To use another application port on macOS/Linux:

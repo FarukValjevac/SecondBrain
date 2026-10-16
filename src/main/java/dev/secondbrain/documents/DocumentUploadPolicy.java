@@ -12,7 +12,7 @@ final class DocumentUploadPolicy {
     private final long maximumUploadBytes;
 
     DocumentUploadPolicy(
-            @Value("${secondbrain.documents.max-upload-size:10MB}") DataSize maximumUploadSize) {
+            @Value("${secondbrain.documents.max-upload-size}") DataSize maximumUploadSize) {
         if (maximumUploadSize == null || maximumUploadSize.toBytes() < 1) {
             throw new IllegalArgumentException("Maximum upload size must be positive");
         }
@@ -23,12 +23,7 @@ final class DocumentUploadPolicy {
         if (originalFilename == null || originalFilename.isBlank()) {
             throw new RejectedUpload(Reason.MISSING_FILENAME);
         }
-        if (sizeInBytes < 1) {
-            throw new RejectedUpload(Reason.EMPTY_FILE);
-        }
-        if (sizeInBytes > maximumUploadBytes) {
-            throw new RejectedUpload(Reason.FILE_TOO_LARGE);
-        }
+        validateSize(sizeInBytes);
 
         var extension = extensionOf(originalFilename);
         return switch (extension) {
@@ -36,6 +31,15 @@ final class DocumentUploadPolicy {
             case "md", "markdown" -> DocumentType.MARKDOWN;
             default -> throw new RejectedUpload(Reason.UNSUPPORTED_TYPE);
         };
+    }
+
+    void validateSize(long sizeInBytes) {
+        if (sizeInBytes < 1) {
+            throw new RejectedUpload(Reason.EMPTY_FILE);
+        }
+        if (sizeInBytes > maximumUploadBytes) {
+            throw new RejectedUpload(Reason.FILE_TOO_LARGE);
+        }
     }
 
     private static String extensionOf(String filename) {
