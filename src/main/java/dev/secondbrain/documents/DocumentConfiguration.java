@@ -4,20 +4,37 @@ import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventPublisher;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
+@EnableScheduling
+@EnableConfigurationProperties(OriginalCleanupProperties.class)
 @ConditionalOnProperty(
         name = "secondbrain.events.enabled",
         havingValue = "true",
         matchIfMissing = true)
 class DocumentConfiguration {
+    @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.documents.cleanup.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    OriginalFileReconciler originalFileReconciler(
+            OriginalFileStore originals,
+            JdbcDocumentRepository documents,
+            OriginalCleanupProperties settings,
+            Clock clock) {
+        return new OriginalFileReconciler(originals, documents, settings, clock);
+    }
+
     @Bean
     JdbcDocumentRepository jdbcDocumentRepository(JdbcClient jdbc) {
         return new JdbcDocumentRepository(jdbc);

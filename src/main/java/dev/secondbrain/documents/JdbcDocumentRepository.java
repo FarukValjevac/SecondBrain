@@ -65,4 +65,12 @@ final class JdbcDocumentRepository {
                                         resultSet.getTimestamp("updated_at").toInstant()))
                 .optional();
     }
+
+    boolean ownsStorageId(UUID storageId) {
+        return jdbc.sql("SELECT EXISTS (SELECT 1 FROM documents WHERE storage_key = :storageId)")
+                .withQueryTimeout(5)
+                .param("storageId", storageId)
+                .query(Boolean.class)
+                .single();
+    }
 }

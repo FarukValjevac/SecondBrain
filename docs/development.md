@@ -23,6 +23,31 @@ The upload size limit defaults to `10MB` (`secondbrain.documents.max-upload-size
 
 The same upload limit applies while parsing multipart file parts and while streaming the original into private storage. The total multipart request is bounded at that limit plus 1 MiB for headers and form fields; both bounds follow the configured upload limit.
 
+### Abandoned-file cleanup
+
+The application periodically removes old originals that have no document metadata. This covers files left by a crash before acceptance committed, including partial writes. It retains files owned by any document state, recent files, symbolic links, directories, and unrelated filenames. Cleanup skips deletion while an upload is writing or committing; a database lookup failure stops that batch and retains the file.
+
+| Setting | Default | Allowed values |
+|---|---|---|
+| `secondbrain.documents.cleanup.enabled` | `true` | `true` / `false` |
+| `secondbrain.documents.cleanup.grace-period` | `1h` | 1 minute through 7 days |
+| `secondbrain.documents.cleanup.interval` | `1m` | 1 second through 1 hour |
+| `secondbrain.documents.cleanup.batch-size` | `100` | 1 through 1000 entries |
+
+The first batch starts after one interval; each later batch starts one interval after the previous batch finishes. The batch size bounds all inspected directory entries, including retained and unrelated entries. A cursor continues across batches and starts a new scan after reaching the end; it closes at shutdown and restarts from the beginning after an application restart. Ownership lookups have a five-second JDBC query timeout. Disabling durable events also disables cleanup.
+
+Run one application process for each storage directory and keep that directory paired with its database. Upload/cleanup protection is shared within the process; sharing a folder across multiple processes or changing its database is unsupported.
+
+After restarting with `./mvnw spring-boot:run`, look for JSON console entries with `operation=original_cleanup`. Successful batches report `inspected`, `deleted`, and `busy` counts; failures report the fixed `STORAGE_OR_DATABASE_UNAVAILABLE` code. No filenames, paths, document text, or exception details are logged. `busy` means deletion was deferred because an upload was protected. These are cleanup diagnostics; accepted documents still remain queued.
+
+To exercise cleanup with isolated temporary files and a controlled clock:
+
+```sh
+./mvnw -Dtest=OriginalFileReconcilerTest,DocumentAcceptanceServiceTest test
+```
+
+Run `./mvnw verify` for the PostgreSQL restart and concurrent-upload checks as well.
+
 ### HTTP port
 
 To use another application port on macOS/Linux:

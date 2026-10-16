@@ -1,6 +1,7 @@
 package dev.secondbrain.documents;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -26,7 +27,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -121,6 +124,53 @@ class DocumentAcceptanceServiceTest {
 
         verifyNoInteractions(documentRepository, eventPublisher);
         assertThat(Files.exists(storageDirectory.resolve("anything.original"))).isFalse();
+    }
+
+    @Test
+    void keepsCleanupProtectionUntilTheTransactionHasFinished() throws IOException {
+        var clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        var settings =
+                new OriginalCleanupProperties(Duration.ofHours(1), Duration.ofMinutes(1), 100);
+        try (var cleanup =
+                new OriginalFileReconciler(
+                        originalFileStore, documentRepository, settings, clock)) {
+            var transactions =
+                    new TransactionOperations() {
+                        @Override
+                        public <T> T execute(TransactionCallback<T> action) {
+                            var result = action.doInTransaction(mock(TransactionStatus.class));
+                            // The callback returned, but the transaction has not committed yet.
+                            assertThatCode(
+                                            () -> {
+                                                Path stored;
+                                                try (var files = Files.list(storageDirectory)) {
+                                                    stored = files.findFirst().orElseThrow();
+                                                }
+                                                Files.setLastModifiedTime(
+                                                        stored,
+                                                        FileTime.from(
+                                                                NOW.minus(Duration.ofHours(2))));
+                                                assertThat(cleanup.reconcileBatch().busy())
+                                                        .isEqualTo(1);
+                                                assertThat(stored).exists();
+                                            })
+                                    .doesNotThrowAnyException();
+                            return result;
+                        }
+                    };
+            var protectedService =
+                    new DocumentAcceptanceService(
+                            uploadPolicy,
+                            originalFileStore,
+                            documentRepository,
+                            eventPublisher,
+                            transactions,
+                            clock);
+            protectedService.accept(
+                    "note.md", CONTENT.length, new ByteArrayInputStream(CONTENT), CORRELATION_ID);
+            // The test repository owns no real rows; removing this orphan proves the scope closed.
+            assertThat(cleanup.reconcileBatch().deleted()).isEqualTo(1);
+        }
     }
 
     private static TransactionOperations directTransactions() {

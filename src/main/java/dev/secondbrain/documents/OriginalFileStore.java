@@ -7,20 +7,30 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HexFormat;
+import java.util.Iterator;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 
 @Component
 final class OriginalFileStore {
@@ -36,6 +46,8 @@ final class OriginalFileStore {
 
     private final Path storageDirectory;
     private final DocumentUploadPolicy uploadPolicy;
+    // Shared by this application's uploads and cleanup; no per-upload state lives in the store.
+    private final ReentrantReadWriteLock access = new ReentrantReadWriteLock();
 
     OriginalFileStore(
             @Value("${secondbrain.documents.storage-directory}") String storageDirectory,
@@ -44,8 +56,25 @@ final class OriginalFileStore {
         this.uploadPolicy = uploadPolicy;
     }
 
-    /** Copies the stream without taking ownership of it. The caller must close the input. */
-    StoredOriginal store(InputStream input) throws IOException {
+    /**
+     * Keep this scope open through metadata/event commit or compensation. Input is caller-owned.
+     */
+    StagedOriginal stage(InputStream input) throws IOException {
+        var protection = access.readLock();
+        protection.lock();
+        var staged = false;
+        try {
+            var original = new StagedOriginal(store(input), protection);
+            staged = true;
+            return original;
+        } finally {
+            if (!staged) {
+                protection.unlock();
+            }
+        }
+    }
+
+    private StoredOriginal store(InputStream input) throws IOException {
         var storageId = UUID.randomUUID();
         var destination = pathFor(storageId);
         createPrivateStorageDirectory();
@@ -86,6 +115,39 @@ final class OriginalFileStore {
 
     void delete(StoredOriginal original) throws IOException {
         Files.deleteIfExists(pathFor(original.storageId()));
+    }
+
+    Scan openScan() throws IOException {
+        createPrivateStorageDirectory();
+        return new Scan(Files.newDirectoryStream(storageDirectory));
+    }
+
+    CleanupResult deleteIfAbandoned(UUID storageId, Instant cutoff, Predicate<UUID> isOwned)
+            throws IOException {
+        var protection = access.writeLock();
+        if (!protection.tryLock()) {
+            return CleanupResult.BUSY;
+        }
+        try {
+            var path = pathFor(storageId);
+            BasicFileAttributes attributes;
+            try {
+                attributes =
+                        Files.readAttributes(
+                                path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            } catch (NoSuchFileException missing) {
+                return CleanupResult.RETAINED;
+            }
+            // Never follow links or infer abandonment from age alone. Database errors propagate.
+            if (!attributes.isRegularFile()
+                    || !attributes.lastModifiedTime().toInstant().isBefore(cutoff)
+                    || isOwned.test(storageId)) {
+                return CleanupResult.RETAINED;
+            }
+            return Files.deleteIfExists(path) ? CleanupResult.DELETED : CleanupResult.RETAINED;
+        } finally {
+            protection.unlock();
+        }
     }
 
     private Path pathFor(UUID storageId) {
@@ -142,6 +204,64 @@ final class OriginalFileStore {
             return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    enum CleanupResult {
+        DELETED,
+        RETAINED,
+        BUSY
+    }
+
+    static final class StagedOriginal implements AutoCloseable {
+        private final StoredOriginal original;
+        private final Lock protection;
+
+        private StagedOriginal(StoredOriginal original, Lock protection) {
+            this.original = original;
+            this.protection = protection;
+        }
+
+        StoredOriginal original() {
+            return original;
+        }
+
+        @Override
+        public void close() {
+            protection.unlock();
+        }
+    }
+
+    /** One directory cursor, retained by the background job between bounded batches. */
+    static final class Scan implements AutoCloseable {
+        private final DirectoryStream<Path> directory;
+        private final Iterator<Path> entries;
+
+        private Scan(DirectoryStream<Path> directory) {
+            this.directory = directory;
+            this.entries = directory.iterator();
+        }
+
+        boolean hasNext() {
+            return entries.hasNext();
+        }
+
+        Optional<UUID> nextStorageId() {
+            var name = entries.next().getFileName().toString();
+            if (name.length() != 45 || !name.endsWith(".original")) {
+                return Optional.empty();
+            }
+            try {
+                var id = UUID.fromString(name.substring(0, 36));
+                return name.equals(id + ".original") ? Optional.of(id) : Optional.empty();
+            } catch (IllegalArgumentException invalidName) {
+                return Optional.empty();
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            directory.close();
         }
     }
 

@@ -26,6 +26,7 @@ class DocumentConfigurationTest {
                         context -> {
                             assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
+                            assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context.getBean(EventEnvelope.Type.class))
                                     .isEqualTo(DocumentAcceptedEvent.TYPE);
                         });
@@ -40,7 +41,31 @@ class DocumentConfigurationTest {
                         context -> {
                             assertThat(context).doesNotHaveBean(DocumentAcceptanceService.class);
                             assertThat(context).doesNotHaveBean(JdbcDocumentRepository.class);
+                            assertThat(context).doesNotHaveBean(OriginalFileReconciler.class);
                         });
+    }
+
+    @Test
+    void canDisableCleanupWithoutDisablingUploads() {
+        configuredContext()
+                .withPropertyValues("secondbrain.documents.cleanup.enabled=false")
+                .run(
+                        context -> {
+                            assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
+                            assertThat(context).doesNotHaveBean(OriginalFileReconciler.class);
+                        });
+    }
+
+    @Test
+    void rejectsUnboundedOrUnsafeCleanupSettings() {
+        for (var value :
+                new String[] {
+                    "grace-period=0s", "interval=0s", "batch-size=0", "batch-size=1001"
+                }) {
+            configuredContext()
+                    .withPropertyValues("secondbrain.documents.cleanup." + value)
+                    .run(context -> assertThat(context).hasFailed());
+        }
     }
 
     private ApplicationContextRunner configuredContext() {

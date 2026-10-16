@@ -28,7 +28,7 @@ class OriginalFileStoreTest {
     void storesContentUnderGeneratedKeyAndPreservesItAcrossStoreInstances() throws IOException {
         var store = store(temporaryDirectory.resolve("private-library"), CONTENT.length);
 
-        var original = store.store(new ByteArrayInputStream(CONTENT));
+        var original = storeAndRelease(store, CONTENT);
         var storedPath =
                 temporaryDirectory.resolve("private-library").resolve(original.storageKey());
 
@@ -60,8 +60,8 @@ class OriginalFileStoreTest {
     void givesIdenticalUploadsDifferentKeysAndDoesNotOverwrite() throws IOException {
         var store = store(temporaryDirectory, CONTENT.length);
 
-        var first = store.store(new ByteArrayInputStream(CONTENT));
-        var second = store.store(new ByteArrayInputStream(CONTENT));
+        var first = storeAndRelease(store, CONTENT);
+        var second = storeAndRelease(store, CONTENT);
 
         assertThat(first.storageId()).isNotEqualTo(second.storageId());
         assertThat(Files.readAllBytes(temporaryDirectory.resolve(first.storageKey())))
@@ -74,9 +74,9 @@ class OriginalFileStoreTest {
     void rejectsEmptyAndOversizedContentAndRemovesPartialFiles() throws IOException {
         var store = store(temporaryDirectory, 4);
 
-        assertThatThrownBy(() -> store.store(new ByteArrayInputStream(new byte[0])))
+        assertThatThrownBy(() -> store.stage(new ByteArrayInputStream(new byte[0])))
                 .isInstanceOf(UploadRejectedException.class);
-        assertThatThrownBy(() -> store.store(new ByteArrayInputStream(new byte[5])))
+        assertThatThrownBy(() -> store.stage(new ByteArrayInputStream(new byte[5])))
                 .isInstanceOf(UploadRejectedException.class);
 
         try (var files = Files.list(temporaryDirectory)) {
@@ -87,7 +87,7 @@ class OriginalFileStoreTest {
     @Test
     void removesOriginalWhenCompensatingForRejectedDatabaseCommit() throws IOException {
         var store = store(temporaryDirectory, CONTENT.length);
-        var original = store.store(new ByteArrayInputStream(CONTENT));
+        var original = storeAndRelease(store, CONTENT);
 
         store.delete(original);
         store.delete(original);
@@ -118,7 +118,7 @@ class OriginalFileStoreTest {
                     }
                 };
 
-        assertThatThrownBy(() -> store.store(failingInput))
+        assertThatThrownBy(() -> store.stage(failingInput))
                 .isInstanceOf(IOException.class)
                 .hasMessage("private source failure");
         try (var files = Files.list(temporaryDirectory)) {
@@ -145,12 +145,19 @@ class OriginalFileStoreTest {
             assertThatThrownBy(
                             () ->
                                     store(directory, CONTENT.length)
-                                            .store(new ByteArrayInputStream(CONTENT)))
+                                            .stage(new ByteArrayInputStream(CONTENT)))
                     .isInstanceOf(IOException.class)
                     .hasMessage("Document storage directory permissions must be private");
             try (var files = Files.list(directory)) {
                 assertThat(files).isEmpty();
             }
+        }
+    }
+
+    private static OriginalFileStore.StoredOriginal storeAndRelease(
+            OriginalFileStore store, byte[] content) throws IOException {
+        try (var staged = store.stage(new ByteArrayInputStream(content))) {
+            return staged.original();
         }
     }
 

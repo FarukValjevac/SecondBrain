@@ -43,47 +43,49 @@ public final class DocumentAcceptanceService {
         Objects.requireNonNull(input, "input");
         Objects.requireNonNull(correlationId, "correlationId");
         var documentType = uploadPolicy.validate(originalName, declaredSize);
-        var storedOriginal = originalFileStore.store(input);
-        try {
-            if (storedOriginal.sizeInBytes() != declaredSize) {
-                throw new IOException("Uploaded file size did not match its content");
-            }
-            var now = clock.instant();
-            var document =
-                    new DocumentMetadata(
-                            UUID.randomUUID(),
-                            originalName,
-                            documentType,
-                            storedOriginal.storageId(),
-                            storedOriginal.sha256(),
-                            storedOriginal.sizeInBytes(),
-                            1,
-                            ExtractionState.QUEUED,
-                            now,
-                            now);
-            transactions.executeWithoutResult(
-                    status -> {
-                        documentRepository.insert(document);
-                        eventPublisher.publish(
-                                new EventEnvelope(
-                                        UUID.randomUUID(),
-                                        DocumentAcceptedEvent.TYPE,
-                                        document.documentId(),
-                                        document.processingVersion(),
-                                        now,
-                                        correlationId,
-                                        null,
-                                        null,
-                                        Map.of()));
-                    });
-            return new Receipt(document.documentId(), document.extractionState());
-        } catch (IOException | RuntimeException failure) {
+        try (var staged = originalFileStore.stage(input)) {
+            var storedOriginal = staged.original();
             try {
-                originalFileStore.delete(storedOriginal);
-            } catch (IOException cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
+                if (storedOriginal.sizeInBytes() != declaredSize) {
+                    throw new IOException("Uploaded file size did not match its content");
+                }
+                var now = clock.instant();
+                var document =
+                        new DocumentMetadata(
+                                UUID.randomUUID(),
+                                originalName,
+                                documentType,
+                                storedOriginal.storageId(),
+                                storedOriginal.sha256(),
+                                storedOriginal.sizeInBytes(),
+                                1,
+                                ExtractionState.QUEUED,
+                                now,
+                                now);
+                transactions.executeWithoutResult(
+                        status -> {
+                            documentRepository.insert(document);
+                            eventPublisher.publish(
+                                    new EventEnvelope(
+                                            UUID.randomUUID(),
+                                            DocumentAcceptedEvent.TYPE,
+                                            document.documentId(),
+                                            document.processingVersion(),
+                                            now,
+                                            correlationId,
+                                            null,
+                                            null,
+                                            Map.of()));
+                        });
+                return new Receipt(document.documentId(), document.extractionState());
+            } catch (IOException | RuntimeException failure) {
+                try {
+                    originalFileStore.delete(storedOriginal);
+                } catch (IOException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
             }
-            throw failure;
         }
     }
 
