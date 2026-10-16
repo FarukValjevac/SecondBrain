@@ -3,7 +3,6 @@ package dev.secondbrain.documents;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.secondbrain.documents.DocumentUploadPolicy.DocumentType;
 import dev.secondbrain.documents.DocumentUploadPolicy.Reason;
 import dev.secondbrain.documents.DocumentUploadPolicy.RejectedUpload;
 

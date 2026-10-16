@@ -50,11 +50,6 @@ final class DocumentUploadPolicy {
         return filename.substring(separator + 1).toLowerCase(Locale.ROOT);
     }
 
-    enum DocumentType {
-        TXT,
-        MARKDOWN
-    }
-
     enum Reason {
         MISSING_FILENAME("Choose a file with a name."),
         EMPTY_FILE("The selected file is empty."),
