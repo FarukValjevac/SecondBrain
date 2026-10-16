@@ -1,5 +1,8 @@
 package dev.secondbrain.events;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Tracer;
+
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,6 +25,25 @@ import java.util.concurrent.ThreadLocalRandom;
 @EnableConfigurationProperties(EventDeliveryProperties.class)
 class EventDeliveryConfiguration {
     @Bean
+    EventMetrics eventMetrics(MeterRegistry registry) {
+        return new EventMetrics(registry);
+    }
+
+    @Bean
+    EventTracing eventTracing(ObjectProvider<Tracer> tracer) {
+        return new EventTracing(tracer.getIfAvailable(() -> Tracer.NOOP));
+    }
+
+    @Bean
+    EventBacklogMetrics eventBacklogMetrics(
+            JdbcEventStore store,
+            MeterRegistry registry,
+            Clock clock,
+            ObjectProvider<DurableEventWorker> worker) {
+        return new EventBacklogMetrics(store, registry, clock, worker);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(Clock.class)
     Clock eventClock() {
         return Clock.systemUTC();
@@ -40,23 +62,26 @@ class EventDeliveryConfiguration {
             JdbcClient jdbc,
             Clock clock,
             EventDeliveryProperties settings,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions,
+            EventMetrics metrics) {
         var retry =
                 new EventRetryPolicy(
                         settings, clock, () -> ThreadLocalRandom.current().nextDouble());
         return new JdbcEventStore(
-                jdbc, JsonMapper.builder().build(), clock, settings, retry, transactions);
+                jdbc, JsonMapper.builder().build(), clock, settings, retry, transactions, metrics);
     }
 
     @Bean
-    EventPublisher eventPublisher(JdbcEventStore store, ObjectProvider<EventRegistry> registry) {
+    EventPublisher eventPublisher(
+            JdbcEventStore store, ObjectProvider<EventRegistry> registry, EventTracing tracing) {
         // Resolve after handler construction: handlers may themselves publish downstream events.
-        return new EventPublisher(store, registry::getObject);
+        return new EventPublisher(store, registry::getObject, tracing);
     }
 
     @Bean
-    EventDispatcher eventDispatcher(JdbcEventStore store, EventRegistry registry) {
-        return new EventDispatcher(store, registry);
+    EventDispatcher eventDispatcher(
+            JdbcEventStore store, EventRegistry registry, EventTracing tracing) {
+        return new EventDispatcher(store, registry, tracing);
     }
 
     @Bean

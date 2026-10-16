@@ -6,10 +6,12 @@ import java.util.function.Supplier;
 public final class EventPublisher {
     private final JdbcEventStore store;
     private final Supplier<EventRegistry> registry;
+    private final EventTracing tracing;
 
-    EventPublisher(JdbcEventStore store, Supplier<EventRegistry> registry) {
+    EventPublisher(JdbcEventStore store, Supplier<EventRegistry> registry, EventTracing tracing) {
         this.store = store;
         this.registry = registry;
+        this.tracing = tracing;
     }
 
     /**
@@ -18,6 +20,6 @@ public final class EventPublisher {
      * cleanup. The configured PostgreSQL timeouts apply to the rest of this transaction as well.
      */
     public UUID publish(EventEnvelope event) {
-        return store.publish(event, registry.get().recipients(event.type()));
+        return store.publish(tracing.capture(event), registry.get().recipients(event.type()));
     }
 }

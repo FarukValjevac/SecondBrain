@@ -5,6 +5,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.slf4j.MDC;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -70,6 +71,11 @@ class DurableEventWorkerTest {
         var release = new CountDownLatch(1);
         Mockito.doAnswer(
                         invocation -> {
+                            Assertions.assertThat(MDC.get("correlation_id"))
+                                    .isEqualTo(event.correlationId().toString());
+                            Assertions.assertThat(MDC.get("delivery_id"))
+                                    .isEqualTo(lease.deliveryId().toString());
+                            Assertions.assertThat(MDC.get("attempt")).isEqualTo("1");
                             entered.countDown();
                             boolean restore = false;
                             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
@@ -97,6 +103,7 @@ class DurableEventWorkerTest {
                 .dispatch(lease);
         var worker = new DurableEventWorker(store, dispatcher, settings, clock);
         worker.start();
+        Assertions.assertThat(worker.isOperational()).isTrue();
         try {
             Assertions.assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             clock.advance(Duration.ofSeconds(5));
@@ -112,6 +119,7 @@ class DurableEventWorkerTest {
         } finally {
             release.countDown();
             worker.stop();
+            Assertions.assertThat(worker.isOperational()).isFalse();
         }
     }
 }

@@ -101,6 +101,59 @@ class DurableEventsIT {
     }
 
     @Test
+    void attemptMetersCountOnlyCommittedFencedTransitions() {
+        var metrics = context.getBean(io.micrometer.core.instrument.MeterRegistry.class);
+        var first = event();
+        publish(first);
+        var lease = store.claim(UUID.randomUUID()).orElseThrow();
+        Assertions.assertThatThrownBy(
+                        () ->
+                                store.complete(
+                                        lease,
+                                        () -> {
+                                            throw new IllegalStateException(
+                                                    "sentinel-private-effect");
+                                        }))
+                .isInstanceOf(IllegalStateException.class);
+        Assertions.assertThat(
+                        metrics.get("secondbrain.event.delivery.attempts")
+                                .tag("outcome", "completed")
+                                .counter()
+                                .count())
+                .isZero();
+        Assertions.assertThat(store.complete(lease, () -> EventHandler.Outcome.SKIPPED)).isTrue();
+        Assertions.assertThat(store.complete(lease, () -> EventHandler.Outcome.SKIPPED)).isFalse();
+        Assertions.assertThat(
+                        metrics.get("secondbrain.event.delivery.attempts")
+                                .tag("outcome", "skipped")
+                                .counter()
+                                .count())
+                .isEqualTo(1);
+        publish(event());
+        var retry = store.claim(UUID.randomUUID()).orElseThrow();
+        Assertions.assertThat(store.fail(retry, DeliveryFailure.Code.HANDLER_TRANSIENT, true))
+                .isTrue();
+        Assertions.assertThat(store.fail(retry, DeliveryFailure.Code.HANDLER_TRANSIENT, true))
+                .isFalse();
+        Assertions.assertThat(
+                        metrics.get("secondbrain.event.delivery.attempts")
+                                .tag("outcome", "retry")
+                                .counter()
+                                .count())
+                .isEqualTo(1);
+        clock.advance(Duration.ofSeconds(2));
+        var terminal = store.claim(UUID.randomUUID()).orElseThrow();
+        Assertions.assertThat(store.fail(terminal, DeliveryFailure.Code.HANDLER_PERMANENT, false))
+                .isTrue();
+        Assertions.assertThat(
+                        metrics.get("secondbrain.event.delivery.attempts")
+                                .tag("outcome", "failed")
+                                .counter()
+                                .count())
+                .isEqualTo(1);
+    }
+
+    @Test
     void repeatedLogicalPublicationKeepsOneEventAndDeliveryAndRejectsConflictingIdentity() {
         var original = event();
         Assertions.assertThat(publish(original)).isEqualTo(original.eventId());
