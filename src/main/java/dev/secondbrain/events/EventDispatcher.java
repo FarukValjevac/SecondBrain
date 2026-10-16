@@ -16,35 +16,42 @@ final class EventDispatcher {
     void dispatch(DeliveryLease lease) {
         var registered = registry.handler(lease.handlerId());
         if (registered.isEmpty()) {
-            store.fail(lease, DeliveryFailure.Code.HANDLER_MISSING, false);
+            fail(lease, DeliveryFailure.Code.HANDLER_MISSING, false);
             return;
         }
         var handler = registered.get();
         if (!handler.eventType().name().equals(lease.event().type().name())) {
-            store.fail(lease, DeliveryFailure.Code.EVENT_UNSUPPORTED, false);
+            fail(lease, DeliveryFailure.Code.EVENT_UNSUPPORTED, false);
             return;
         }
         if (!handler.eventType().equals(lease.event().type())) {
-            store.fail(lease, DeliveryFailure.Code.SCHEMA_UNSUPPORTED, false);
+            fail(lease, DeliveryFailure.Code.SCHEMA_UNSUPPORTED, false);
             return;
         }
         try {
             var effect = handler.prepare(lease.event());
             boolean committed = store.complete(lease, effect);
-            LOG.info(
-                    "event_delivery outcome={} event_id={} delivery_id={} attempt={}",
-                    committed ? "acknowledged" : "lease_lost",
-                    lease.event().eventId(),
-                    lease.deliveryId(),
-                    lease.attempt());
+            LOG.atInfo()
+                    .addKeyValue("operation", "event_delivery")
+                    .addKeyValue("outcome", committed ? "acknowledged" : "lease_lost")
+                    .log("Event delivery finished");
         } catch (DeliveryFailure permanent) {
-            store.fail(lease, DeliveryFailure.Code.HANDLER_PERMANENT, false);
+            fail(lease, DeliveryFailure.Code.HANDLER_PERMANENT, false);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            store.fail(lease, DeliveryFailure.Code.TIMED_OUT, true);
+            fail(lease, DeliveryFailure.Code.TIMED_OUT, true);
         } catch (Exception transientFailure) {
             // Never persist/log exception messages: provider exceptions can contain private input.
-            store.fail(lease, DeliveryFailure.Code.HANDLER_TRANSIENT, true);
+            fail(lease, DeliveryFailure.Code.HANDLER_TRANSIENT, true);
         }
+    }
+
+    private void fail(DeliveryLease lease, DeliveryFailure.Code code, boolean retryable) {
+        boolean recorded = store.fail(lease, code, retryable);
+        LOG.atWarn()
+                .addKeyValue("operation", "event_delivery")
+                .addKeyValue("outcome", recorded ? "failure_recorded" : "lease_lost")
+                .addKeyValue("code", code.name())
+                .log("Event delivery failed");
     }
 }

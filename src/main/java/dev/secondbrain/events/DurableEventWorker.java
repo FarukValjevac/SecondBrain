@@ -75,7 +75,11 @@ final class DurableEventWorker implements SmartLifecycle {
         try {
             tick();
         } catch (Exception infrastructureFailure) {
-            LOG.warn("event_worker outcome=poll_failed code=DATABASE_OR_EXECUTOR_UNAVAILABLE");
+            LOG.atWarn()
+                    .addKeyValue("operation", "event_worker")
+                    .addKeyValue("outcome", "poll_failed")
+                    .addKeyValue("code", "DATABASE_OR_EXECUTOR_UNAVAILABLE")
+                    .log("Event polling failed");
         }
     }
 
@@ -86,7 +90,15 @@ final class DurableEventWorker implements SmartLifecycle {
             }
             if (!clock.instant().isBefore(task.lease.deadline())) {
                 task.cancel();
-                store.fail(task.lease, DeliveryFailure.Code.TIMED_OUT, true);
+                var context = new DeliveryLogContext(task.lease);
+                try (context) {
+                    boolean recorded = store.fail(task.lease, DeliveryFailure.Code.TIMED_OUT, true);
+                    LOG.atWarn()
+                            .addKeyValue("operation", "event_delivery")
+                            .addKeyValue("outcome", recorded ? "failure_recorded" : "lease_lost")
+                            .addKeyValue("code", "TIMED_OUT")
+                            .log("Event delivery timed out");
+                }
             } else if (!store.renew(task.lease)) {
                 task.cancel();
             }
@@ -97,8 +109,11 @@ final class DurableEventWorker implements SmartLifecycle {
             try {
                 store.cleanup();
             } catch (Exception cleanupFailure) {
-                LOG.warn(
-                        "event_worker outcome=cleanup_failed code=DATABASE_OR_RETENTION_UNAVAILABLE");
+                LOG.atWarn()
+                        .addKeyValue("operation", "event_worker")
+                        .addKeyValue("outcome", "cleanup_failed")
+                        .addKeyValue("code", "DATABASE_OR_RETENTION_UNAVAILABLE")
+                        .log("Event retention cleanup failed");
             }
         }
         for (int claimed = 0; claimed < settings.claimBatchSize() && running; claimed++) {
@@ -135,13 +150,20 @@ final class DurableEventWorker implements SmartLifecycle {
 
     private void run(RunningTask task) {
         try {
-            if (running && task.attach()) {
-                dispatcher.dispatch(task.lease);
+            var context = new DeliveryLogContext(task.lease);
+            try (context) {
+                try {
+                    if (running && task.attach()) {
+                        dispatcher.dispatch(task.lease);
+                    }
+                } catch (Exception infrastructureFailure) {
+                    LOG.atWarn()
+                            .addKeyValue("operation", "event_worker")
+                            .addKeyValue("outcome", "delivery_interrupted")
+                            .addKeyValue("code", "DATABASE_UNAVAILABLE")
+                            .log("Event delivery interrupted");
+                }
             }
-        } catch (Exception infrastructureFailure) {
-            LOG.warn(
-                    "event_worker outcome=delivery_interrupted delivery_id={} code=DATABASE_UNAVAILABLE",
-                    task.lease.deliveryId());
         } finally {
             task.detach();
             active.remove(task.lease.token(), task);

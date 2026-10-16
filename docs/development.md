@@ -96,7 +96,7 @@ Reading the filtered request timer does not increase the count for `GET /`. Requ
 
 Application logs are written as one JSON object per entry using Spring Boot's built-in Logstash format. Restart the application with `./mvnw spring-boot:run` and inspect the startup messages: each has `@timestamp`, `level`, `logger_name`, `thread_name`, and `message` fields. Structured key/value fields supplied by a logger are included as additional JSON fields.
 
-Logs stay on the console; no Logstash server, log file, or external collector is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. Existing event diagnostics are wrapped in JSON; their operation/outcome/ID text remains within `message`. Event/worker correlation and tracing are not instrumented. Formatting preserves message contents; application logs must use safe messages and metadata.
+Logs stay on the console; no Logstash server, log file, or external collector is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. HTTP and event-worker summaries use separate JSON fields. Tracing is not instrumented. Formatting preserves message contents; application logs must use safe messages and metadata.
 
 ### Request correlation
 
@@ -108,7 +108,21 @@ curl -i -H 'X-Correlation-ID: 11111111-1111-4111-8111-111111111111' http://127.0
 
 The response header and the JSON completion log share `correlation_id`. Logs emitted during synchronous handling also receive this context. The summary records `operation=http_request`, `duration_ms`, `outcome`, and the response `status` when handling returns normally. `outcome=completed` means the handler chain returned; inspect `status` for HTTP success or failure. An escaping exception produces `outcome=failed` and `code=REQUEST_FAILED`, with no guessed status or exception text.
 
-The summary omits URLs, queries, bodies, cookies, and arbitrary headers. The ID is removed from the thread's logging context after handling, or the previous value is restored. This step covers synchronous request handling; it does not propagate context into async tasks or durable event workers. Correlation IDs are log fields, not metric tags.
+The summary omits URLs, queries, bodies, cookies, and arbitrary headers. The ID is removed from the thread's logging context after handling, or the previous value is restored. Request context covers synchronous handling; it is not automatically copied into async tasks. Correlation IDs are log fields, not metric tags.
+
+### Event delivery correlation
+
+Workers rebuild log context from each persisted delivery: `correlation_id`, `event_id`, `delivery_id`, `document_id`, `processing_version`, `attempt`, and optional `causation_id`. Handler logs on the delivery thread inherit these fields. Context is restored or cleared after the attempt, including failures. A publishing caller supplies the event's correlation/causation IDs; workers read them from the durable envelope rather than the original HTTP thread.
+
+Delivery summaries use `operation=event_delivery` and `outcome=acknowledged`, `failure_recorded`, or `lease_lost`. `acknowledged` means the database accepted completion; it also covers a handler that skipped obsolete work. `failure_recorded` means a failure was saved; the database retry policy determines whether it will retry or remain terminal. Safe `code` fields describe failures without raw exception messages. Worker polling/cleanup failures use `operation=event_worker`. No event payload, unknown handler/type text, or provider error body is added to these summaries.
+
+There are no production event handlers yet. Exercise the logging/context behavior with the focused tests:
+
+```sh
+./mvnw -Dtest=DeliveryLogContextTest,EventDispatcherTest,DurableEventWorkerTest test
+```
+
+These checks use controlled handlers and database doubles; full PostgreSQL restart/delivery verification still requires `./mvnw verify`.
 
 ## Durable event processing
 
