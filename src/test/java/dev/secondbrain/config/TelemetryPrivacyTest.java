@@ -40,6 +40,14 @@ class TelemetryPrivacyTest {
                             Assertions.assertThat(tag.getKey()).isEqualTo("uri");
                             Assertions.assertThat(tag.getValue()).isEqualTo("OTHER");
                         });
+        request.setMethod("POST");
+        context.setPathPattern("/documents");
+        Assertions.assertThat(convention.getLowCardinalityKeyValues(context))
+                .anySatisfy(
+                        tag -> {
+                            Assertions.assertThat(tag.getKey()).isEqualTo("uri");
+                            Assertions.assertThat(tag.getValue()).isEqualTo("/documents");
+                        });
     }
 
     @Test

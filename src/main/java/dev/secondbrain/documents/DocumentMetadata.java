@@ -24,6 +24,7 @@ record DocumentMetadata(
         Objects.requireNonNull(documentId, "documentId");
         if (originalName == null
                 || originalName.isBlank()
+                || originalName.indexOf('\0') >= 0
                 || originalName.getBytes(StandardCharsets.UTF_8).length > 1024) {
             throw new IllegalArgumentException(
                     "Original name must be non-empty and at most 1024 bytes");
@@ -40,12 +41,5 @@ record DocumentMetadata(
         Objects.requireNonNull(extractionState, "extractionState");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
-    }
-
-    enum ExtractionState {
-        QUEUED,
-        PROCESSING,
-        EXTRACTED,
-        FAILED
     }
 }

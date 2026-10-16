@@ -1,14 +1,11 @@
 package dev.secondbrain.documents;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.stereotype.Repository;
 
+import java.sql.Timestamp;
 import java.util.Optional;
 import java.util.UUID;
 
-@Repository
-@ConditionalOnBean(JdbcClient.class)
 final class JdbcDocumentRepository {
     private final JdbcClient jdbc;
 
@@ -37,8 +34,8 @@ final class JdbcDocumentRepository {
                 .param("originalSizeBytes", document.originalSizeBytes())
                 .param("processingVersion", document.processingVersion())
                 .param("extractionState", document.extractionState().name())
-                .param("createdAt", document.createdAt())
-                .param("updatedAt", document.updatedAt())
+                .param("createdAt", Timestamp.from(document.createdAt()))
+                .param("updatedAt", Timestamp.from(document.updatedAt()))
                 .update();
     }
 
@@ -62,7 +59,7 @@ final class JdbcDocumentRepository {
                                         resultSet.getString("content_sha256"),
                                         resultSet.getLong("original_size_bytes"),
                                         resultSet.getLong("processing_version"),
-                                        DocumentMetadata.ExtractionState.valueOf(
+                                        ExtractionState.valueOf(
                                                 resultSet.getString("extraction_state")),
                                         resultSet.getTimestamp("created_at").toInstant(),
                                         resultSet.getTimestamp("updated_at").toInstant()))

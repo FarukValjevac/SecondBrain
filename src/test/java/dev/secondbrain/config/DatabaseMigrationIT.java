@@ -16,6 +16,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -164,8 +165,8 @@ class DatabaseMigrationIT {
                 .param("storageKey", storageKey)
                 .param("hash", hash)
                 .param("size", size)
-                .param("createdAt", now)
-                .param("updatedAt", now)
+                .param("createdAt", Timestamp.from(now))
+                .param("updatedAt", Timestamp.from(now))
                 .update();
     }
 

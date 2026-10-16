@@ -3,8 +3,7 @@ package dev.secondbrain.documents;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import dev.secondbrain.documents.DocumentUploadPolicy.Reason;
-import dev.secondbrain.documents.DocumentUploadPolicy.RejectedUpload;
+import dev.secondbrain.documents.UploadRejectedException.Reason;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.util.unit.DataSize;
@@ -31,6 +30,13 @@ class DocumentUploadPolicyTest {
     }
 
     @Test
+    void boundsFilenameMetadataUsingUtf8AndRejectsNullCharacters() {
+        assertThat(policy.validate("é".repeat(510) + ".txt", 1)).isEqualTo(DocumentType.TXT);
+        assertRejected("é".repeat(511) + ".txt", 1, Reason.INVALID_FILENAME);
+        assertRejected("invalid\0.txt", 1, Reason.INVALID_FILENAME);
+    }
+
+    @Test
     void rejectsNonPositiveConfiguredLimit() {
         assertThatThrownBy(() -> new DocumentUploadPolicy(DataSize.ofBytes(0)))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -39,10 +45,10 @@ class DocumentUploadPolicyTest {
 
     private void assertRejected(String filename, long size, Reason expectedReason) {
         assertThatThrownBy(() -> policy.validate(filename, size))
-                .isInstanceOf(RejectedUpload.class)
+                .isInstanceOf(UploadRejectedException.class)
                 .satisfies(
                         exception ->
-                                assertThat(((RejectedUpload) exception).reason())
+                                assertThat(((UploadRejectedException) exception).reason())
                                         .isEqualTo(expectedReason))
                 .hasMessageNotContaining("private-sentinel");
     }

@@ -1,10 +1,12 @@
 package dev.secondbrain.documents;
 
+import dev.secondbrain.documents.UploadRejectedException.Reason;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
-import java.io.Serial;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 @Component
@@ -21,7 +23,11 @@ final class DocumentUploadPolicy {
 
     DocumentType validate(String originalFilename, long sizeInBytes) {
         if (originalFilename == null || originalFilename.isBlank()) {
-            throw new RejectedUpload(Reason.MISSING_FILENAME);
+            throw new UploadRejectedException(Reason.MISSING_FILENAME);
+        }
+        if (originalFilename.indexOf('\0') >= 0
+                || originalFilename.getBytes(StandardCharsets.UTF_8).length > 1024) {
+            throw new UploadRejectedException(Reason.INVALID_FILENAME);
         }
         validateSize(sizeInBytes);
 
@@ -29,16 +35,16 @@ final class DocumentUploadPolicy {
         return switch (extension) {
             case "txt" -> DocumentType.TXT;
             case "md", "markdown" -> DocumentType.MARKDOWN;
-            default -> throw new RejectedUpload(Reason.UNSUPPORTED_TYPE);
+            default -> throw new UploadRejectedException(Reason.UNSUPPORTED_TYPE);
         };
     }
 
     void validateSize(long sizeInBytes) {
         if (sizeInBytes < 1) {
-            throw new RejectedUpload(Reason.EMPTY_FILE);
+            throw new UploadRejectedException(Reason.EMPTY_FILE);
         }
         if (sizeInBytes > maximumUploadBytes) {
-            throw new RejectedUpload(Reason.FILE_TOO_LARGE);
+            throw new UploadRejectedException(Reason.FILE_TOO_LARGE);
         }
     }
 
@@ -48,37 +54,5 @@ final class DocumentUploadPolicy {
             return "";
         }
         return filename.substring(separator + 1).toLowerCase(Locale.ROOT);
-    }
-
-    enum Reason {
-        MISSING_FILENAME("Choose a file with a name."),
-        EMPTY_FILE("The selected file is empty."),
-        FILE_TOO_LARGE("The file exceeds the configured upload size limit."),
-        UNSUPPORTED_TYPE("Only TXT and Markdown files are supported.");
-
-        private final String message;
-
-        Reason(String message) {
-            this.message = message;
-        }
-
-        String message() {
-            return message;
-        }
-    }
-
-    static final class RejectedUpload extends RuntimeException {
-        @Serial private static final long serialVersionUID = 1L;
-
-        private final Reason reason;
-
-        RejectedUpload(Reason reason) {
-            super(reason.message());
-            this.reason = reason;
-        }
-
-        Reason reason() {
-            return reason;
-        }
     }
 }

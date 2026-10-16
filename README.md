@@ -1,6 +1,6 @@
 # SecondBrain
 
-SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. The current version displays an empty document library and includes PostgreSQL storage, durable event delivery, health checks, local metrics, and JSON console logs.
+SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. It accepts TXT and Markdown files over HTTP, stores originals privately, and records queued processing in PostgreSQL. The browser displays an empty library. Health checks, local metrics, and JSON console logs support diagnostics.
 
 ## Requirements
 
@@ -51,4 +51,4 @@ docker compose down
 
 Database data remains in the Docker-managed volume and is reused on the next startup.
 
-See the [development guide](docs/development.md) for configuration options, diagnostics, formatting, and troubleshooting.
+See the [development guide](docs/development.md) for HTTP upload usage, configuration options, diagnostics, formatting, and troubleshooting.

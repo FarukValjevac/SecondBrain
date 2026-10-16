@@ -72,13 +72,17 @@ class DocumentAcceptanceServiceTest {
 
         var documentCaptor = ArgumentCaptor.forClass(DocumentMetadata.class);
         verify(documentRepository).insert(documentCaptor.capture());
-        assertThat(documentCaptor.getValue()).isEqualTo(document);
+        assertThat(documentCaptor.getValue().documentId()).isEqualTo(document.documentId());
+        assertThat(document.state()).isEqualTo(ExtractionState.QUEUED);
         var eventCaptor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(eventPublisher).publish(eventCaptor.capture());
         assertThat(eventCaptor.getValue().type()).isEqualTo(DocumentAcceptedEvent.TYPE);
         assertThat(eventCaptor.getValue().documentId()).isEqualTo(document.documentId());
         assertThat(eventCaptor.getValue().correlationId()).isEqualTo(correlationId);
-        assertThat(Files.readAllBytes(storageDirectory.resolve(document.storageId() + ".original")))
+        assertThat(
+                        Files.readAllBytes(
+                                storageDirectory.resolve(
+                                        documentCaptor.getValue().storageId() + ".original")))
                 .containsExactly(CONTENT);
     }
 
@@ -113,7 +117,7 @@ class DocumentAcceptanceServiceTest {
                                         CONTENT.length,
                                         new ByteArrayInputStream(CONTENT),
                                         CORRELATION_ID))
-                .isInstanceOf(DocumentUploadPolicy.RejectedUpload.class);
+                .isInstanceOf(UploadRejectedException.class);
 
         verifyNoInteractions(documentRepository, eventPublisher);
         assertThat(Files.exists(storageDirectory.resolve("anything.original"))).isFalse();

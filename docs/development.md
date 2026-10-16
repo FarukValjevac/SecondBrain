@@ -21,6 +21,8 @@ Compose uses `pgvector/pgvector:0.8.7-pg18-bookworm` and binds PostgreSQL to `12
 
 The upload size limit defaults to `10MB` (`secondbrain.documents.max-upload-size`). The private original-file directory defaults to `./data/documents` (`secondbrain.documents.storage-directory`), relative to the application's working directory. The default directory is excluded from Git and is not served as a web resource. On POSIX filesystems, new storage directories and files receive owner-only permissions; an existing directory with group or other access is rejected. Other filesystems use their normal access controls. Both settings can be overridden with Spring environment variables such as `SECONDBRAIN_DOCUMENTS_MAX_UPLOAD_SIZE` and `SECONDBRAIN_DOCUMENTS_STORAGE_DIRECTORY`.
 
+The same upload limit applies while parsing multipart file parts and while streaming the original into private storage. The total multipart request is bounded at that limit plus 1 MiB for headers and form fields; both bounds follow the configured upload limit.
+
 ### HTTP port
 
 To use another application port on macOS/Linux:
@@ -40,9 +42,31 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 It serves the same local URL and reads configuration from the working directory, just like the Maven startup command.
 
+## Uploading documents over HTTP
+
+With the application running, submit one existing TXT or Markdown file using the `file` field:
+
+```sh
+curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
+```
+
+Accepted extensions are `.txt`, `.md`, and `.markdown`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
+
+A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header and JSON shaped as:
+
+```json
+{"documentId":"00000000-0000-4000-8000-000000000001","state":"QUEUED"}
+```
+
+The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Accepted documents currently remain queued, and the browser library still shows its empty state.
+
+Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
+
+To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
+
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector and V2 creates the durable event tables. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, and V3 creates document metadata. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
 Open a database shell using the configured user and database:
 
@@ -55,6 +79,16 @@ Then run:
 ```sql
 SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;
 SELECT extversion FROM pg_extension WHERE extname = 'vector';
+```
+
+After an upload, inspect its queued state and event correlation without selecting private names or text:
+
+```sql
+SELECT d.document_id, d.extraction_state, k.event_type, e.correlation_id
+FROM documents d
+JOIN event_keys k ON k.document_id = d.document_id
+JOIN domain_events e ON e.event_id = k.event_id
+WHERE k.event_type = 'DocumentAccepted';
 ```
 
 Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat the queries to inspect the unchanged migration history.

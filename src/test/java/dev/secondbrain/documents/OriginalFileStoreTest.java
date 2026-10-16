@@ -75,9 +75,9 @@ class OriginalFileStoreTest {
         var store = store(temporaryDirectory, 4);
 
         assertThatThrownBy(() -> store.store(new ByteArrayInputStream(new byte[0])))
-                .isInstanceOf(DocumentUploadPolicy.RejectedUpload.class);
+                .isInstanceOf(UploadRejectedException.class);
         assertThatThrownBy(() -> store.store(new ByteArrayInputStream(new byte[5])))
-                .isInstanceOf(DocumentUploadPolicy.RejectedUpload.class);
+                .isInstanceOf(UploadRejectedException.class);
 
         try (var files = Files.list(temporaryDirectory)) {
             assertThat(files).isEmpty();

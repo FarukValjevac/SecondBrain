@@ -68,9 +68,13 @@ class DocumentAcceptanceIT {
                                     .query(Integer.class)
                                     .single())
                     .isEqualTo(1);
+            var metadata =
+                    context.getBean(JdbcDocumentRepository.class)
+                            .findById(document.documentId())
+                            .orElseThrow();
             assertThat(
                             Files.readAllBytes(
-                                    storageDirectory.resolve(document.storageId() + ".original")))
+                                    storageDirectory.resolve(metadata.storageId() + ".original")))
                     .containsExactly(content);
         }
     }

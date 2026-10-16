@@ -40,7 +40,7 @@ class DocumentRepositoryIT {
 
     @Test
     void insertsAndReadsMetadataWithoutLosingValues() {
-        var createdAt = Instant.parse("2026-01-01T00:00:00Z");
+        var createdAt = Instant.parse("2026-01-01T00:00:00.123456Z");
         var metadata =
                 new DocumentMetadata(
                         UUID.randomUUID(),
@@ -50,9 +50,9 @@ class DocumentRepositoryIT {
                         "a".repeat(64),
                         123,
                         1,
-                        DocumentMetadata.ExtractionState.QUEUED,
+                        ExtractionState.QUEUED,
                         createdAt,
-                        createdAt);
+                        createdAt.plusSeconds(5));
 
         repository.insert(metadata);
 

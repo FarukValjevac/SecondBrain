@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Coordinates durable original storage with atomic metadata and event persistence. */
-final class DocumentAcceptanceService {
+public final class DocumentAcceptanceService {
     private final DocumentUploadPolicy uploadPolicy;
     private final OriginalFileStore originalFileStore;
     private final JdbcDocumentRepository documentRepository;
@@ -37,7 +37,7 @@ final class DocumentAcceptanceService {
     }
 
     /** Consumes the stream but leaves closing it to the caller. */
-    DocumentMetadata accept(
+    public Receipt accept(
             String originalName, long declaredSize, InputStream input, UUID correlationId)
             throws IOException {
         Objects.requireNonNull(input, "input");
@@ -58,7 +58,7 @@ final class DocumentAcceptanceService {
                             storedOriginal.sha256(),
                             storedOriginal.sizeInBytes(),
                             1,
-                            DocumentMetadata.ExtractionState.QUEUED,
+                            ExtractionState.QUEUED,
                             now,
                             now);
             transactions.executeWithoutResult(
@@ -76,7 +76,7 @@ final class DocumentAcceptanceService {
                                         null,
                                         Map.of()));
                     });
-            return document;
+            return new Receipt(document.documentId(), document.extractionState());
         } catch (IOException | RuntimeException failure) {
             try {
                 originalFileStore.delete(storedOriginal);
@@ -84,6 +84,13 @@ final class DocumentAcceptanceService {
                 failure.addSuppressed(cleanupFailure);
             }
             throw failure;
+        }
+    }
+
+    public record Receipt(UUID documentId, ExtractionState state) {
+        public Receipt {
+            Objects.requireNonNull(documentId, "documentId");
+            Objects.requireNonNull(state, "state");
         }
     }
 }
