@@ -96,7 +96,28 @@ curl -i http://127.0.0.1:8080/actuator/health/readiness
 
 Liveness reports Spring's application viability state and does not check PostgreSQL. Readiness combines Spring's readiness state with a database connectivity check. After successful startup with a healthy database, both return HTTP 200 and `{"status":"UP"}`. If the running application loses database connectivity, readiness returns HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
 
-The overall health response also lists the `liveness` and `readiness` groups. Responses hide component details and error messages. Health uses the application's loopback listener; only the health endpoint is exposed, with Actuator discovery and JMX exposure disabled. Metrics, environment, configuration, and heap-dump endpoints are not exposed. No model APIs or external telemetry services are called by these checks.
+The overall health response also lists the `liveness` and `readiness` groups. Responses hide component details and error messages. Management endpoints use the application's loopback listener; only health and metrics are exposed, with Actuator discovery and JMX exposure disabled. Environment, configuration, and heap-dump endpoints are not exposed. No model APIs or external telemetry services are called by these checks.
+
+## Local metrics
+
+Actuator exposes Micrometer's built-in measurements through a read-only endpoint. With the application running:
+
+```sh
+curl http://127.0.0.1:8080/actuator/metrics
+curl http://127.0.0.1:8080/actuator/metrics/process.uptime
+curl http://127.0.0.1:8080/actuator/metrics/jvm.memory.used
+```
+
+The first request lists available metric names. Uptime is measured in seconds and JVM memory in bytes. To observe library requests, visit the page and inspect its request timer:
+
+```sh
+curl -o /dev/null -s http://127.0.0.1:8080/
+curl 'http://127.0.0.1:8080/actuator/metrics/http.server.requests?tag=uri:/&tag=method:GET'
+```
+
+The timer reports a request count plus total and maximum request duration in seconds. It appears after a request completes; filtering on a route with no recorded requests returns HTTP 404. HTTP metric tags include method, route pattern, status, outcome, and error/exception categories; query values are omitted. Database connection-pool metrics are also available when the datasource is active.
+
+Metrics use a local in-memory registry with no external exporter or dashboard. Counts reset on application restart, and measurements aggregate across matching tags unless filtered. These are runtime and HTTP measurements; there are no custom delivery/backlog meters.
 
 ## Development checks
 
@@ -107,7 +128,7 @@ The overall health response also lists the `liveness` and `readiness` groups. Re
 
 `test` runs fast tests without Docker or database credentials. Its startup smoke test explicitly excludes database, Flyway, and durable event processing; it checks only the remaining application wiring. A Spring MVC web test renders the real Thymeleaf library template. Event tests check input/configuration validation, retry timing, Spring wiring, and bounded worker cancellation. Maven loads the managed Mockito version as a startup test agent for Java 25.
 
-Health endpoint tests use the real HTTP mappings with a simulated database health indicator. They check readiness failure/recovery, independent liveness, hidden private details, and unavailable management endpoints; they do not establish real PostgreSQL connectivity.
+Health and metrics endpoint tests use the real HTTP mappings with a simulated database health indicator. They check readiness failure/recovery, independent liveness, hidden private details, management exposure, built-in metric names/units, and HTTP request counts without private query values in metric tags. They do not establish real PostgreSQL connectivity.
 
 `verify` also runs required Testcontainers integration tests, compiler/static checks, packaging, and Java formatting checks. These use isolated PostgreSQL/pgvector containers for migrations, vector operations, restart recovery, transactional event publication, duplicate delivery, lease fencing, retry limits, timeouts, and retention. They do not use the Compose database or `.env`. Docker must be running and accessible; unavailable Docker fails the tests rather than skipping them. No AI credentials are needed, and tests tagged `live-ai` remain excluded.
 

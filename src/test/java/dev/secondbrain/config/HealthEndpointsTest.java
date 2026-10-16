@@ -1,5 +1,10 @@
 package dev.secondbrain.config;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
+
+import org.assertj.core.api.Assertions;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,11 +34,13 @@ class HealthEndpointsTest {
 
     private final MockMvc mvc;
     private final TestDatabaseHealth database;
+    private final MeterRegistry meters;
 
     @Autowired
-    HealthEndpointsTest(MockMvc mvc, TestDatabaseHealth database) {
+    HealthEndpointsTest(MockMvc mvc, TestDatabaseHealth database, MeterRegistry meters) {
         this.mvc = mvc;
         this.database = database;
+        this.meters = meters;
     }
 
     @AfterEach
@@ -62,11 +69,60 @@ class HealthEndpointsTest {
 
     @Test
     void doesNotExposeOtherManagementEndpoints() throws Exception {
-        for (String endpoint :
-                new String[] {"", "/env", "/configprops", "/heapdump", "/metrics", "/loggers"}) {
+        for (String endpoint : new String[] {"", "/env", "/configprops", "/heapdump", "/loggers"}) {
             mvc.perform(MockMvcRequestBuilders.get("/actuator" + endpoint))
                     .andExpect(MockMvcResultMatchers.status().isNotFound());
         }
+    }
+
+    @Test
+    void exposesBuiltInMetricsWithTheirUnits() throws Exception {
+        mvc.perform(MockMvcRequestBuilders.get("/actuator/metrics"))
+                .andExpect(MockMvcResultMatchers.status().isOk())
+                .andExpect(
+                        MockMvcResultMatchers.jsonPath("$.names")
+                                .value(Matchers.hasItems("process.uptime", "jvm.memory.used")));
+
+        for (String[] metric :
+                new String[][] {{"process.uptime", "seconds"}, {"jvm.memory.used", "bytes"}}) {
+            mvc.perform(MockMvcRequestBuilders.get("/actuator/metrics/" + metric[0]))
+                    .andExpect(MockMvcResultMatchers.status().isOk())
+                    .andExpect(MockMvcResultMatchers.jsonPath("$.name").value(metric[0]))
+                    .andExpect(MockMvcResultMatchers.jsonPath("$.baseUnit").value(metric[1]))
+                    .andExpect(
+                            MockMvcResultMatchers.jsonPath("$.measurements[0].value").isNumber());
+        }
+    }
+
+    @Test
+    void recordsLibraryRequestsWithoutPrivateQueryValuesInMetricTags() throws Exception {
+        for (String query :
+                new String[] {"sentinel-private-query-one", "sentinel-private-query-two"}) {
+            mvc.perform(MockMvcRequestBuilders.get("/").queryParam("q", query))
+                    .andExpect(MockMvcResultMatchers.status().isOk());
+        }
+
+        var requests =
+                meters.find("http.server.requests").tags("method", "GET", "uri", "/").timers();
+        Assertions.assertThat(requests).hasSize(1);
+        Assertions.assertThat(requests.iterator().next().count()).isGreaterThanOrEqualTo(2);
+        Assertions.assertThat(requests.iterator().next().getId().getTags())
+                .extracting(Tag::getKey)
+                .containsExactlyInAnyOrder(
+                        "method", "uri", "status", "outcome", "error", "exception");
+        for (var meter : meters.getMeters()) {
+            Assertions.assertThat(meter.getId().getTags().toString())
+                    .doesNotContain("sentinel-private");
+        }
+
+        mvc.perform(
+                        MockMvcRequestBuilders.get("/actuator/metrics/http.server.requests")
+                                .queryParam("tag", "uri:/", "method:GET"))
+                .andExpect(MockMvcResultMatchers.status().isOk())
+                .andExpect(MockMvcResultMatchers.jsonPath("$.baseUnit").value("seconds"))
+                .andExpect(
+                        MockMvcResultMatchers.content()
+                                .string(Matchers.not(Matchers.containsString("sentinel-private"))));
     }
 
     private void expectHealth(String path, int status, String health) throws Exception {
