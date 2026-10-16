@@ -65,7 +65,7 @@ curl -i http://127.0.0.1:8080/actuator/health/liveness
 curl -i http://127.0.0.1:8080/actuator/health/readiness
 ```
 
-Liveness reports Spring's application viability state and does not check PostgreSQL. Readiness combines Spring's readiness state with a database connectivity check. After successful startup with a healthy database, both return HTTP 200 and `{"status":"UP"}`. If the running application loses database connectivity, readiness returns HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
+Liveness reports Spring's application viability state independently of PostgreSQL and background work. Readiness combines Spring's readiness state, database connectivity, and an operational event-worker scheduler/executor. Deliberately disabling events or polling removes the worker requirement. A failed delivery or unavailable telemetry backend does not make the application unready. After successful startup with healthy dependencies, both probes return HTTP 200 and `{"status":"UP"}`. Losing database connectivity or a required worker makes readiness return HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
 
 The overall health response also lists the `liveness` and `readiness` groups. Responses hide component details and error messages. Management endpoints use the application's loopback listener; only health and metrics are exposed, with Actuator discovery and JMX exposure disabled. Environment, configuration, and heap-dump endpoints are not exposed. No model APIs or external telemetry services are called by these checks.
 
@@ -86,9 +86,28 @@ curl -o /dev/null -s http://127.0.0.1:8080/
 curl 'http://127.0.0.1:8080/actuator/metrics/http.server.requests?tag=uri:/&tag=method:GET'
 ```
 
-The timer reports a request count plus total and maximum request duration in seconds. It appears after a request completes; filtering on a route with no recorded requests returns HTTP 404. HTTP metric tags include method, route pattern, status, outcome, and error/exception categories; query values are omitted. Database connection-pool metrics are also available when the datasource is active.
+The timer reports a request count plus total and maximum request duration in seconds. It appears after a request completes; filtering on a route with no recorded requests returns HTTP 404. HTTP metric tags include bounded method/route/status/outcome categories and `none`/`failure` error categories. Unrecognized methods/routes become `OTHER`; query values and IDs are omitted. Database connection-pool metrics are also available when the datasource is active.
 
-Metrics use a local in-memory registry with no external exporter or dashboard. Counts reset on application restart, and measurements aggregate across matching tags unless filtered. These are runtime and HTTP measurements; there are no custom delivery/backlog meters.
+Metrics use a local in-memory registry with no external exporter or dashboard. Counts and timers reset on application restart; measurements aggregate across matching tags unless filtered. The event infrastructure also exposes:
+
+| Meter | Unit | Meaning / labels |
+|---|---|---|
+| `secondbrain.event.delivery.attempts` | count | Committed attempt results; `outcome=completed,skipped,retry,failed` |
+| `secondbrain.event.delivery.duration` | seconds | Time from the attempt's persisted start to its committed result; same outcome labels |
+| `secondbrain.event.backlog` | count | Database projection; `state=ready,delayed,retrying,running,failed` |
+| `secondbrain.event.backlog.oldest` | seconds | Age of the oldest claimable delivery |
+| `secondbrain.event.backlog.available` | 0 or 1 | Whether the most recent backlog read succeeded |
+| `secondbrain.event.workers.active` | count | In-flight worker tasks, including canceled work that has not exited |
+
+`ready` includes due pending deliveries and expired leases awaiting recovery. `delayed` is pending work scheduled for the future; `running` counts unexpired leases; `failed` counts terminal deliveries. `retrying` counts pending work with earlier attempts and overlaps ready/delayed. Oldest age starts at eligibility, or at lease expiry for recoverable work. Backlog gauges share one bounded database read per five seconds, reload after restart, and return `NaN` with availability 0 if that read fails.
+
+```sh
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.event.backlog
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.event.backlog.oldest
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.event.delivery.attempts
+```
+
+Attempt meters update after the database commits and do not count a rejected stale acknowledgment twice. They are best-effort runtime telemetry: a process crash immediately after commit can lose an increment. Database delivery/attempt records remain authoritative; counters are not a durable accounting ledger.
 
 Reading the filtered request timer does not increase the count for `GET /`. Request the library page again, then inspect the timer to observe the increase.
 
@@ -96,7 +115,7 @@ Reading the filtered request timer does not increase the count for `GET /`. Requ
 
 Application logs are written as one JSON object per entry using Spring Boot's built-in Logstash format. Restart the application with `./mvnw spring-boot:run` and inspect the startup messages: each has `@timestamp`, `level`, `logger_name`, `thread_name`, and `message` fields. Structured key/value fields supplied by a logger are included as additional JSON fields.
 
-Logs stay on the console; no Logstash server, log file, or external collector is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. HTTP and event-worker summaries use separate JSON fields. Tracing is not instrumented. Formatting preserves message contents; application logs must use safe messages and metadata.
+Logs stay on the console; no Logstash server or log file is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. HTTP and event-worker summaries use separate JSON fields; tracing adds `traceId`/`spanId` while a span is in scope. Formatting preserves message contents; application logs must use safe messages and metadata.
 
 ### Request correlation
 
@@ -123,6 +142,22 @@ There are no production event handlers yet. Exercise the logging/context behavio
 ```
 
 These checks use controlled handlers and database doubles; full PostgreSQL restart/delivery verification still requires `./mvnw verify`.
+
+## Tracing and optional export
+
+Micrometer Observation instruments HTTP handling, and Micrometer Tracing bridges to OpenTelemetry. Publication captures the active span's W3C version-00 `traceparent` in the durable envelope, falling back to the caller's explicit trace context when there is no active span. Each consumer attempt starts a new root span named `event.delivery` linked to that producer; retries get independent spans. Correlation/causation IDs remain caller-supplied event fields. Scope cleanup restores the worker thread after success or failure.
+
+Trace export is disabled by default. To send traces to an existing OTLP/HTTP collector, opt in explicitly:
+
+```sh
+./mvnw spring-boot:run -Dspring-boot.run.arguments="--secondbrain.telemetry.otlp-endpoint=http://127.0.0.1:4318/v1/traces --management.tracing.sampling.probability=1"
+```
+
+The endpoint must use HTTP(S) without credentials, query parameters, or fragments. Leave the native `management.tracing.export.otlp.enabled` setting disabled; the application's exporter applies the privacy boundary. No collector is required for application processing or routine tests. Metrics and logs remain local.
+
+Default tracing samples 10% of traces. Export uses a 256-span queue, batches of at most 64, a one-second schedule, a two-second export deadline, a one-second connection deadline, and one transport attempt. Queue overflow or backend failure may discard telemetry while delivery continues. Spans allow at most 24 attributes, 128 characters per attribute, one producer link, and zero events. Baggage propagation is disabled.
+
+HTTP observations omit full URLs and query strings. Export allows only valid UUID/version/attempt fields and fixed delivery outcomes; it strips exception events, status descriptions, link baggage/attributes, and arbitrary resource metadata. Other span names are normalized to `application.operation`. The exported resource identifies only `service.name=secondbrain`. IDs stay in logs/traces and never become metric tags.
 
 ## Durable event processing
 
@@ -166,7 +201,7 @@ Failure codes are safe categories; raw handler exception messages and document c
 
 ## Verification and formatting
 
-The README lists the standard test commands. Fast tests check application wiring, library rendering, event policies/worker behavior, health/metrics endpoints, and JSON console formatting. Database-dependent features use isolated PostgreSQL/pgvector Testcontainers; those tests do not use the Compose database or `.env`. Required integration tests fail if Docker is unavailable. Routine tests need no AI credentials or external telemetry service; tests tagged `live-ai` are excluded.
+The README lists the standard test commands. Fast tests check application wiring, library rendering, event policies/worker behavior, health/metrics, log context, real in-memory traces, privacy, and export failure isolation. PostgreSQL/pgvector Testcontainers verify committed metrics, restart backlog/trace context, and delivery with failed telemetry export; those tests do not use the Compose database or `.env`. Required integration tests fail if Docker is unavailable. Routine tests need no AI credentials or external telemetry service; tests tagged `live-ai` are excluded.
 
 Apply Java formatting before committing:
 

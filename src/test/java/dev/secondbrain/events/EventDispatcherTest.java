@@ -84,6 +84,27 @@ class EventDispatcherTest {
         Mockito.verify(store).fail(lease, DeliveryFailure.Code.HANDLER_MISSING, false);
     }
 
+    @Test
+    void tracingFailureDoesNotPreventDeliveryCompletion() throws Exception {
+        var lease = lease();
+        EventHandler.Effect effect = () -> EventHandler.Outcome.COMPLETED;
+        Mockito.when(handler.prepare(lease.event())).thenReturn(effect);
+        Mockito.when(store.complete(lease, effect)).thenReturn(true);
+        var tracer = Mockito.mock(io.micrometer.tracing.Tracer.class);
+        Mockito.when(tracer.spanBuilder()).thenThrow(new IllegalStateException("sentinel-private"));
+        var dispatcher =
+                new EventDispatcher(
+                        store,
+                        new EventRegistry(List.of(handler), List.of()),
+                        new EventTracing(tracer));
+        var context = new DeliveryLogContext(lease);
+        try (context) {
+            Assertions.assertThatCode(() -> dispatcher.dispatch(lease)).doesNotThrowAnyException();
+        }
+        Mockito.verify(store).complete(lease, effect);
+        Assertions.assertThat(fields(lease)).containsEntry("outcome", "acknowledged");
+    }
+
     @ParameterizedTest
     @EnumSource(
             value = DeliveryFailure.Code.class,
@@ -131,7 +152,11 @@ class EventDispatcherTest {
     }
 
     private void dispatch(DeliveryLease lease, List<EventHandler> handlers) {
-        var dispatcher = new EventDispatcher(store, new EventRegistry(handlers, List.of()));
+        var dispatcher =
+                new EventDispatcher(
+                        store,
+                        new EventRegistry(handlers, List.of()),
+                        new EventTracing(io.micrometer.tracing.Tracer.NOOP));
         var context = new DeliveryLogContext(lease);
         try (context) {
             dispatcher.dispatch(lease);

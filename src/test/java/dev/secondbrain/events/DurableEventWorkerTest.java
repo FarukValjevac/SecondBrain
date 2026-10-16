@@ -103,6 +103,7 @@ class DurableEventWorkerTest {
                 .dispatch(lease);
         var worker = new DurableEventWorker(store, dispatcher, settings, clock);
         worker.start();
+        Assertions.assertThat(worker.isOperational()).isTrue();
         try {
             Assertions.assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             clock.advance(Duration.ofSeconds(5));
@@ -118,6 +119,7 @@ class DurableEventWorkerTest {
         } finally {
             release.countDown();
             worker.stop();
+            Assertions.assertThat(worker.isOperational()).isFalse();
         }
     }
 }

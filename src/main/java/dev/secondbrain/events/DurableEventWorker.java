@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +29,7 @@ final class DurableEventWorker implements SmartLifecycle {
     private final Map<UUID, RunningTask> active = new ConcurrentHashMap<>();
     private volatile boolean running;
     private ScheduledExecutorService scheduler;
+    private ScheduledFuture<?> pollingTask;
     private ThreadPoolExecutor executor;
     private Instant nextCleanup = Instant.MIN;
 
@@ -64,8 +66,12 @@ final class DurableEventWorker implements SmartLifecycle {
                 Executors.newSingleThreadScheduledExecutor(
                         Thread.ofPlatform().daemon(true).name("event-poller").factory());
         running = true;
-        scheduler.scheduleWithFixedDelay(
-                this::tickSafely, 0, settings.pollInterval().toMillis(), TimeUnit.MILLISECONDS);
+        pollingTask =
+                scheduler.scheduleWithFixedDelay(
+                        this::tickSafely,
+                        0,
+                        settings.pollInterval().toMillis(),
+                        TimeUnit.MILLISECONDS);
     }
 
     private void tickSafely() {
@@ -193,6 +199,20 @@ final class DurableEventWorker implements SmartLifecycle {
     @Override
     public boolean isRunning() {
         return running;
+    }
+
+    synchronized boolean isOperational() {
+        return running
+                && pollingTask != null
+                && !pollingTask.isDone()
+                && scheduler != null
+                && !scheduler.isShutdown()
+                && executor != null
+                && !executor.isShutdown();
+    }
+
+    int activeCount() {
+        return active.size();
     }
 
     private static final class RunningTask {

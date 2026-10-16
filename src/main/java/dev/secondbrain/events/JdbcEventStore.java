@@ -3,6 +3,8 @@ package dev.secondbrain.events;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.core.JacksonException;
@@ -16,6 +18,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
@@ -34,6 +37,7 @@ final class JdbcEventStore {
     private final EventRetryPolicy retry;
     private final TransactionTemplate mandatory;
     private final TransactionTemplate isolated;
+    private final EventMetrics metrics;
 
     JdbcEventStore(
             JdbcClient jdbc,
@@ -41,12 +45,14 @@ final class JdbcEventStore {
             Clock clock,
             EventDeliveryProperties settings,
             EventRetryPolicy retry,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions,
+            EventMetrics metrics) {
         this.jdbc = jdbc;
         this.json = json;
         this.clock = clock;
         this.settings = settings;
         this.retry = retry;
+        this.metrics = metrics;
         this.mandatory = new TransactionTemplate(transactions);
         mandatory.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
         this.isolated = new TransactionTemplate(transactions);
@@ -178,7 +184,10 @@ final class JdbcEventStore {
                                 selected.attempts(),
                                 "EXPIRED",
                                 DeliveryFailure.Code.LEASE_EXPIRED,
-                                now);
+                                now,
+                                selected.attempts() < settings.maxAttempts()
+                                        ? EventMetrics.Outcome.RETRY
+                                        : EventMetrics.Outcome.FAILED);
                         reschedule(
                                 selected.deliveryId(),
                                 selected.attempts(),
@@ -242,7 +251,8 @@ final class JdbcEventStore {
                                 attempt,
                                 "FAILED",
                                 DeliveryFailure.Code.INVALID_EVENT,
-                                now);
+                                now,
+                                EventMetrics.Outcome.FAILED);
                         reschedule(
                                 selected.deliveryId(),
                                 attempt,
@@ -316,7 +326,10 @@ final class JdbcEventStore {
                                 lease.attempt(),
                                 outcome.name(),
                                 null,
-                                finished);
+                                finished,
+                                outcome == EventHandler.Outcome.SKIPPED
+                                        ? EventMetrics.Outcome.SKIPPED
+                                        : EventMetrics.Outcome.COMPLETED);
                         return true;
                     });
         } catch (LostLease lost) {
@@ -331,7 +344,15 @@ final class JdbcEventStore {
                     if (!lockToken(lease, false, now)) {
                         return false;
                     }
-                    finishAttempt(lease.deliveryId(), lease.attempt(), "FAILED", code, now);
+                    finishAttempt(
+                            lease.deliveryId(),
+                            lease.attempt(),
+                            "FAILED",
+                            code,
+                            now,
+                            retryable && lease.attempt() < settings.maxAttempts()
+                                    ? EventMetrics.Outcome.RETRY
+                                    : EventMetrics.Outcome.FAILED);
                     reschedule(lease.deliveryId(), lease.attempt(), retryable, code, now);
                     return true;
                 });
@@ -404,19 +425,71 @@ final class JdbcEventStore {
     }
 
     private void finishAttempt(
-            UUID id, int attempt, String outcome, DeliveryFailure.Code code, Instant now) {
-        jdbc.sql(
-                        """
+            UUID id,
+            int attempt,
+            String outcome,
+            DeliveryFailure.Code code,
+            Instant now,
+            EventMetrics.Outcome metricOutcome) {
+        var started =
+                jdbc.sql(
+                                """
                 UPDATE event_delivery_attempts SET outcome = :outcome, finished_at = :now, failure_code = :code
                 WHERE delivery_id = :id AND attempt = :attempt AND outcome = 'RUNNING'
+                RETURNING started_at
                 """)
-                .param("outcome", outcome)
-                .param("now", timestamp(now))
-                .param("code", code == null ? null : code.name())
-                .param("id", id)
-                .param("attempt", attempt)
-                .update();
+                        .param("outcome", outcome)
+                        .param("now", timestamp(now))
+                        .param("code", code == null ? null : code.name())
+                        .param("id", id)
+                        .param("attempt", attempt)
+                        .query(Timestamp.class)
+                        .optional();
+        started.ifPresent(
+                time ->
+                        TransactionSynchronizationManager.registerSynchronization(
+                                new TransactionSynchronization() {
+                                    @Override
+                                    public void afterCommit() {
+                                        metrics.record(
+                                                metricOutcome,
+                                                Duration.between(time.toInstant(), now));
+                                    }
+                                }));
     }
+
+    Backlog backlog() {
+        return inTransaction(
+                () ->
+                        jdbc.sql(
+                                        """
+                SELECT count(*) FILTER (WHERE (state = 'PENDING' AND eligible_at <= :now)
+                           OR (state = 'RUNNING' AND lease_until <= :now)) AS ready,
+                       count(*) FILTER (WHERE state = 'PENDING' AND eligible_at > :now) AS delayed,
+                       count(*) FILTER (WHERE state = 'PENDING' AND attempts > 0) AS retrying,
+                       count(*) FILTER (WHERE state = 'RUNNING' AND lease_until > :now) AS running,
+                       count(*) FILTER (WHERE state = 'FAILED') AS failed,
+                       GREATEST(0, COALESCE(EXTRACT(EPOCH FROM (CAST(:now AS timestamptz) -
+                           min(CASE WHEN state = 'RUNNING' THEN lease_until ELSE eligible_at END)
+                               FILTER (WHERE (state = 'PENDING' AND eligible_at <= :now)
+                                   OR (state = 'RUNNING' AND lease_until <= :now)))), 0)) AS age
+                FROM event_deliveries
+                """)
+                                .param("now", timestamp(clock.instant()))
+                                .query(
+                                        (row, index) ->
+                                                new Backlog(
+                                                        row.getLong("ready"),
+                                                        row.getLong("delayed"),
+                                                        row.getLong("retrying"),
+                                                        row.getLong("running"),
+                                                        row.getLong("failed"),
+                                                        row.getDouble("age")))
+                                .single());
+    }
+
+    record Backlog(
+            long ready, long delayed, long retrying, long running, long failed, double age) {}
 
     private EventEnvelope readEvent(ResultSet row, int index) throws SQLException {
         var type =

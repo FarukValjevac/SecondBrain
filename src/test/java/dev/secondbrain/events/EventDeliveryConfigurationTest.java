@@ -19,6 +19,9 @@ class EventDeliveryConfigurationTest {
                         EventDeliveryConfiguration.class, PublishingHandlerConfiguration.class)
                 .withBean(JdbcClient.class, () -> Mockito.mock(JdbcClient.class))
                 .withBean(
+                        io.micrometer.core.instrument.MeterRegistry.class,
+                        io.micrometer.core.instrument.simple.SimpleMeterRegistry::new)
+                .withBean(
                         PlatformTransactionManager.class,
                         () -> Mockito.mock(PlatformTransactionManager.class))
                 .withPropertyValues(

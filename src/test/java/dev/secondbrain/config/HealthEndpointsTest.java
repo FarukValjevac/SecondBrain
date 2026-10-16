@@ -2,6 +2,9 @@ package dev.secondbrain.config;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SpanExporter;
 
 import org.assertj.core.api.Assertions;
 import org.hamcrest.Matchers;
@@ -13,6 +16,7 @@ import org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -25,8 +29,13 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-@SpringBootTest(properties = "secondbrain.events.enabled=false")
+@SpringBootTest(
+        properties = {
+            "secondbrain.events.enabled=false",
+            "management.tracing.sampling.probability=1"
+        })
 @AutoConfigureMockMvc
+@AutoConfigureTracing
 @ImportAutoConfiguration(
         exclude = {DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class})
 @Import(HealthEndpointsTest.TestHealthConfiguration.class)
@@ -35,12 +44,21 @@ class HealthEndpointsTest {
     private final MockMvc mvc;
     private final TestDatabaseHealth database;
     private final MeterRegistry meters;
+    private final TraceCapture capture;
+    private final SdkTracerProvider sdk;
 
     @Autowired
-    HealthEndpointsTest(MockMvc mvc, TestDatabaseHealth database, MeterRegistry meters) {
+    HealthEndpointsTest(
+            MockMvc mvc,
+            TestDatabaseHealth database,
+            MeterRegistry meters,
+            TraceCapture capture,
+            SdkTracerProvider sdk) {
         this.mvc = mvc;
         this.database = database;
         this.meters = meters;
+        this.capture = capture;
+        this.sdk = sdk;
     }
 
     @AfterEach
@@ -137,13 +155,50 @@ class HealthEndpointsTest {
                                         JsonCompareMode.STRICT));
     }
 
+    @Test
+    void exportsHttpObservationsWithoutQueryHeaderOrBaggageContent() throws Exception {
+        capture.exporter().reset();
+        mvc.perform(
+                        MockMvcRequestBuilders.get("/")
+                                .queryParam("q", "sentinel-private-query")
+                                .header("baggage", "secret=sentinel-private-baggage")
+                                .header("Authorization", "Bearer sentinel-private-credential"))
+                .andExpect(MockMvcResultMatchers.status().isOk());
+        sdk.forceFlush().join(5, java.util.concurrent.TimeUnit.SECONDS);
+        var spans = capture.exporter().getFinishedSpanItems();
+        Assertions.assertThat(spans).isNotEmpty();
+        for (var span : spans) {
+            Assertions.assertThat(
+                            span.getAttributes()
+                                    + span.getEvents().toString()
+                                    + span.getName()
+                                    + span.getLinks()
+                                    + span.getResource()
+                                    + span.getStatus())
+                    .doesNotContain("sentinel-private");
+            Assertions.assertThat(span.getEvents()).isEmpty();
+        }
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class TestHealthConfiguration {
+        @Bean
+        TraceCapture traceCapture() {
+            return new TraceCapture(InMemorySpanExporter.create());
+        }
+
+        @Bean
+        SpanExporter capturingSafeExporter(TraceCapture capture) {
+            return new SafeSpanExporter(capture.exporter());
+        }
+
         @Bean
         TestDatabaseHealth dbHealthIndicator() {
             return new TestDatabaseHealth();
         }
     }
+
+    record TraceCapture(InMemorySpanExporter exporter) {}
 
     /** Simulates database availability; it does not verify a real PostgreSQL connection. */
     static final class TestDatabaseHealth implements HealthIndicator {
