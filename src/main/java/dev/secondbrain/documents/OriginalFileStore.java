@@ -122,6 +122,34 @@ final class OriginalFileStore {
         return new Scan(Files.newDirectoryStream(storageDirectory));
     }
 
+    void checkReadiness() throws IOException {
+        createPrivateStorageDirectory();
+        // Check directory reads without walking the library or opening an uploaded document.
+        try (var directory = Files.newDirectoryStream(storageDirectory)) {
+            directory.iterator().hasNext();
+        }
+        var probe = storageDirectory.resolve(UUID.randomUUID() + ".health-probe");
+        try (var channel =
+                FileChannel.open(
+                        probe,
+                        Set.<OpenOption>of(
+                                StandardOpenOption.CREATE_NEW,
+                                StandardOpenOption.READ,
+                                StandardOpenOption.WRITE,
+                                StandardOpenOption.DELETE_ON_CLOSE),
+                        privateFileAttributes())) {
+            if (channel.write(ByteBuffer.wrap(new byte[] {0})) != 1) {
+                throw new IOException("Original storage probe could not write");
+            }
+            channel.force(true);
+            channel.position(0);
+            var content = ByteBuffer.allocate(1);
+            if (channel.read(content) != 1 || content.get(0) != 0) {
+                throw new IOException("Original storage probe could not read");
+            }
+        }
+    }
+
     CleanupResult deleteIfAbandoned(UUID storageId, Instant cutoff, Predicate<UUID> isOwned)
             throws IOException {
         var protection = access.writeLock();

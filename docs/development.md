@@ -138,7 +138,17 @@ curl -i http://127.0.0.1:8080/actuator/health/liveness
 curl -i http://127.0.0.1:8080/actuator/health/readiness
 ```
 
-Liveness reports Spring's application viability state independently of PostgreSQL and background work. Readiness combines Spring's readiness state, database connectivity, and an operational event-worker scheduler/executor. Deliberately disabling events or polling removes the worker requirement. A failed delivery or unavailable telemetry backend does not make the application unready. After successful startup with healthy dependencies, both probes return HTTP 200 and `{"status":"UP"}`. Losing database connectivity or a required worker makes readiness return HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
+Liveness reports Spring's application viability state independently of PostgreSQL, original-file storage, and background work. Readiness combines Spring's readiness state, database connectivity, an operational event-worker scheduler/executor, and usable original-file storage. Deliberately disabling events or polling removes the worker requirement. Disabling events also disables uploads and removes the original-storage requirement; disabling only polling or abandoned-file cleanup does not remove it. A failed delivery or unavailable telemetry backend does not make the application unready. After successful startup with healthy dependencies, both probes return HTTP 200 and `{"status":"UP"}`. Losing database connectivity, a required worker, or usable original storage makes readiness return HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
+
+The `originalStorage` contributor uses the configured private document directory. It creates that directory with the usual permission checks when needed, checks directory access, then writes, forces, and reads one temporary byte. The probe file is removed on close; uploaded originals are not opened or changed. Readiness recovers on the next successful check once storage is restored. Probe errors have no path or exception details, even if health details are explicitly enabled.
+
+After restarting the application, check the readiness URL above. To exercise storage failure and recovery without changing the real library or stopping PostgreSQL:
+
+```sh
+./mvnw -Dtest=OriginalStorageReadinessTest,OriginalStorageHealthIndicatorTest test
+```
+
+These tests use a temporary directory and verify HTTP 503/DOWN on storage failure, HTTP 200/UP after recovery, unchanged liveness, and private error handling.
 
 The overall health response also lists the `liveness` and `readiness` groups. Responses hide component details and error messages. Management endpoints use the application's loopback listener; only health and metrics are exposed, with Actuator discovery and JMX exposure disabled. Environment, configuration, and heap-dump endpoints are not exposed. No model APIs or external telemetry services are called by these checks.
 
