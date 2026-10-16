@@ -1,0 +1,74 @@
+package dev.secondbrain.events;
+
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import tools.jackson.databind.json.JsonMapper;
+
+import java.time.Clock;
+import java.util.concurrent.ThreadLocalRandom;
+
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnProperty(
+        name = "secondbrain.events.enabled",
+        havingValue = "true",
+        matchIfMissing = true)
+@EnableConfigurationProperties(EventDeliveryProperties.class)
+class EventDeliveryConfiguration {
+    @Bean
+    @ConditionalOnMissingBean(Clock.class)
+    Clock eventClock() {
+        return Clock.systemUTC();
+    }
+
+    @Bean
+    EventRegistry eventRegistry(
+            ObjectProvider<EventHandler> handlers,
+            ObjectProvider<EventEnvelope.Type> terminalTypes) {
+        return new EventRegistry(
+                handlers.orderedStream().toList(), terminalTypes.orderedStream().toList());
+    }
+
+    @Bean
+    JdbcEventStore jdbcEventStore(
+            JdbcClient jdbc,
+            Clock clock,
+            EventDeliveryProperties settings,
+            PlatformTransactionManager transactions) {
+        var retry =
+                new EventRetryPolicy(
+                        settings, clock, () -> ThreadLocalRandom.current().nextDouble());
+        return new JdbcEventStore(
+                jdbc, JsonMapper.builder().build(), clock, settings, retry, transactions);
+    }
+
+    @Bean
+    EventPublisher eventPublisher(JdbcEventStore store, ObjectProvider<EventRegistry> registry) {
+        // Resolve after handler construction: handlers may themselves publish downstream events.
+        return new EventPublisher(store, registry::getObject);
+    }
+
+    @Bean
+    EventDispatcher eventDispatcher(JdbcEventStore store, EventRegistry registry) {
+        return new EventDispatcher(store, registry);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.events.polling-enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    DurableEventWorker durableEventWorker(
+            JdbcEventStore store,
+            EventDispatcher dispatcher,
+            EventDeliveryProperties settings,
+            Clock clock) {
+        return new DurableEventWorker(store, dispatcher, settings, clock);
+    }
+}

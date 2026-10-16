@@ -26,6 +26,8 @@
         <spotless-maven-plugin.version>3.10.4</spotless-maven-plugin.version>
         <!-- Spotless 3.10.4 requires the Style enum API changed in formatter 1.37.0. -->
         <google-java-format.version>1.36.1</google-java-format.version>
+        <!-- Preserve late additions such as coverage agents while loading Mockito at JVM startup. -->
+        <argLine/>
     </properties>
 
     <dependencies>
@@ -128,6 +130,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
+                    <argLine>@{argLine} -javaagent:"${session.repositorySession.localRepository.basedir}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar"</argLine>
                     <excludedGroups>live-ai</excludedGroups>
                 </configuration>
             </plugin>
@@ -136,6 +139,7 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
+                    <argLine>@{argLine} -javaagent:"${session.repositorySession.localRepository.basedir}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar"</argLine>
                     <excludedGroups>live-ai</excludedGroups>
                     <failIfNoTests>true</failIfNoTests>
                 </configuration>
