@@ -46,7 +46,7 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 The JAR serves the same local URL. To use another HTTP port, set `SERVER_PORT`; for example, `SERVER_PORT=8081 ./mvnw spring-boot:run` on macOS/Linux.
 
-Flyway applies `src/main/resources/db/migration/V1__enable_pgvector.sql` on first startup, enabling the `vector` extension and recording the migration in `flyway_schema_history`. Subsequent startups validate migration history and apply only pending migrations. The application requires database credentials but no AI credentials.
+Flyway applies pending migrations on startup: V1 enables pgvector and V2 creates the durable event tables. It records applied versions in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations. The application requires database credentials but no AI credentials.
 
 ### Database configuration
 
@@ -91,9 +91,9 @@ Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat
 ./mvnw verify
 ```
 
-`test` runs fast tests without Docker or database credentials. Its startup smoke test explicitly excludes database and Flyway auto-configuration; it checks only the remaining application wiring. A Spring MVC web test renders the real Thymeleaf library template and checks the HTML response and empty state without starting an HTTP server.
+`test` runs fast tests without Docker or database credentials. Its startup smoke test explicitly excludes database, Flyway, and durable event processing; it checks only the remaining application wiring. A Spring MVC web test renders the real Thymeleaf library template. Event tests check input/configuration validation, retry timing, Spring wiring, and bounded worker cancellation. Maven loads the managed Mockito version as a startup test agent for Java 25.
 
-`verify` also runs the required Testcontainers integration test, compiler/static checks, packaging, and Java formatting checks. The integration test starts its own isolated PostgreSQL/pgvector container, applies the real Flyway migration through application startup, checks vector operations, and restarts the application to check data and migration history. It does not use the Compose database or `.env`. Docker must be running and accessible; unavailable Docker fails the test rather than skipping it. No AI credentials are needed, and tests tagged `live-ai` remain excluded.
+`verify` also runs required Testcontainers integration tests, compiler/static checks, packaging, and Java formatting checks. These use isolated PostgreSQL/pgvector containers for migrations, vector operations, restart recovery, transactional event publication, duplicate delivery, lease fencing, retry limits, timeouts, and retention. They do not use the Compose database or `.env`. Docker must be running and accessible; unavailable Docker fails the tests rather than skipping them. No AI credentials are needed, and tests tagged `live-ai` remain excluded.
 
 The [GitHub Actions workflow](.github/workflows/verify.yml) runs `./mvnw --batch-mode --no-transfer-progress verify` on pushes, using Java 25. It can also be started manually from the Actions tab. The extra flags keep CI logs concise; they do not change the checks.
 
@@ -102,3 +102,43 @@ Apply Java formatting with:
 ```sh
 ./mvnw spotless:apply
 ```
+
+## Durable event processing
+
+The application includes a PostgreSQL-backed event publisher and background delivery workers. Events and their registered deliveries commit with the caller's database changes. Delivery is at least once: interrupted work can be retried, while a current lease is required to commit handler effects and acknowledgment. The application currently has no production event handlers; test handlers run only in isolated integration tests.
+
+Workers start with the application. Configure them using Spring properties or environment variables. For example, limit processing and each claim batch to one delivery:
+
+```sh
+./mvnw spring-boot:run -Dspring-boot.run.arguments="--secondbrain.events.concurrency=1 --secondbrain.events.claim-batch-size=1"
+```
+
+| Property (`secondbrain.events.` prefix) | Default | Purpose |
+|---|---|---|
+| `enabled` | `true` | Enable event infrastructure |
+| `polling-enabled` | `true` | Start background polling and cleanup; publishing remains available when false |
+| `concurrency` | `2` | Maximum in-flight handlers, configurable from 1 to 4 |
+| `claim-batch-size` | `2` | Maximum claims per poll, at most concurrency |
+| `poll-interval` | `1s` | Poll and heartbeat interval |
+| `lease-duration` | `30s` | Renewable ownership interval |
+| `execution-timeout` | `2m` | Maximum duration of one delivery attempt |
+| `transaction-timeout` | `5s` | Database statement/transaction limit, including the publishing caller's transaction |
+| `max-attempts` | `5` | Total automatic attempts, including expired leases; configurable from 1 to 10 |
+| `initial-backoff` | `1s` | Initial exponential retry ceiling; jitter chooses 50–100% of the ceiling |
+| `max-backoff` | `1m` | Maximum retry ceiling |
+| `completed-retention` | `30d` | Retain completed/skipped payloads and attempt history for this interval |
+| `cleanup-batch-size` | `100` | Maximum completed events removed per cleanup |
+| `cleanup-interval` | `1h` | Cleanup frequency |
+
+Invalid resource and timing settings fail startup. A lease must span at least three poll intervals, the transaction timeout must use whole seconds and be at least one second and at most half the lease duration, and the execution timeout must cover a lease. Database lock waits are limited to one second. Shutdown interrupts workers and waits up to five seconds for each executor. A handler that ignores interruption retains its concurrency slot until its thread exits; expired ownership prevents late database acknowledgment.
+
+Events with pending or failed deliveries, and events with no deliveries, are retained. Cleanup removes old payloads/history only when every delivery completed or was skipped. A cleanup failure is logged and does not block delivery claims. Compact event keys remain as deduplication fences after cleanup; cleanup does not permit an old event to create new work.
+
+Inspect delivery state in the database shell:
+
+```sql
+SELECT state, count(*) FROM event_deliveries GROUP BY state ORDER BY state;
+SELECT handler_id, attempts, failure_code FROM event_deliveries WHERE state = 'FAILED';
+```
+
+Failure codes are safe categories; raw handler exception messages and document contents are not stored in delivery history.

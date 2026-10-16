@@ -9,7 +9,9 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ConfigurableApplicationContext;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.NONE,
+        properties = "secondbrain.events.enabled=false")
 @ImportAutoConfiguration(
         exclude = {DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class})
 class SecondBrainApplicationTest {
