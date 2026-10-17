@@ -43,6 +43,28 @@
       <h2 id="uploads-disabled-title">Uploads unavailable</h2>
       <p>Document uploads are currently disabled.</p>
     </section>
+    <section class="library-card" aria-labelledby="documents-title" th:if="${libraryAvailable}">
+      <h2 id="documents-title">Your documents</h2>
+      <p th:if="${library.documents.isEmpty()}">No documents on this page.</p>
+      <ul class="document-list" th:unless="${library.documents.isEmpty()}">
+        <li th:each="document : ${library.documents}">
+          <div class="document-summary">
+            <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}">Document name</a>
+            <time th:datetime="${document.createdAt}" th:text="${document.createdAt}">Upload time</time>
+          </div>
+          <span class="document-state" th:text="${document.state}">QUEUED</span>
+        </li>
+      </ul>
+      <nav class="library-pages" aria-label="Document pages" th:if="${library.page > 0 or library.hasNext}">
+        <a rel="prev" th:if="${library.page > 0}" th:href="@{/(page=${library.page - 1})}">Previous</a>
+        <span th:text="|Page ${library.page + 1L}|">Page 1</span>
+        <a rel="next" th:if="${library.hasNext}" th:href="@{/(page=${library.page + 1L})}">Next</a>
+      </nav>
+    </section>
+    <section class="library-card" th:unless="${libraryAvailable}">
+      <h2>Library unavailable</h2>
+      <p>The document library is currently disabled.</p>
+    </section>
   </main>
 </body>
 </html>

@@ -7,14 +7,17 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Public document-detail use cases; persistence types stay inside the documents feature. */
+/** Public document-reading use cases; persistence types stay inside the documents feature. */
 public final class DocumentInspectionService {
+    private static final int PAGE_SIZE = 50;
     private final JdbcDocumentRepository documents;
     private final JdbcExtractedTextRepository texts;
     private final EventPublisher events;
@@ -35,6 +38,28 @@ public final class DocumentInspectionService {
         transactions.setTimeout(5);
     }
 
+    public LibraryPage list(int page) {
+        if (page < 0) throw new IllegalArgumentException("Page must not be negative");
+        return Objects.requireNonNull(
+                transactions.execute(
+                        status -> {
+                            // One extra row establishes whether another page exists without
+                            // counting all documents.
+                            var rows = documents.list(PAGE_SIZE + 1, (long) page * PAGE_SIZE);
+                            var summaries = new ArrayList<DocumentSummary>();
+                            for (var row : rows.subList(0, Math.min(PAGE_SIZE, rows.size()))) {
+                                var state = row.state().displayedWith(row.deliveryState());
+                                summaries.add(
+                                        new DocumentSummary(
+                                                row.documentId(),
+                                                row.name(),
+                                                state,
+                                                row.createdAt()));
+                            }
+                            return new LibraryPage(summaries, page, rows.size() > PAGE_SIZE);
+                        }));
+    }
+
     public Optional<DocumentView> find(UUID id) {
         Objects.requireNonNull(id, "id");
         return Objects.requireNonNull(
@@ -44,17 +69,10 @@ public final class DocumentInspectionService {
     private DocumentView view(DocumentMetadata document) {
         var id = document.documentId();
         var progress = documents.progress(id, document.processingVersion());
-        var state = document.extractionState();
+        var state = document.extractionState().displayedWith(progress.deliveryState());
         boolean active =
                 progress.deliveryState().equals("PENDING")
                         || progress.deliveryState().equals("RUNNING");
-        if (state != ExtractionState.EXTRACTED && progress.deliveryState().equals("FAILED")) {
-            state = ExtractionState.FAILED;
-        } else if (active
-                && (state == ExtractionState.FAILED
-                        || progress.deliveryState().equals("RUNNING"))) {
-            state = ExtractionState.PROCESSING;
-        }
         var lines =
                 state == ExtractionState.EXTRACTED
                         ? texts
@@ -107,6 +125,23 @@ public final class DocumentInspectionService {
                                             Map.of()));
                             return true;
                         }));
+    }
+
+    public record DocumentSummary(
+            UUID documentId, String name, ExtractionState state, Instant createdAt) {
+        public DocumentSummary {
+            Objects.requireNonNull(documentId, "documentId");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(state, "state");
+            Objects.requireNonNull(createdAt, "createdAt");
+        }
+    }
+
+    public record LibraryPage(List<DocumentSummary> documents, int page, boolean hasNext) {
+        public LibraryPage {
+            documents = List.copyOf(documents);
+            if (page < 0) throw new IllegalArgumentException("Page must not be negative");
+        }
     }
 
     public record Line(int number, String text) {}

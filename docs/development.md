@@ -98,13 +98,13 @@ The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devt
 
 Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT or Markdown file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
 
-The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. The page provides upload controls and feedback, while stored-document listing is not available. When durable events are disabled, the form is hidden and the page reports that uploads are unavailable.
+The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. **Your documents** lists stored uploads with their processing states and detail links, newest first, with 50 per page. Use **Previous** and **Next** for other pages; refresh to update processing states. When durable events are disabled, the form is hidden and the library reports that it is unavailable.
 
 Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
 
 ### Browser and restart walkthrough
 
-Use small, non-sensitive UTF-8 fixtures. Stored-document listing is not available yet; save the document URL if you want to return to it.
+Use small, non-sensitive UTF-8 fixtures. Return to document details through **Your documents** on the library page.
 
 1. Start the database and application using the README. Open the library in a fresh browser session with cookies enabled. Check the form at desktop and narrow window widths.
 2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session. Follow **Open document** and wait for **EXTRACTED**; verify Unicode, blank lines, and numbered source anchors.

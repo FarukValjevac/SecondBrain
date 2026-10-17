@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -67,6 +68,45 @@ final class JdbcDocumentRepository {
                                         resultSet.getTimestamp("updated_at").toInstant()))
                 .optional();
     }
+
+    List<LibraryRow> list(int limit, long offset) {
+        if (limit < 1 || limit > 51 || offset < 0) {
+            throw new IllegalArgumentException("Invalid library page bounds");
+        }
+        return jdbc.sql(
+                        """
+                        SELECT d.document_id, d.original_name, d.extraction_state, d.created_at,
+                               COALESCE(delivery.state, '') AS delivery_state
+                        FROM documents d
+                        LEFT JOIN event_keys k ON k.document_id = d.document_id
+                            AND k.processing_version = d.processing_version
+                            AND k.event_type = 'DocumentAccepted'
+                        LEFT JOIN event_deliveries delivery ON delivery.event_id = k.event_id
+                            AND delivery.handler_id = :handler
+                        ORDER BY d.created_at DESC, d.document_id DESC
+                        LIMIT :limit OFFSET :offset
+                        """)
+                .withQueryTimeout(5)
+                .param("handler", DocumentExtractionHandler.ID)
+                .param("limit", limit)
+                .param("offset", offset)
+                .query(
+                        (row, index) ->
+                                new LibraryRow(
+                                        row.getObject("document_id", UUID.class),
+                                        row.getString("original_name"),
+                                        ExtractionState.valueOf(row.getString("extraction_state")),
+                                        row.getTimestamp("created_at").toInstant(),
+                                        row.getString("delivery_state")))
+                .list();
+    }
+
+    record LibraryRow(
+            UUID documentId,
+            String name,
+            ExtractionState state,
+            Instant createdAt,
+            String deliveryState) {}
 
     boolean ownsStorageId(UUID storageId) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM documents WHERE storage_key = :storageId)")

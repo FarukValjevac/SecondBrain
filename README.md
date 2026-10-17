@@ -5,7 +5,7 @@ This side project was inspired by my desire to support my girlfriend through her
 
 # SecondBrain
 
-SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and extracts their UTF-8 text through durable background processing. Document pages show numbered source lines, processing status, safe failure messages, and retry controls. Health checks, local metrics, and JSON console logs support diagnostics.
+SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and extracts their UTF-8 text through durable background processing. The library lists uploads with processing status and links to document pages, which show numbered source lines, safe failure messages, and retry controls. Health checks, local metrics, and JSON console logs support diagnostics.
 
 ## Project goal
 
@@ -18,7 +18,7 @@ The goal is to turn a personal collection of notes and study materials into a li
 
 Answers should acknowledge when the documents do not contain enough information. For example, you could ask “How do these notes explain photosynthesis?” and check the passages used to answer.
 
-Semantic search, AI answers, document listing/deletion, and PDF support are still under development. The application and library run locally, with hosted AI services planned for semantic search and answering.
+Semantic search, AI answers, document deletion, and PDF support are still under development. The application and library run locally, with hosted AI services planned for semantic search and answering.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ docker compose up -d --wait --wait-timeout 60 postgres
 ./mvnw spring-boot:run
 ```
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT or Markdown file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Select **Open document** to follow processing and inspect the extracted text; pending pages refresh automatically. The application listens on loopback and applies pending database migrations automatically.
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT or Markdown file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Find uploads under **Your documents**, newest first, with up to 50 per page. Select a name or **Open document** to follow processing and inspect the extracted text; pending detail pages refresh automatically. The application listens on loopback and applies pending database migrations automatically.
 
 Supported extensions are `.txt`, `.md`, and `.markdown`, with a default limit of 10 MB per file. Extraction requires valid UTF-8 and supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
 

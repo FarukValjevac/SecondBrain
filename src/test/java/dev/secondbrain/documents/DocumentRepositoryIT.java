@@ -57,6 +57,134 @@ class DocumentRepositoryIT {
     }
 
     @Test
+    void listsBoundedPagesNewestFirstWithAStableTieBreakAndNoRemovedRows() {
+        var createdAt = Instant.parse("2031-01-01T00:00:00Z");
+        var ids = new ArrayList<UUID>();
+        var transaction = new TransactionTemplate(transactionManager);
+        transaction.executeWithoutResult(
+                status -> {
+                    // Roll back fixtures so test ordering cannot affect other listing assertions.
+                    status.setRollbackOnly();
+                    for (int i = 0; i < 54; i++) {
+                        var id = new UUID(0, i + 1);
+                        ids.add(id);
+                        repository.insert(
+                                new DocumentMetadata(
+                                        id,
+                                        "Café 📚 " + i + ".md",
+                                        DocumentType.MARKDOWN,
+                                        UUID.randomUUID(),
+                                        "a".repeat(64),
+                                        20,
+                                        1,
+                                        ExtractionState.QUEUED,
+                                        createdAt.plusSeconds(i / 2),
+                                        createdAt));
+                    }
+                    jdbc.sql("DELETE FROM documents WHERE document_id = :id")
+                            .param("id", ids.removeLast())
+                            .update();
+                    var expected = ids.reversed();
+
+                    var first = repository.list(51, 0);
+                    assertThat(first).hasSize(51);
+                    assertThat(first)
+                            .extracting(JdbcDocumentRepository.LibraryRow::documentId)
+                            .containsExactlyElementsOf(expected.subList(0, 51));
+                    assertThat(first.getFirst().name()).isEqualTo("Café 📚 52.md");
+                    assertThat(first.getFirst().state()).isEqualTo(ExtractionState.QUEUED);
+                    assertThat(first.getFirst().createdAt()).isEqualTo(createdAt.plusSeconds(26));
+                    assertThat(repository.list(3, 50))
+                            .extracting(JdbcDocumentRepository.LibraryRow::documentId)
+                            .containsExactlyElementsOf(expected.subList(50, 53));
+                    assertThat(repository.list(51, 10_000)).isEmpty();
+                });
+    }
+
+    @Test
+    void listingJoinsOnlyTheCurrentExtractionDeliveryWithoutDuplicatingDocuments() {
+        var id = UUID.randomUUID();
+        var now = Instant.parse("2032-01-01T00:00:00Z");
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(
+                        status -> {
+                            status.setRollbackOnly();
+                            repository.insert(
+                                    new DocumentMetadata(
+                                            id,
+                                            "Notes.txt",
+                                            DocumentType.TXT,
+                                            UUID.randomUUID(),
+                                            "b".repeat(64),
+                                            10,
+                                            2,
+                                            ExtractionState.QUEUED,
+                                            now,
+                                            now));
+                            insertLibraryDelivery(
+                                    id, 1, DocumentExtractionHandler.ID, "FAILED", now);
+                            var eventId =
+                                    insertLibraryDelivery(
+                                            id, 2, DocumentExtractionHandler.ID, "PENDING", now);
+                            jdbc.sql(
+                                            """
+                    INSERT INTO event_deliveries (delivery_id, event_id, handler_id, state,
+                        eligible_at, created_at, updated_at)
+                    VALUES (:id, :event, 'another.handler', 'FAILED', :now, :now, :now)
+                    """)
+                                    .param("id", UUID.randomUUID())
+                                    .param("event", eventId)
+                                    .param("now", Timestamp.from(now))
+                                    .update();
+
+                            var row = repository.list(1, 0).getFirst();
+                            assertThat(row.documentId()).isEqualTo(id);
+                            assertThat(row.deliveryState()).isEqualTo("PENDING");
+                            assertThat(repository.list(51, 0))
+                                    .filteredOn(item -> item.documentId().equals(id))
+                                    .hasSize(1);
+                        });
+    }
+
+    private static UUID insertLibraryDelivery(
+            UUID id, long version, String handler, String state, Instant now) {
+        var eventId = UUID.randomUUID();
+        jdbc.sql(
+                        """
+                INSERT INTO event_keys (event_id, document_id, processing_version, event_type,
+                    schema_version, fingerprint)
+                VALUES (:event, :document, :version, 'DocumentAccepted', 1, :fingerprint)
+                """)
+                .param("event", eventId)
+                .param("document", id)
+                .param("version", version)
+                .param("fingerprint", "a".repeat(64))
+                .update();
+        jdbc.sql(
+                        """
+                INSERT INTO domain_events (event_id, occurred_at, correlation_id, reference_ids, created_at)
+                VALUES (:event, :now, :correlation, '{}', :now)
+                """)
+                .param("event", eventId)
+                .param("now", Timestamp.from(now))
+                .param("correlation", UUID.randomUUID())
+                .update();
+        jdbc.sql(
+                        """
+                INSERT INTO event_deliveries (delivery_id, event_id, handler_id, state,
+                    eligible_at, created_at, updated_at)
+                VALUES (:id, :event, :handler, :state, :now, :now, :now)
+                """)
+                .param("id", UUID.randomUUID())
+                .param("event", eventId)
+                .param("handler", handler)
+                .param("state", state)
+                .param("now", Timestamp.from(now))
+                .update();
+        return eventId;
+    }
+
+    @Test
     void insertsAndReadsMetadataWithoutLosingValues() {
         var createdAt = Instant.parse("2026-01-01T00:00:00.123456Z");
         var metadata =
