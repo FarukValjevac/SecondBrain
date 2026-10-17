@@ -147,7 +147,9 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, and V3 creates document metadata. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, and V4 creates versioned extraction/numbered-text-line tables. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+
+`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. These tables are currently unused by uploads, which continue to report `QUEUED`.
 
 Open a database shell using the configured user and database:
 
