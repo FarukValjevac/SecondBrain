@@ -1,3 +1,8 @@
+Work in progress...! 
+
+## Note 
+This side project was inspired by my desire to support my girlfriend through her studies. Moral support now comes with version control. 😜
+
 # SecondBrain
 
 SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. It accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and records queued processing in PostgreSQL. Health checks, local metrics, and JSON console logs support diagnostics.
