@@ -41,6 +41,8 @@ On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw
 
 ## Development checks
 
+For automatic development restarts and HTML/CSS refreshes, start with `./mvnw -Pdev spring-boot:run`. See [development reload](docs/development.md#development-reload) for the edit/compile workflow.
+
 ```sh
 ./mvnw test
 ./mvnw verify

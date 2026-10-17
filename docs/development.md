@@ -67,6 +67,31 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 It serves the same local URL and reads configuration from the working directory, just like the Maven startup command.
 
+## Development reload
+
+Start PostgreSQL as described in the README, then run:
+
+```sh
+./mvnw -Pdev spring-boot:run
+```
+
+The Maven `dev` profile adds Boot-managed DevTools 4.1.1, activates the Spring `dev` settings, and serves resources directly from `src/main/resources`. The Spring settings disable template/static-resource caches while preserving the application's usual error and logging configuration. Normal startup uses `./mvnw spring-boot:run`; DevTools is absent from the default dependency set and excluded from executable JARs by Spring Boot's packaging defaults.
+
+- **HTML/CSS:** save the template or stylesheet and refresh the browser. No compilation or application restart is required. Browser refresh is manual; the LiveReload server is disabled.
+- **Java:** save the code, then run the following in another terminal from the project root:
+
+  ```sh
+  ./mvnw compile
+  ```
+
+  DevTools detects changed compiled classes and automatically restarts the application context. Wait for the startup log before making another request. This resets in-memory metrics; committed documents and events remain in their configured database/storage.
+- **IDE builds:** an IDE that compiles changed Java classes into `target/classes` can replace the manual compile command. Saving source alone does not compile Java, and IDE output in another directory will not update the Maven-launched application.
+- **Dependency/build changes:** stop and relaunch the Maven command after changing `pom.xml`. Changes to classpath application properties can trigger a restart; changes to the external `.env` require a manual restart.
+
+To check the setup, make a temporary text change in `src/main/resources/templates/library.html`, refresh and confirm it appears, then revert it. For Java, temporarily append `" (reload check)"` to the `maximumUploadSize` model value in `LibraryController.java`, compile, and confirm a new startup log and the marker next to the form's size limit; revert and compile again. Stop the existing normal-mode process before starting development mode on the same port. Do not edit applied Flyway migrations to test reloads.
+
+The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devtools.html) explains restart behavior; the [Maven plugin reference](https://docs.spring.io/spring-boot/maven-plugin/run.html) covers direct source resources.
+
 ## Uploading documents in the browser
 
 Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT or Markdown file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
