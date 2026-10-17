@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.secondbrain.SecondBrainApplication;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.WebApplicationType;
@@ -38,6 +40,7 @@ class DocumentAcceptanceIT {
         try (var context = startApplication(storageDirectory)) {
             var service = context.getBean(DocumentAcceptanceService.class);
             var jdbc = context.getBean(JdbcClient.class);
+            var meters = context.getBean(MeterRegistry.class);
 
             var document =
                     service.accept(
@@ -45,6 +48,19 @@ class DocumentAcceptanceIT {
                             content.length,
                             new ByteArrayInputStream(content),
                             correlationId);
+
+            assertThat(
+                            meters.get("secondbrain.document.uploads")
+                                    .tag("outcome", "accepted")
+                                    .counter()
+                                    .count())
+                    .isEqualTo(1);
+            assertThat(
+                            meters.get("secondbrain.document.upload.duration")
+                                    .tag("outcome", "accepted")
+                                    .timer()
+                                    .count())
+                    .isEqualTo(1);
 
             assertThat(
                             jdbc.sql(

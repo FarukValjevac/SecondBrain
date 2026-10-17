@@ -6,6 +6,10 @@ import static org.mockito.Mockito.mock;
 import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventPublisher;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -27,6 +31,7 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
+                            assertThat(context).hasSingleBean(DocumentTelemetry.class);
                             assertThat(context.getBean(EventEnvelope.Type.class))
                                     .isEqualTo(DocumentAcceptedEvent.TYPE);
                         });
@@ -42,6 +47,7 @@ class DocumentConfigurationTest {
                             assertThat(context).doesNotHaveBean(DocumentAcceptanceService.class);
                             assertThat(context).doesNotHaveBean(JdbcDocumentRepository.class);
                             assertThat(context).doesNotHaveBean(OriginalFileReconciler.class);
+                            assertThat(context).doesNotHaveBean(DocumentTelemetry.class);
                         });
     }
 
@@ -78,6 +84,8 @@ class DocumentConfigurationTest {
                         PlatformTransactionManager.class,
                         () -> mock(PlatformTransactionManager.class))
                 .withBean(Clock.class, Clock::systemUTC)
+                .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
+                .withBean(ObservationRegistry.class, ObservationRegistry::create)
                 .withBean(DocumentUploadPolicy.class, () -> policy)
                 .withBean(
                         OriginalFileStore.class,

@@ -116,6 +116,40 @@ class TelemetryPrivacyTest {
     }
 
     @Test
+    void preservesDocumentOperationNamesAndFixedOutcomesWithoutPrivateSpanFields() {
+        var capture = InMemorySpanExporter.create();
+        try (var sdk =
+                SdkTracerProvider.builder()
+                        .addSpanProcessor(SimpleSpanProcessor.create(new SafeSpanExporter(capture)))
+                        .build()) {
+            for (var operation :
+                    new String[][] {
+                        {"document.upload", "accepted"}, {"document.upload", "rejected"},
+                        {"document.upload", "unavailable"}, {"document.cleanup", "completed"},
+                        {"document.cleanup", "failed"}
+                    }) {
+                var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
+                span.setAttribute("outcome", operation[1]);
+                span.setAttribute("filename", "sentinel-private-document-name");
+                span.recordException(new IllegalStateException("sentinel-private-storage-error"));
+                span.end();
+                var exported = capture.getFinishedSpanItems().getLast();
+                Assertions.assertThat(exported.getName()).isEqualTo(operation[0]);
+                Assertions.assertThat(exported.getAttributes().size()).isEqualTo(1);
+                Assertions.assertThat(
+                                exported.getAttributes()
+                                        .get(
+                                                io.opentelemetry.api.common.AttributeKey.stringKey(
+                                                        "outcome")))
+                        .isEqualTo(operation[1]);
+                Assertions.assertThat(exported.getEvents()).isEmpty();
+                Assertions.assertThat(exported.getAttributes().toString())
+                        .doesNotContain("sentinel-private");
+            }
+        }
+    }
+
+    @Test
     void exporterFailuresNeverEscapeIntoSpanCompletion() {
         var delegate = Mockito.mock(SpanExporter.class);
         Mockito.when(delegate.shutdown())

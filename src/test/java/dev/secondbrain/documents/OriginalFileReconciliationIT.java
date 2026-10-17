@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.events.EventPublisher;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.WebApplicationType;
@@ -132,7 +134,8 @@ class OriginalFileReconciliationIT {
                             documents,
                             context.getBean(EventPublisher.class),
                             heldTransactions,
-                            CLOCK);
+                            CLOCK,
+                            context.getBean(DocumentTelemetry.class));
             var input =
                     new ByteArrayInputStream(CONTENT) {
                         @Override
@@ -161,6 +164,13 @@ class OriginalFileReconciliationIT {
 
                 allowWrite.countDown();
                 assertThat(beforeCommit.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(
+                                context.getBean(MeterRegistry.class)
+                                        .get("secondbrain.document.uploads")
+                                        .tag("outcome", "accepted")
+                                        .counter()
+                                        .count())
+                        .isZero();
                 Files.setLastModifiedTime(active, FileTime.from(OLD));
                 assertThat(cleanup.reconcileBatch().busy()).isEqualTo(1);
                 assertThat(active).exists();
@@ -169,6 +179,13 @@ class OriginalFileReconciliationIT {
 
                 allowCommit.countDown();
                 var accepted = accepting.get(10, TimeUnit.SECONDS);
+                assertThat(
+                                context.getBean(MeterRegistry.class)
+                                        .get("secondbrain.document.uploads")
+                                        .tag("outcome", "accepted")
+                                        .counter()
+                                        .count())
+                        .isEqualTo(1);
                 assertThat(accepted.state()).isEqualTo(ExtractionState.QUEUED);
                 assertThat(documents.ownsStorageId(storageId)).isTrue();
                 assertThat(cleanup.reconcileBatch().deleted()).isZero();
@@ -185,7 +202,8 @@ class OriginalFileReconciliationIT {
                 context.getBean(OriginalFileStore.class),
                 context.getBean(JdbcDocumentRepository.class),
                 SETTINGS,
-                CLOCK);
+                CLOCK,
+                context.getBean(DocumentTelemetry.class));
     }
 
     private Path fixture(byte[] content, Instant modifiedAt) throws Exception {

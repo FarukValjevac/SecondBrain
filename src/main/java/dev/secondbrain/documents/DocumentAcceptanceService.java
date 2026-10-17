@@ -20,6 +20,7 @@ public final class DocumentAcceptanceService {
     private final EventPublisher eventPublisher;
     private final TransactionOperations transactions;
     private final Clock clock;
+    private final DocumentTelemetry telemetry;
 
     DocumentAcceptanceService(
             DocumentUploadPolicy uploadPolicy,
@@ -27,13 +28,15 @@ public final class DocumentAcceptanceService {
             JdbcDocumentRepository documentRepository,
             EventPublisher eventPublisher,
             TransactionOperations transactions,
-            Clock clock) {
+            Clock clock,
+            DocumentTelemetry telemetry) {
         this.uploadPolicy = uploadPolicy;
         this.originalFileStore = originalFileStore;
         this.documentRepository = documentRepository;
         this.eventPublisher = eventPublisher;
         this.transactions = transactions;
         this.clock = clock;
+        this.telemetry = telemetry;
     }
 
     /** Consumes the stream but leaves closing it to the caller. */
@@ -42,6 +45,21 @@ public final class DocumentAcceptanceService {
             throws IOException {
         Objects.requireNonNull(input, "input");
         Objects.requireNonNull(correlationId, "correlationId");
+        try (var operation = telemetry.upload(correlationId)) {
+            try {
+                var receipt = acceptOriginal(originalName, declaredSize, input, correlationId);
+                operation.outcome(DocumentTelemetry.Outcome.ACCEPTED);
+                return receipt;
+            } catch (UploadRejectedException rejected) {
+                operation.outcome(DocumentTelemetry.Outcome.REJECTED);
+                throw rejected;
+            }
+        }
+    }
+
+    private Receipt acceptOriginal(
+            String originalName, long declaredSize, InputStream input, UUID correlationId)
+            throws IOException {
         var documentType = uploadPolicy.validate(originalName, declaredSize);
         try (var staged = originalFileStore.stage(input)) {
             var storedOriginal = staged.original();

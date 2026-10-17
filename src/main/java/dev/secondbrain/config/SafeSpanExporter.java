@@ -25,7 +25,18 @@ final class SafeSpanExporter implements SpanExporter {
     private static final Set<String> IDS =
             Set.of("correlation_id", "event_id", "delivery_id", "document_id", "causation_id");
     private static final Set<String> OUTCOMES =
-            Set.of("acknowledged", "failure_recorded", "lease_lost", "infrastructure_failure");
+            Set.of(
+                    "acknowledged",
+                    "failure_recorded",
+                    "lease_lost",
+                    "infrastructure_failure",
+                    "accepted",
+                    "rejected",
+                    "unavailable",
+                    "completed",
+                    "failed");
+    private static final Set<String> NAMES =
+            Set.of("event.delivery", "document.upload", "document.cleanup");
     private final SpanExporter delegate;
     private final java.util.concurrent.atomic.AtomicBoolean closed =
             new java.util.concurrent.atomic.AtomicBoolean();
@@ -64,8 +75,8 @@ final class SafeSpanExporter implements SpanExporter {
         return new DelegatingSpanData(source) {
             @Override
             public String getName() {
-                return source.getName().equals("event.delivery")
-                        ? "event.delivery"
+                return NAMES.contains(source.getName())
+                        ? source.getName()
                         : "application.operation";
             }
 

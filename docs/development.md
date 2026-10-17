@@ -194,6 +194,54 @@ Attempt meters update after the database commits and do not count a rejected sta
 
 Reading the filtered request timer does not increase the count for `GET /`. Request the library page again, then inspect the timer to observe the increase.
 
+### Upload and cleanup measurements
+
+| Meter | Unit | Labels / meaning |
+|---|---|---|
+| `secondbrain.document.uploads` | count | `outcome=accepted,rejected,unavailable` |
+| `secondbrain.document.upload.duration` | seconds | Acceptance-operation duration; same outcomes, plus fixed `error=none` |
+| `secondbrain.document.cleanup.batches` | count | `outcome=completed,failed` |
+| `secondbrain.document.cleanup.duration` | seconds | Cleanup-batch duration; same outcomes, plus fixed `error=none` |
+| `secondbrain.document.cleanup.deleted` | count | Originals actually deleted; no labels |
+
+Upload measurements cover attempts that reach DocumentAcceptanceService, including domain validation, original storage, transaction completion, and failure compensation. `accepted` increments after the metadata/event transaction returns successfully. `rejected` means application upload validation rejected the input; `unavailable` covers storage, database/transaction, and unexpected acceptance failures. Multipart parsing, missing/repeated file parts, and failures opening the HTTP input stream can occur before the service and are excluded from these application counters; the existing HTTP metrics still measure their requests. Both browser and JSON uploads use the same acceptance measurements.
+
+Cleanup batch measurements cover scheduled executions. The deletion counter updates after each successful deletion, including deletions made before a later entry fails. A repeated scan of already-missing files does not increase it. Batch completion/failure and inspected/deleted/busy counts remain available in the safe `original_cleanup` logs. Upload completion logs use `operation=document_upload`, a fixed outcome, and the UUID correlation ID. Filenames, file contents, paths, and raw exceptions are never passed to document telemetry. Correlation IDs appear only in logs/traces, never as metric labels.
+
+Micrometer observations supply the duration timers and correlated spans; they also expose `.duration.active` long-task timers while operations are active. Timers appear after the first matching operation completes, so an unrecorded timer/outcome can return 404. Counters start at zero and reset on restart. Metrics and observations are best effort, not a durable accounting ledger, and instrumentation failures cannot change application results. Raw application exceptions are intentionally not attached to observations, so inspect `outcome`, rather than the fixed `error=none` timer tag, to distinguish success from failure. Trace export remains optional and uses the existing sanitizer.
+
+To check this manually, restart the application, then use a second terminal. The successful request below creates one queued test document:
+
+```sh
+printf 'SecondBrain metrics check.\n' > /tmp/secondbrain-metrics.txt
+curl -i -F 'file=@/tmp/secondbrain-metrics.txt' http://127.0.0.1:8080/documents
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.uploads?tag=outcome:accepted'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.upload.duration?tag=outcome:accepted'
+```
+
+Expect HTTP 202/QUEUED for the upload. On a fresh process with no other uploads, the accepted counter and timer `COUNT` are 1; the timer also reports total/max time in seconds. Now send the same bytes with an unsupported extension:
+
+```sh
+curl -i -F 'file=@/tmp/secondbrain-metrics.txt;filename=notes.pdf' http://127.0.0.1:8080/documents
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.uploads?tag=outcome:rejected'
+```
+
+Expect HTTP 400/UNSUPPORTED_TYPE and rejected count 1. The accepted count stays unchanged. After the first `original_cleanup` log (one minute after startup by default), inspect the completed-batch counter, its timing, and deleted-file count:
+
+```sh
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.cleanup.batches?tag=outcome:completed'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.cleanup.duration?tag=outcome:completed'
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.document.cleanup.deleted
+```
+
+Completed batches should increase as cleanup runs; deleted count can correctly remain zero when there are no old unowned originals. The focused tests exercise deletion, later-batch failure, unavailable uploads, and telemetry failures using isolated fixtures:
+
+```sh
+./mvnw -Dtest=DocumentTelemetryTest,DocumentTelemetryEndpointTest test
+```
+
+Run `./mvnw verify` for the full database-backed verification gate.
+
 ## Console logs
 
 Application logs are written as one JSON object per entry using Spring Boot's built-in Logstash format. Restart the application with `./mvnw spring-boot:run` and inspect the startup messages: each has `@timestamp`, `level`, `logger_name`, `thread_name`, and `message` fields. Structured key/value fields supplied by a logger are included as additional JSON fields.

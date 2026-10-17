@@ -3,6 +3,9 @@ package dev.secondbrain.documents;
 import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventPublisher;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -23,6 +26,11 @@ import java.time.Clock;
         matchIfMissing = true)
 class DocumentConfiguration {
     @Bean
+    DocumentTelemetry documentTelemetry(MeterRegistry meters, ObservationRegistry observations) {
+        return new DocumentTelemetry(meters, observations);
+    }
+
+    @Bean
     @ConditionalOnProperty(
             name = "secondbrain.documents.cleanup.enabled",
             havingValue = "true",
@@ -31,8 +39,9 @@ class DocumentConfiguration {
             OriginalFileStore originals,
             JdbcDocumentRepository documents,
             OriginalCleanupProperties settings,
-            Clock clock) {
-        return new OriginalFileReconciler(originals, documents, settings, clock);
+            Clock clock,
+            DocumentTelemetry telemetry) {
+        return new OriginalFileReconciler(originals, documents, settings, clock, telemetry);
     }
 
     @Bean
@@ -52,13 +61,15 @@ class DocumentConfiguration {
             JdbcDocumentRepository documentRepository,
             EventPublisher eventPublisher,
             PlatformTransactionManager transactionManager,
-            Clock clock) {
+            Clock clock,
+            DocumentTelemetry telemetry) {
         return new DocumentAcceptanceService(
                 uploadPolicy,
                 originalFileStore,
                 documentRepository,
                 eventPublisher,
                 new TransactionTemplate(transactionManager),
-                clock);
+                clock,
+                telemetry);
     }
 }

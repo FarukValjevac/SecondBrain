@@ -13,6 +13,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventPublisher;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -46,6 +50,14 @@ class DocumentAcceptanceServiceTest {
     private JdbcDocumentRepository documentRepository;
     private EventPublisher eventPublisher;
     private DocumentAcceptanceService service;
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final DocumentTelemetry telemetry =
+            new DocumentTelemetry(meters, ObservationRegistry.NOOP);
+
+    @AfterEach
+    void closeMeters() {
+        meters.close();
+    }
 
     @BeforeEach
     void setUp() {
@@ -60,7 +72,8 @@ class DocumentAcceptanceServiceTest {
                         documentRepository,
                         eventPublisher,
                         directTransactions(),
-                        Clock.fixed(NOW, ZoneOffset.UTC));
+                        Clock.fixed(NOW, ZoneOffset.UTC),
+                        telemetry);
     }
 
     @Test
@@ -133,7 +146,7 @@ class DocumentAcceptanceServiceTest {
                 new OriginalCleanupProperties(Duration.ofHours(1), Duration.ofMinutes(1), 100);
         try (var cleanup =
                 new OriginalFileReconciler(
-                        originalFileStore, documentRepository, settings, clock)) {
+                        originalFileStore, documentRepository, settings, clock, telemetry)) {
             var transactions =
                     new TransactionOperations() {
                         @Override
@@ -165,7 +178,8 @@ class DocumentAcceptanceServiceTest {
                             documentRepository,
                             eventPublisher,
                             transactions,
-                            clock);
+                            clock,
+                            telemetry);
             protectedService.accept(
                     "note.md", CONTENT.length, new ByteArrayInputStream(CONTENT), CORRELATION_ID);
             // The test repository owns no real rows; removing this orphan proves the scope closed.

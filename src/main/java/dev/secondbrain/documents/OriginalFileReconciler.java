@@ -2,8 +2,6 @@ package dev.secondbrain.documents;
 
 import jakarta.annotation.PreDestroy;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.io.IOException;
@@ -11,11 +9,11 @@ import java.time.Clock;
 
 /** Owns a background directory cursor, not upload or document lifecycle state. */
 final class OriginalFileReconciler implements AutoCloseable {
-    private static final Logger LOG = LoggerFactory.getLogger(OriginalFileReconciler.class);
     private final OriginalFileStore originals;
     private final JdbcDocumentRepository documents;
     private final OriginalCleanupProperties settings;
     private final Clock clock;
+    private final DocumentTelemetry telemetry;
     private OriginalFileStore.Scan scan;
     private boolean closed;
 
@@ -23,37 +21,35 @@ final class OriginalFileReconciler implements AutoCloseable {
             OriginalFileStore originals,
             JdbcDocumentRepository documents,
             OriginalCleanupProperties settings,
-            Clock clock) {
+            Clock clock,
+            DocumentTelemetry telemetry) {
         this.originals = originals;
         this.documents = documents;
         this.settings = settings;
         this.clock = clock;
+        this.telemetry = telemetry;
     }
 
     @Scheduled(
             fixedDelayString = "${secondbrain.documents.cleanup.interval:1m}",
             initialDelayString = "${secondbrain.documents.cleanup.interval:1m}")
     synchronized void cleanup() {
-        try {
-            var batch = reconcileBatch();
-            LOG.atInfo()
-                    .addKeyValue("operation", "original_cleanup")
-                    .addKeyValue("outcome", "completed")
-                    .addKeyValue("inspected", batch.inspected())
-                    .addKeyValue("deleted", batch.deleted())
-                    .addKeyValue("busy", batch.busy())
-                    .log("Original file cleanup batch completed");
-        } catch (IOException | RuntimeException failure) {
+        if (closed) {
+            return;
+        }
+        try (var operation = telemetry.cleanup()) {
             try {
-                closeScan();
-            } catch (IOException closeFailure) {
-                failure.addSuppressed(closeFailure);
+                var batch = reconcileBatch();
+                operation.outcome(DocumentTelemetry.Outcome.COMPLETED);
+                telemetry.cleanupCompleted(batch);
+            } catch (IOException | RuntimeException failure) {
+                try {
+                    closeScan();
+                } catch (IOException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+                telemetry.cleanupFailed();
             }
-            LOG.atWarn()
-                    .addKeyValue("operation", "original_cleanup")
-                    .addKeyValue("outcome", "failed")
-                    .addKeyValue("code", "STORAGE_OR_DATABASE_UNAVAILABLE")
-                    .log("Original file cleanup will retry");
         }
     }
 
@@ -77,7 +73,10 @@ final class OriginalFileReconciler implements AutoCloseable {
             var result =
                     originals.deleteIfAbandoned(storageId.get(), cutoff, documents::ownsStorageId);
             switch (result) {
-                case DELETED -> deleted++;
+                case DELETED -> {
+                    deleted++;
+                    telemetry.deletedOriginal();
+                }
                 case BUSY -> busy++;
                 case RETAINED -> {}
             }
@@ -103,10 +102,7 @@ final class OriginalFileReconciler implements AutoCloseable {
         try {
             closeScan();
         } catch (IOException failure) {
-            LOG.atWarn()
-                    .addKeyValue("operation", "original_cleanup")
-                    .addKeyValue("outcome", "close_failed")
-                    .log("Original file scan could not close");
+            telemetry.scanCloseFailed();
         }
     }
 

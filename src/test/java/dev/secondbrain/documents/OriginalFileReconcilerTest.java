@@ -9,6 +9,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,8 +41,16 @@ class OriginalFileReconcilerTest {
     private static final Instant OLD = NOW.minus(Duration.ofHours(2));
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
     @TempDir Path directory;
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final DocumentTelemetry telemetry =
+            new DocumentTelemetry(meters, ObservationRegistry.NOOP);
     private OriginalFileStore originals;
     private JdbcDocumentRepository documents;
+
+    @AfterEach
+    void closeMeters() {
+        meters.close();
+    }
 
     @BeforeEach
     void setUp() {
@@ -126,7 +138,8 @@ class OriginalFileReconcilerTest {
                 new OriginalFileStore(
                         directory.toString(), new DocumentUploadPolicy(DataSize.ofKilobytes(1)));
         try (var restarted =
-                new OriginalFileReconciler(restartedStore, documents, settings(100), CLOCK)) {
+                new OriginalFileReconciler(
+                        restartedStore, documents, settings(100), CLOCK, telemetry)) {
             assertThat(restarted.reconcileBatch().deleted()).isEqualTo(1);
         }
     }
@@ -176,7 +189,8 @@ class OriginalFileReconcilerTest {
     }
 
     private OriginalFileReconciler reconciler(int batchSize) {
-        return new OriginalFileReconciler(originals, documents, settings(batchSize), CLOCK);
+        return new OriginalFileReconciler(
+                originals, documents, settings(batchSize), CLOCK, telemetry);
     }
 
     private static OriginalCleanupProperties settings(int batchSize) {
