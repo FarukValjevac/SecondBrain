@@ -17,6 +17,7 @@
     <section class="notice notice-success" role="status" th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>
       <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
+      <p><a th:href="@{/documents/{id}(id=${uploadReceipt.documentId})}">Open document</a></p>
     </section>
     <section class="notice notice-error" role="alert" th:if="${uploadError != null}">
       <h2>Upload could not be completed</h2>

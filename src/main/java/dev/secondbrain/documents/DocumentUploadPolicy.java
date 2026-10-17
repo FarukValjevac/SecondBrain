@@ -48,6 +48,10 @@ final class DocumentUploadPolicy {
         }
     }
 
+    long maximumUploadBytes() {
+        return maximumUploadBytes;
+    }
+
     private static String extensionOf(String filename) {
         var separator = filename.lastIndexOf('.');
         if (separator < 0 || separator == filename.length() - 1) {

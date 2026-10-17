@@ -571,6 +571,46 @@ class DurableEventsIT {
         }
     }
 
+    @Test
+    void domainFailureEffectsAndRetryBookkeepingRollBackIfLeaseExpires() {
+        publish(event());
+        var lease = claim();
+        Assertions.assertThat(
+                        store.fail(
+                                lease,
+                                DeliveryFailure.Code.HANDLER_TRANSIENT,
+                                true,
+                                () -> {
+                                    handler.effect(lease.event()).apply();
+                                    clock.advance(Duration.ofSeconds(5));
+                                    return EventHandler.Outcome.COMPLETED;
+                                }))
+                .isFalse();
+        Assertions.assertThat(count("probe_effects")).isZero();
+        Assertions.assertThat(count("domain_events")).isEqualTo(1);
+        Assertions.assertThat(state(lease.event().eventId())).isEqualTo("RUNNING");
+    }
+
+    @Test
+    void committedDomainFailureEffectsShareTheFailedAttemptAndRetryTransaction() {
+        publish(event());
+        var lease = claim();
+        Assertions.assertThat(
+                        store.fail(
+                                lease,
+                                DeliveryFailure.Code.HANDLER_TRANSIENT,
+                                true,
+                                () -> handler.effect(lease.event()).apply()))
+                .isTrue();
+        Assertions.assertThat(count("probe_effects")).isEqualTo(1);
+        Assertions.assertThat(state(lease.event().eventId())).isEqualTo("PENDING");
+        Assertions.assertThat(
+                        jdbc.sql("SELECT outcome FROM event_delivery_attempts")
+                                .query(String.class)
+                                .single())
+                .isEqualTo("FAILED");
+    }
+
     private UUID publish(EventEnvelope event) {
         return transaction.execute(status -> publisher.publish(event));
     }

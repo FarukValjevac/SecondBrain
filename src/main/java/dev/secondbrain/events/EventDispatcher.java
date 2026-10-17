@@ -54,7 +54,19 @@ final class EventDispatcher {
                     .addKeyValue("outcome", committed ? "acknowledged" : "lease_lost")
                     .log("Event delivery finished");
         } catch (DeliveryFailure permanent) {
-            fail(lease, DeliveryFailure.Code.HANDLER_PERMANENT, false, attempt);
+            var code =
+                    permanent.retryable()
+                            ? DeliveryFailure.Code.HANDLER_TRANSIENT
+                            : DeliveryFailure.Code.HANDLER_PERMANENT;
+            boolean recorded =
+                    permanent.effect().isPresent()
+                            ? store.fail(
+                                    lease,
+                                    code,
+                                    permanent.retryable(),
+                                    permanent.effect().orElseThrow())
+                            : store.fail(lease, code, permanent.retryable());
+            reportFailure(recorded, code, attempt);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             fail(lease, DeliveryFailure.Code.TIMED_OUT, true, attempt);
@@ -70,6 +82,11 @@ final class EventDispatcher {
             boolean retryable,
             EventTracing.Attempt attempt) {
         boolean recorded = store.fail(lease, code, retryable);
+        reportFailure(recorded, code, attempt);
+    }
+
+    private void reportFailure(
+            boolean recorded, DeliveryFailure.Code code, EventTracing.Attempt attempt) {
         attempt.outcome(
                 recorded ? EventTracing.Outcome.FAILURE_RECORDED : EventTracing.Outcome.LEASE_LOST);
         LOG.atWarn()

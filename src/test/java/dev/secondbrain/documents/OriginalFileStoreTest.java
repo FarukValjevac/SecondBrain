@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
@@ -19,6 +20,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HexFormat;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -57,8 +59,42 @@ class OriginalFileStoreTest {
         }
         var reopenedStore = store(temporaryDirectory.resolve("private-library"), CONTENT.length);
         assertThat(Files.isRegularFile(storedPath)).isTrue();
+        try (var input = reopenedStore.open(original.storageId())) {
+            assertThat(input.readAllBytes()).containsExactly(CONTENT);
+        }
         reopenedStore.delete(original);
         assertThat(Files.exists(storedPath)).isFalse();
+    }
+
+    @Test
+    void rejectsMissingAndNonRegularOriginalsWithoutCreatingFiles() throws IOException {
+        var store = store(temporaryDirectory, CONTENT.length);
+        var missingId = UUID.randomUUID();
+        var directoryId = UUID.randomUUID();
+        var directory = temporaryDirectory.resolve(directoryId + ".original");
+        Files.createDirectory(directory);
+
+        assertThatThrownBy(() -> store.open(missingId)).isInstanceOf(NoSuchFileException.class);
+        assertThatThrownBy(() -> store.open(directoryId))
+                .isInstanceOf(IOException.class)
+                .hasMessage("Stored original must be a regular file");
+        assertThat(Files.exists(temporaryDirectory.resolve(missingId + ".original"))).isFalse();
+    }
+
+    @Test
+    void refusesAnOriginalReplacedByASymbolicLink() throws IOException {
+        var store = store(temporaryDirectory, CONTENT.length);
+        var original = storeAndRelease(store, CONTENT);
+        var path = temporaryDirectory.resolve(original.storageKey());
+        var target = temporaryDirectory.resolve("unrelated.txt");
+        Files.write(target, CONTENT);
+        Files.delete(path);
+        Files.createSymbolicLink(path, target);
+
+        assertThatThrownBy(() -> store.open(original.storageId()))
+                .isInstanceOf(IOException.class)
+                .hasMessage("Stored original must be a regular file");
+        assertThat(Files.readAllBytes(target)).containsExactly(CONTENT);
     }
 
     @Test

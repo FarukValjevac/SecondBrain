@@ -13,6 +13,7 @@ import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.util.unit.DataSize;
@@ -30,10 +31,16 @@ class DocumentConfigurationTest {
                         context -> {
                             assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
+                            assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
+                            assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
+                            assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
+                            assertThat(context).hasSingleBean(DocumentExtractionHandler.class);
+                            assertThat(context).hasSingleBean(DocumentInspectionService.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context).hasSingleBean(DocumentTelemetry.class);
-                            assertThat(context.getBean(EventEnvelope.Type.class))
-                                    .isEqualTo(DocumentAcceptedEvent.TYPE);
+                            assertThat(context.getBeansOfType(EventEnvelope.Type.class).values())
+                                    .containsExactlyInAnyOrder(
+                                            DocumentAcceptedEvent.TYPE, TextExtractedEvent.TYPE);
                         });
     }
 
@@ -41,11 +48,16 @@ class DocumentConfigurationTest {
     void disablesAcceptanceWhenDurablePublicationIsDisabled() {
         new ApplicationContextRunner()
                 .withUserConfiguration(DocumentConfiguration.class)
+                .withPropertyValues("secondbrain.documents.extraction.reconcile-enabled=false")
                 .withPropertyValues("secondbrain.events.enabled=false")
                 .run(
                         context -> {
                             assertThat(context).doesNotHaveBean(DocumentAcceptanceService.class);
                             assertThat(context).doesNotHaveBean(JdbcDocumentRepository.class);
+                            assertThat(context).doesNotHaveBean(JdbcExtractedTextRepository.class);
+                            assertThat(context)
+                                    .doesNotHaveBean(DocumentTextExtractionService.class);
+                            assertThat(context).doesNotHaveBean(DocumentExtractionCompletion.class);
                             assertThat(context).doesNotHaveBean(OriginalFileReconciler.class);
                             assertThat(context).doesNotHaveBean(DocumentTelemetry.class);
                         });
@@ -78,7 +90,9 @@ class DocumentConfigurationTest {
         var policy = new DocumentUploadPolicy(DataSize.ofMegabytes(10));
         return new ApplicationContextRunner()
                 .withUserConfiguration(DocumentConfiguration.class)
+                .withPropertyValues("secondbrain.documents.extraction.reconcile-enabled=false")
                 .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
+                .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(EventPublisher.class, () -> mock(EventPublisher.class))
                 .withBean(
                         PlatformTransactionManager.class,

@@ -18,6 +18,8 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Testcontainers
@@ -33,13 +35,14 @@ class DatabaseMigrationIT {
     void migratesAnEmptyDatabaseAndPreservesDataOnApplicationRestart() {
         MigrationInfo firstMigration;
         UUID storageKey = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
         try (var context = startApplication()) {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(3);
+            Assertions.assertThat(flyway.info().applied()).hasSize(5);
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("3");
+            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("5");
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -51,7 +54,6 @@ class DatabaseMigrationIT {
                                     .single())
                     .isEqualTo(1.0);
 
-            var documentId = UUID.randomUUID();
             insertDocument(
                     jdbc, documentId, storageKey, "notes.md", "MARKDOWN", "a".repeat(64), 42);
             Assertions.assertThat(
@@ -61,6 +63,15 @@ class DatabaseMigrationIT {
                                     .query(String.class)
                                     .single())
                     .isEqualTo("QUEUED");
+
+            insertExtraction(jdbc, documentId, 1);
+            insertTextLine(jdbc, documentId, 1, 3, "Café ☕");
+            insertTextLine(jdbc, documentId, 1, 1, "# Étude");
+            insertTextLine(jdbc, documentId, 1, 2, "");
+            insertExtraction(jdbc, documentId, 2);
+            insertTextLine(jdbc, documentId, 2, 1, "Another version");
+            assertExtractedLines(jdbc, documentId);
+            assertExtractionConstraints(jdbc, documentId);
 
             Assertions.assertThatThrownBy(
                             () ->
@@ -123,7 +134,7 @@ class DatabaseMigrationIT {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(3);
+            Assertions.assertThat(flyway.info().applied()).hasSize(5);
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(
@@ -136,7 +147,107 @@ class DatabaseMigrationIT {
                             jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE success")
                                     .query(Integer.class)
                                     .single())
-                    .isEqualTo(3);
+                    .isEqualTo(4);
+            assertExtractedLines(jdbc, documentId);
+            Assertions.assertThat(
+                            jdbc.sql(
+                                            """
+                                    SELECT extracted_at FROM document_extractions
+                                    WHERE document_id = :id AND processing_version = 1
+                                    """)
+                                    .param("id", documentId)
+                                    .query(Timestamp.class)
+                                    .single()
+                                    .toInstant())
+                    .isEqualTo(Instant.parse("2026-01-01T00:00:00.123456Z"));
+
+            jdbc.sql("DELETE FROM documents WHERE document_id = :id")
+                    .param("id", documentId)
+                    .update();
+            Assertions.assertThat(readTextLines(jdbc, documentId, 1)).isEmpty();
+            Assertions.assertThat(readTextLines(jdbc, documentId, 2)).isEmpty();
+            Assertions.assertThat(
+                            jdbc.sql(
+                                            "SELECT count(*) FROM document_extractions WHERE document_id = :id")
+                                    .param("id", documentId)
+                                    .query(Integer.class)
+                                    .single())
+                    .isZero();
+        }
+    }
+
+    private static void insertExtraction(JdbcClient jdbc, UUID documentId, long version) {
+        jdbc.sql(
+                        """
+                INSERT INTO document_extractions (document_id, processing_version, extracted_at)
+                VALUES (:id, :version, :extractedAt)
+                """)
+                .param("id", documentId)
+                .param("version", version)
+                .param("extractedAt", Timestamp.from(Instant.parse("2026-01-01T00:00:00.123456Z")))
+                .update();
+    }
+
+    private static void insertTextLine(
+            JdbcClient jdbc, UUID documentId, long version, int lineNumber, String text) {
+        jdbc.sql(
+                        """
+                INSERT INTO document_text_lines
+                    (document_id, processing_version, line_number, line_text)
+                VALUES (:id, :version, :number, :text)
+                """)
+                .param("id", documentId)
+                .param("version", version)
+                .param("number", lineNumber)
+                .param("text", text)
+                .update();
+    }
+
+    private static List<Map.Entry<Integer, String>> readTextLines(
+            JdbcClient jdbc, UUID documentId, long version) {
+        return jdbc.sql(
+                        """
+                        SELECT line_number, line_text FROM document_text_lines
+                        WHERE document_id = :id AND processing_version = :version
+                        ORDER BY line_number
+                        """)
+                .param("id", documentId)
+                .param("version", version)
+                .query(
+                        (row, index) ->
+                                Map.entry(row.getInt("line_number"), row.getString("line_text")))
+                .list();
+    }
+
+    private static void assertExtractedLines(JdbcClient jdbc, UUID documentId) {
+        Assertions.assertThat(readTextLines(jdbc, documentId, 1))
+                .containsExactly(Map.entry(1, "# Étude"), Map.entry(2, ""), Map.entry(3, "Café ☕"));
+        Assertions.assertThat(readTextLines(jdbc, documentId, 2))
+                .containsExactly(Map.entry(1, "Another version"));
+    }
+
+    private static void assertExtractionConstraints(JdbcClient jdbc, UUID documentId) {
+        Assertions.assertThatThrownBy(() -> insertExtraction(jdbc, documentId, 1))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        Assertions.assertThatThrownBy(() -> insertExtraction(jdbc, UUID.randomUUID(), 1))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        Assertions.assertThatThrownBy(() -> insertExtraction(jdbc, documentId, 0))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        Assertions.assertThatThrownBy(
+                        () -> insertTextLine(jdbc, documentId, 99, 1, "Orphan version"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        Assertions.assertThatThrownBy(
+                        () -> insertTextLine(jdbc, documentId, 1, 0, "Invalid location"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        Assertions.assertThatThrownBy(
+                        () -> insertTextLine(jdbc, documentId, 1, 1, "Duplicate line"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        for (var lineBreak : List.of("\n", "\r")) {
+            Assertions.assertThatThrownBy(
+                            () ->
+                                    insertTextLine(
+                                            jdbc, documentId, 1, 4, "Two" + lineBreak + "lines"))
+                    .isInstanceOf(DataIntegrityViolationException.class);
         }
     }
 

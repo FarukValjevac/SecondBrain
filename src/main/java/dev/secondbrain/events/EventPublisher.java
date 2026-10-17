@@ -22,4 +22,11 @@ public final class EventPublisher {
     public UUID publish(EventEnvelope event) {
         return store.publish(tracing.capture(event), registry.get().recipients(event.type()));
     }
+
+    /** Bounded reconciliation for a newly registered consumer; repeated calls are idempotent. */
+    public int scheduleMissing(EventEnvelope.Type type, String handler, int limit) {
+        if (!registry.get().recipients(type).contains(handler))
+            throw new IllegalArgumentException("Handler is not registered for this event");
+        return store.scheduleMissing(type, handler, limit);
+    }
 }

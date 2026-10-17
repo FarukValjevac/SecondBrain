@@ -1,0 +1,3 @@
+ALTER TABLE documents ADD COLUMN extraction_failure varchar(32)
+    CHECK (extraction_failure IN ('INVALID_ENCODING', 'EMPTY_TEXT', 'INVALID_CONTENT',
+        'INPUT_TOO_LARGE', 'TOO_MANY_LINES', 'SOURCE_UNAVAILABLE', 'CANCELLED'));
