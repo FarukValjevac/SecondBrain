@@ -104,6 +104,48 @@ class DocumentTelemetryTest {
     }
 
     @Test
+    void deletionOutcomesHaveFixedLabelsAndSafeCorrelatedLogs(CapturedOutput output) {
+        for (var outcome :
+                List.of(DocumentTelemetry.Outcome.REQUESTED, DocumentTelemetry.Outcome.UNCHANGED)) {
+            try (var operation = telemetry.deletion(CORRELATION)) {
+                meterClock.add(Duration.ofMillis(10));
+                operation.outcome(outcome);
+            }
+        }
+        // A database failure leaves the operation at its safe unavailable fallback.
+        telemetry.deletion(CORRELATION).close();
+        for (var outcome : List.of("requested", "unchanged", "unavailable")) {
+            assertThat(count("secondbrain.document.deletions", outcome)).isEqualTo(1);
+            assertThat(
+                            meters.get("secondbrain.document.deletion.duration")
+                                    .tag("outcome", outcome)
+                                    .timer()
+                                    .count())
+                    .isEqualTo(1);
+        }
+        assertThat(output.getAll())
+                .contains(
+                        "document_deletion",
+                        "Document deletion request finished",
+                        CORRELATION.toString())
+                .doesNotContain("Document acceptance finished", "sentinel-private");
+        for (var meter : meters.getMeters()) {
+            assertThat(meter.getId().getTags().toString()).doesNotContain(CORRELATION.toString());
+        }
+        assertThat(completed)
+                .hasSize(3)
+                .allSatisfy(
+                        context -> {
+                            assertThat(context.getError()).isNull();
+                            assertThat(
+                                            context.getLowCardinalityKeyValues().stream()
+                                                    .map(key -> key.getKey())
+                                                    .toList())
+                                    .containsExactly("outcome");
+                        });
+    }
+
+    @Test
     void acceptedCounterUpdatesAfterTheTransactionReturnsAndMeasuresItsDuration()
             throws IOException {
         var transactions =
@@ -295,6 +337,13 @@ class DocumentTelemetryTest {
                                 }
                             });
             var brokenTelemetry = new DocumentTelemetry(brokenMeters, brokenObservations);
+            assertThatCode(
+                            () -> {
+                                try (var operation = brokenTelemetry.deletion(CORRELATION)) {
+                                    operation.outcome(DocumentTelemetry.Outcome.REQUESTED);
+                                }
+                            })
+                    .doesNotThrowAnyException();
             var service = service(brokenTelemetry, directTransactions());
             assertThatCode(
                             () ->

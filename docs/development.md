@@ -259,7 +259,7 @@ Attempt meters update after the database commits and do not count a rejected sta
 
 Reading the filtered request timer does not increase the count for `GET /`. Request the library page again, then inspect the timer to observe the increase.
 
-### Upload and cleanup measurements
+### Upload, deletion request, and cleanup measurements
 
 | Meter | Unit | Labels / meaning |
 |---|---|---|
@@ -268,6 +268,10 @@ Reading the filtered request timer does not increase the count for `GET /`. Requ
 | `secondbrain.document.cleanup.batches` | count | `outcome=completed,failed` |
 | `secondbrain.document.cleanup.duration` | seconds | Cleanup-batch duration; same outcomes, plus fixed `error=none` |
 | `secondbrain.document.cleanup.deleted` | count | Originals actually deleted; no labels |
+| `secondbrain.document.deletions` | count | Deletion requests; `outcome=requested,unchanged,unavailable` |
+| `secondbrain.document.deletion.duration` | seconds | Deletion-request duration through transaction completion; same outcomes, plus fixed `error=none` |
+
+Deletion-request measurements cover calls to the internal deletion service. `requested` means a new deletion marker and event committed; `unchanged` means the document was absent or already marked deleted. Rollback or transaction failure records `unavailable`. These outcomes do not mean original files or text have been physically removed. Logs use `operation=document_deletion` and a UUID correlation ID. The isolated PostgreSQL checks run with `./mvnw -Dit.test=DocumentDeletionIT verify`; there is no deletion HTTP action or browser button yet.
 
 Upload measurements cover attempts that reach DocumentAcceptanceService, including domain validation, original storage, transaction completion, and failure compensation. `accepted` increments after the metadata/event transaction returns successfully. `rejected` means application upload validation rejected the input; `unavailable` covers storage, database/transaction, and unexpected acceptance failures. Multipart parsing, missing/repeated file parts, and failures opening the HTTP input stream can occur before the service and are excluded from these application counters; the existing HTTP metrics still measure their requests. Both browser and JSON uploads use the same acceptance measurements.
 

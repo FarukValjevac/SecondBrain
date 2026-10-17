@@ -37,7 +37,7 @@ final class DocumentExtractionCompletion {
         mandatory.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
     }
 
-    /** Returns false for a missing, superseded, or already completed document version. */
+    /** Returns false for a deleted, missing, superseded, or already completed document version. */
     boolean complete(ExtractedText text, EventEnvelope accepted) {
         Objects.requireNonNull(text, "text");
         Objects.requireNonNull(accepted, "accepted");

@@ -32,6 +32,13 @@ final class DocumentTelemetry {
                                     outcome.tag()));
         }
         safely(() -> meters.counter("secondbrain.document.cleanup.deleted"));
+        for (var outcome :
+                new Outcome[] {Outcome.REQUESTED, Outcome.UNCHANGED, Outcome.UNAVAILABLE}) {
+            safely(
+                    () ->
+                            meters.counter(
+                                    "secondbrain.document.deletions", "outcome", outcome.tag()));
+        }
     }
 
     Operation upload(UUID correlationId) {
@@ -40,6 +47,11 @@ final class DocumentTelemetry {
 
     Operation cleanup() {
         return start("cleanup", "secondbrain.document.cleanup.batches", Outcome.FAILED, null);
+    }
+
+    Operation deletion(UUID correlationId) {
+        return start(
+                "deletion", "secondbrain.document.deletions", Outcome.UNAVAILABLE, correlationId);
     }
 
     void deletedOriginal() {
@@ -95,7 +107,7 @@ final class DocumentTelemetry {
             observation = Observation.NOOP;
             reportUnavailable();
         }
-        return new Operation(observation, counter, fallback, correlationId);
+        return new Operation(name, observation, counter, fallback, correlationId);
     }
 
     private static void safely(Runnable action) {
@@ -121,7 +133,9 @@ final class DocumentTelemetry {
         REJECTED,
         UNAVAILABLE,
         COMPLETED,
-        FAILED;
+        FAILED,
+        REQUESTED,
+        UNCHANGED;
 
         String tag() {
             return name().toLowerCase(Locale.ROOT);
@@ -129,6 +143,7 @@ final class DocumentTelemetry {
     }
 
     final class Operation implements AutoCloseable {
+        private final String name;
         private final Observation observation;
         private final String counter;
         private final UUID correlationId;
@@ -136,7 +151,12 @@ final class DocumentTelemetry {
         private boolean closed;
 
         private Operation(
-                Observation observation, String counter, Outcome outcome, UUID correlationId) {
+                String name,
+                Observation observation,
+                String counter,
+                Outcome outcome,
+                UUID correlationId) {
+            this.name = name;
             this.observation = observation;
             this.counter = counter;
             this.outcome = outcome;
@@ -160,10 +180,13 @@ final class DocumentTelemetry {
                 safely(
                         () ->
                                 LOG.atInfo()
-                                        .addKeyValue("operation", "document_upload")
+                                        .addKeyValue("operation", "document_" + name)
                                         .addKeyValue("outcome", outcome.tag())
                                         .addKeyValue("correlation_id", correlationId.toString())
-                                        .log("Document acceptance finished"));
+                                        .log(
+                                                name.equals("upload")
+                                                        ? "Document acceptance finished"
+                                                        : "Document deletion request finished"));
             }
         }
     }

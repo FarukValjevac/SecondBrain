@@ -51,6 +51,22 @@ class DocumentConfiguration {
     }
 
     @Bean
+    DocumentDeletionService documentDeletionService(
+            JdbcDocumentRepository documents,
+            EventPublisher events,
+            PlatformTransactionManager transactions,
+            Clock clock,
+            DocumentTelemetry telemetry) {
+        return new DocumentDeletionService(documents, events, transactions, clock, telemetry);
+    }
+
+    @Bean
+    EventEnvelope.Type documentDeletionRequestedEventType() {
+        // Kept unconsumed until the cleanup handler is introduced; event retention preserves it.
+        return DocumentDeletionRequestedEvent.TYPE;
+    }
+
+    @Bean
     DocumentInspectionService documentInspectionService(
             JdbcDocumentRepository documents,
             JdbcExtractedTextRepository texts,

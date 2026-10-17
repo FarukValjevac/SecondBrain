@@ -36,11 +36,14 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
                             assertThat(context).hasSingleBean(DocumentExtractionHandler.class);
                             assertThat(context).hasSingleBean(DocumentInspectionService.class);
+                            assertThat(context).hasSingleBean(DocumentDeletionService.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context).hasSingleBean(DocumentTelemetry.class);
                             assertThat(context.getBeansOfType(EventEnvelope.Type.class).values())
                                     .containsExactlyInAnyOrder(
-                                            DocumentAcceptedEvent.TYPE, TextExtractedEvent.TYPE);
+                                            DocumentAcceptedEvent.TYPE,
+                                            TextExtractedEvent.TYPE,
+                                            DocumentDeletionRequestedEvent.TYPE);
                         });
     }
 
@@ -53,6 +56,7 @@ class DocumentConfigurationTest {
                 .run(
                         context -> {
                             assertThat(context).doesNotHaveBean(DocumentAcceptanceService.class);
+                            assertThat(context).doesNotHaveBean(DocumentDeletionService.class);
                             assertThat(context).doesNotHaveBean(JdbcDocumentRepository.class);
                             assertThat(context).doesNotHaveBean(JdbcExtractedTextRepository.class);
                             assertThat(context)
