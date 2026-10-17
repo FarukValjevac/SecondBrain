@@ -17,6 +17,39 @@ These settings can be supplied through `.env` or environment variables. For an e
 
 Compose uses `pgvector/pgvector:0.8.7-pg18-bookworm` and binds PostgreSQL to `127.0.0.1:5432` by default. Its named volume preserves data across `docker compose down`. PostgreSQL's initial user, password, and database settings apply when the volume is first initialized; editing `.env` later does not change existing database credentials.
 
+### Original document storage
+
+The upload size limit defaults to `10MB` (`secondbrain.documents.max-upload-size`). The private original-file directory defaults to `./data/documents` (`secondbrain.documents.storage-directory`), relative to the application's working directory. The default directory is excluded from Git and is not served as a web resource. On POSIX filesystems, new storage directories and files receive owner-only permissions; an existing directory with group or other access is rejected. Other filesystems use their normal access controls. Both settings can be overridden with Spring environment variables such as `SECONDBRAIN_DOCUMENTS_MAX_UPLOAD_SIZE` and `SECONDBRAIN_DOCUMENTS_STORAGE_DIRECTORY`.
+
+The same upload limit applies while parsing multipart file parts and while streaming the original into private storage. The total multipart request is bounded at that limit plus 1 MiB for headers and form fields; both bounds follow the configured upload limit.
+
+Tomcat may need to read and discard the rest of a rejected upload before the browser can receive its error response. `server.tomcat.max-swallow-size` is set to `16MB`, allowing an 11 MiB oversized-file check to return the form's error feedback with the default 10 MB upload limit. This does not increase the accepted file/request limits. Larger rejected bodies can still exhaust this finite discard bound and cause a connection reset; review this setting when changing the upload limit. See [Tomcat's maxSwallowSize](https://tomcat.apache.org/tomcat-11.0-doc/config/http.html).
+
+### Abandoned-file cleanup
+
+The application periodically removes old originals that have no document metadata. This covers files left by a crash before acceptance committed, including partial writes. It retains files owned by any document state, recent files, symbolic links, directories, and unrelated filenames. Cleanup skips deletion while an upload is writing or committing; a database lookup failure stops that batch and retains the file.
+
+| Setting | Default | Allowed values |
+|---|---|---|
+| `secondbrain.documents.cleanup.enabled` | `true` | `true` / `false` |
+| `secondbrain.documents.cleanup.grace-period` | `1h` | 1 minute through 7 days |
+| `secondbrain.documents.cleanup.interval` | `1m` | 1 second through 1 hour |
+| `secondbrain.documents.cleanup.batch-size` | `100` | 1 through 1000 entries |
+
+The first batch starts after one interval; each later batch starts one interval after the previous batch finishes. The batch size bounds all inspected directory entries, including retained and unrelated entries. A cursor continues across batches and starts a new scan after reaching the end; it closes at shutdown and restarts from the beginning after an application restart. Ownership lookups have a five-second JDBC query timeout. Disabling durable events also disables cleanup.
+
+Run one application process for each storage directory and keep that directory paired with its database. Upload/cleanup protection is shared within the process; sharing a folder across multiple processes or changing its database is unsupported.
+
+After restarting with `./mvnw spring-boot:run`, look for JSON console entries with `operation=original_cleanup`. Successful batches report `inspected`, `deleted`, and `busy` counts; failures report the fixed `STORAGE_OR_DATABASE_UNAVAILABLE` code. No filenames, paths, document text, or exception details are logged. `busy` means deletion was deferred because an upload was protected. These are cleanup diagnostics; accepted documents still remain queued.
+
+To exercise cleanup with isolated temporary files and a controlled clock:
+
+```sh
+./mvnw -Dtest=OriginalFileReconcilerTest,DocumentAcceptanceServiceTest test
+```
+
+Run `./mvnw verify` for the PostgreSQL restart and concurrent-upload checks as well.
+
 ### HTTP port
 
 To use another application port on macOS/Linux:
@@ -36,9 +69,85 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 It serves the same local URL and reads configuration from the working directory, just like the Maven startup command.
 
+## Development reload
+
+Start PostgreSQL as described in the README, then run:
+
+```sh
+./mvnw -Pdev spring-boot:run
+```
+
+The Maven `dev` profile adds Boot-managed DevTools 4.1.1, activates the Spring `dev` settings, and serves resources directly from `src/main/resources`. The Spring settings disable template/static-resource caches while preserving the application's usual error and logging configuration. Normal startup uses `./mvnw spring-boot:run`; DevTools is absent from the default dependency set and excluded from executable JARs by Spring Boot's packaging defaults.
+
+- **HTML/CSS:** save the template or stylesheet and refresh the browser. No compilation or application restart is required. Browser refresh is manual; the LiveReload server is disabled.
+- **Java:** save the code, then run the following in another terminal from the project root:
+
+  ```sh
+  ./mvnw compile
+  ```
+
+  DevTools detects changed compiled classes and automatically restarts the application context. Wait for the startup log before making another request. This resets in-memory metrics; committed documents and events remain in their configured database/storage.
+- **IDE builds:** an IDE that compiles changed Java classes into `target/classes` can replace the manual compile command. Saving source alone does not compile Java, and IDE output in another directory will not update the Maven-launched application.
+- **Dependency/build changes:** stop and relaunch the Maven command after changing `pom.xml`. Changes to classpath application properties can trigger a restart; changes to the external `.env` require a manual restart.
+
+To check the setup, make a temporary text change in `src/main/resources/templates/library.html`, refresh and confirm it appears, then revert it. For Java, temporarily append `" (reload check)"` to the `maximumUploadSize` model value in `LibraryController.java`, compile, and confirm a new startup log and the marker next to the form's size limit; revert and compile again. Stop the existing normal-mode process before starting development mode on the same port. Do not edit applied Flyway migrations to test reloads.
+
+The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devtools.html) explains restart behavior; the [Maven plugin reference](https://docs.spring.io/spring-boot/maven-plugin/run.html) covers direct source resources.
+
+## Uploading documents in the browser
+
+Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT or Markdown file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+
+The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. The page provides upload controls and feedback, while stored-document listing is not available. When durable events are disabled, the form is hidden and the page reports that uploads are unavailable.
+
+Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
+
+### Browser and restart walkthrough
+
+Use small, non-sensitive fixtures. This walkthrough saves queued documents; the application does not yet list or extract them.
+
+1. Start the database and application using the README. Open the library in a fresh browser session with cookies enabled. Check the form at desktop and narrow window widths.
+2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session.
+3. Refresh after success. The message should disappear and the browser should not resubmit the file. The database should still contain one accepted record per submission.
+4. Submit an empty file and a TXT file larger than the displayed limit. Each should return to the form with a useful error and no success message or new accepted record. The native file picker filters unsupported extensions; use the [HTTP check](#uploading-documents-over-http) below to verify server-side rejection too. Select the file again when retrying.
+5. Use [database inspection](#database-inspection) to record the two document IDs, storage keys, checksums, and correlated events. Check that each `<storage_key>.original` exists in the configured storage directory and matches its source file.
+6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and both documents should remain queued. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
+
+Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
+
+## Uploading documents over HTTP
+
+With the application running, submit one existing TXT or Markdown file using the `file` field:
+
+```sh
+curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
+```
+
+Accepted extensions are `.txt`, `.md`, and `.markdown`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
+
+A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header and JSON shaped as:
+
+```json
+{"documentId":"00000000-0000-4000-8000-000000000001","state":"QUEUED"}
+```
+
+The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Accepted documents currently remain queued. The browser form uses `/documents/upload` and redirects to the page with feedback; `/documents` continues to return JSON with the status codes below.
+
+Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
+
+To check unsupported-extension rejection despite the browser's file-picker filter, submit the existing TXT bytes with a PDF filename:
+
+```sh
+curl -i -F 'file=@notes.txt;filename=notes.pdf' http://127.0.0.1:8080/documents
+```
+
+Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT and Markdown files are supported.`
+
+To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
+
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector and V2 creates the durable event tables. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, and V3 creates document metadata. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
 Open a database shell using the configured user and database:
 
@@ -53,7 +162,24 @@ SELECT version, description, success FROM flyway_schema_history ORDER BY install
 SELECT extversion FROM pg_extension WHERE extname = 'vector';
 ```
 
-Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat the queries to inspect the unchanged migration history.
+After an upload, inspect its queued state and event correlation without selecting private names or text:
+
+```sql
+SELECT d.document_id, d.storage_key, d.original_size_bytes, d.content_sha256,
+       d.extraction_state, k.event_type, e.correlation_id
+FROM documents d
+JOIN event_keys k ON k.document_id = d.document_id
+JOIN domain_events e ON e.event_id = k.event_id
+WHERE k.event_type = 'DocumentAccepted';
+```
+
+Each original is stored as `<storage_key>.original` in the configured private directory. Use `\q` to exit the database shell. To compare one with its source on macOS/Linux, replace the illustrative UUID and source path below (also adjust the storage directory if configured):
+
+```sh
+cmp notes.txt ./data/documents/00000000-0000-4000-8000-000000000001.original
+```
+
+`cmp` exits successfully with no output when the files match. After restart, the migration history and accepted document/event records should be unchanged.
 
 ## Health checks
 
@@ -65,7 +191,17 @@ curl -i http://127.0.0.1:8080/actuator/health/liveness
 curl -i http://127.0.0.1:8080/actuator/health/readiness
 ```
 
-Liveness reports Spring's application viability state independently of PostgreSQL and background work. Readiness combines Spring's readiness state, database connectivity, and an operational event-worker scheduler/executor. Deliberately disabling events or polling removes the worker requirement. A failed delivery or unavailable telemetry backend does not make the application unready. After successful startup with healthy dependencies, both probes return HTTP 200 and `{"status":"UP"}`. Losing database connectivity or a required worker makes readiness return HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
+Liveness reports Spring's application viability state independently of PostgreSQL, original-file storage, and background work. Readiness combines Spring's readiness state, database connectivity, an operational event-worker scheduler/executor, and usable original-file storage. Deliberately disabling events or polling removes the worker requirement. Disabling events also disables uploads and removes the original-storage requirement; disabling only polling or abandoned-file cleanup does not remove it. A failed delivery or unavailable telemetry backend does not make the application unready. After successful startup with healthy dependencies, both probes return HTTP 200 and `{"status":"UP"}`. Losing database connectivity, a required worker, or usable original storage makes readiness return HTTP 503 and `{"status":"DOWN"}` while liveness can remain UP. A failed startup may leave no HTTP server to answer these requests.
+
+The `originalStorage` contributor uses the configured private document directory. It creates that directory with the usual permission checks when needed, checks directory access, then writes, forces, and reads one temporary byte. The probe file is removed on close; uploaded originals are not opened or changed. Readiness recovers on the next successful check once storage is restored. Probe errors have no path or exception details, even if health details are explicitly enabled.
+
+After restarting the application, check the readiness URL above. To exercise storage failure and recovery without changing the real library or stopping PostgreSQL:
+
+```sh
+./mvnw -Dtest=OriginalStorageReadinessTest,OriginalStorageHealthIndicatorTest test
+```
+
+These tests use a temporary directory and verify HTTP 503/DOWN on storage failure, HTTP 200/UP after recovery, unchanged liveness, and private error handling.
 
 The overall health response also lists the `liveness` and `readiness` groups. Responses hide component details and error messages. Management endpoints use the application's loopback listener; only health and metrics are exposed, with Actuator discovery and JMX exposure disabled. Environment, configuration, and heap-dump endpoints are not exposed. No model APIs or external telemetry services are called by these checks.
 
@@ -110,6 +246,54 @@ curl http://127.0.0.1:8080/actuator/metrics/secondbrain.event.delivery.attempts
 Attempt meters update after the database commits and do not count a rejected stale acknowledgment twice. They are best-effort runtime telemetry: a process crash immediately after commit can lose an increment. Database delivery/attempt records remain authoritative; counters are not a durable accounting ledger.
 
 Reading the filtered request timer does not increase the count for `GET /`. Request the library page again, then inspect the timer to observe the increase.
+
+### Upload and cleanup measurements
+
+| Meter | Unit | Labels / meaning |
+|---|---|---|
+| `secondbrain.document.uploads` | count | `outcome=accepted,rejected,unavailable` |
+| `secondbrain.document.upload.duration` | seconds | Acceptance-operation duration; same outcomes, plus fixed `error=none` |
+| `secondbrain.document.cleanup.batches` | count | `outcome=completed,failed` |
+| `secondbrain.document.cleanup.duration` | seconds | Cleanup-batch duration; same outcomes, plus fixed `error=none` |
+| `secondbrain.document.cleanup.deleted` | count | Originals actually deleted; no labels |
+
+Upload measurements cover attempts that reach DocumentAcceptanceService, including domain validation, original storage, transaction completion, and failure compensation. `accepted` increments after the metadata/event transaction returns successfully. `rejected` means application upload validation rejected the input; `unavailable` covers storage, database/transaction, and unexpected acceptance failures. Multipart parsing, missing/repeated file parts, and failures opening the HTTP input stream can occur before the service and are excluded from these application counters; the existing HTTP metrics still measure their requests. Both browser and JSON uploads use the same acceptance measurements.
+
+Cleanup batch measurements cover scheduled executions. The deletion counter updates after each successful deletion, including deletions made before a later entry fails. A repeated scan of already-missing files does not increase it. Batch completion/failure and inspected/deleted/busy counts remain available in the safe `original_cleanup` logs. Upload completion logs use `operation=document_upload`, a fixed outcome, and the UUID correlation ID. Filenames, file contents, paths, and raw exceptions are never passed to document telemetry. Correlation IDs appear only in logs/traces, never as metric labels.
+
+Micrometer observations supply the duration timers and correlated spans; they also expose `.duration.active` long-task timers while operations are active. Timers appear after the first matching operation completes, so an unrecorded timer/outcome can return 404. Counters start at zero and reset on restart. Metrics and observations are best effort, not a durable accounting ledger, and instrumentation failures cannot change application results. Raw application exceptions are intentionally not attached to observations, so inspect `outcome`, rather than the fixed `error=none` timer tag, to distinguish success from failure. Trace export remains optional and uses the existing sanitizer.
+
+To check this manually, restart the application, then use a second terminal. The successful request below creates one queued test document:
+
+```sh
+printf 'SecondBrain metrics check.\n' > /tmp/secondbrain-metrics.txt
+curl -i -F 'file=@/tmp/secondbrain-metrics.txt' http://127.0.0.1:8080/documents
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.uploads?tag=outcome:accepted'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.upload.duration?tag=outcome:accepted'
+```
+
+Expect HTTP 202/QUEUED for the upload. On a fresh process with no other uploads, the accepted counter and timer `COUNT` are 1; the timer also reports total/max time in seconds. Now send the same bytes with an unsupported extension:
+
+```sh
+curl -i -F 'file=@/tmp/secondbrain-metrics.txt;filename=notes.pdf' http://127.0.0.1:8080/documents
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.uploads?tag=outcome:rejected'
+```
+
+Expect HTTP 400/UNSUPPORTED_TYPE and rejected count 1. The accepted count stays unchanged. After the first `original_cleanup` log (one minute after startup by default), inspect the completed-batch counter, its timing, and deleted-file count:
+
+```sh
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.cleanup.batches?tag=outcome:completed'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.cleanup.duration?tag=outcome:completed'
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.document.cleanup.deleted
+```
+
+Completed batches should increase as cleanup runs; deleted count can correctly remain zero when there are no old unowned originals. The focused tests exercise deletion, later-batch failure, unavailable uploads, and telemetry failures using isolated fixtures:
+
+```sh
+./mvnw -Dtest=DocumentTelemetryTest,DocumentTelemetryEndpointTest test
+```
+
+Run `./mvnw verify` for the full database-backed verification gate.
 
 ## Console logs
 
@@ -202,6 +386,15 @@ Failure codes are safe categories; raw handler exception messages and document c
 ## Verification and formatting
 
 The README lists the standard test commands. Fast tests check application wiring, library rendering, event policies/worker behavior, health/metrics, log context, real in-memory traces, privacy, and export failure isolation. PostgreSQL/pgvector Testcontainers verify committed metrics, restart backlog/trace context, and delivery with failed telemetry export; those tests do not use the Compose database or `.env`. Required integration tests fail if Docker is unavailable. Routine tests need no AI credentials or external telemetry service; tests tagged `live-ai` are excluded.
+
+For upload failure recovery checks:
+
+```sh
+./mvnw -Dtest=OriginalFileStoreTest test
+./mvnw -Dit.test=DocumentAcceptanceIT verify
+```
+
+The first command checks private original storage, including cancellation after a partial write, preserved interruption, and subsequent upload/cleanup. The second also runs the fast suite and requires Docker: an isolated PostgreSQL fixture rejects event insertion or final commit, then checks rollback, file compensation, failure counters, and a successful retry. It uses temporary storage and a container database. Run the full `./mvnw verify` before considering the issue complete.
 
 Apply Java formatting before committing:
 

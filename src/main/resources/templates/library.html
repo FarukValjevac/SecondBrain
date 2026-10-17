@@ -13,15 +13,34 @@
   <main>
     <div class="library-heading">
       <h1>Document library</h1>
-      <p class="document-count">0 documents</p>
     </div>
-    <section class="empty-library" aria-labelledby="empty-library-title">
+    <section class="notice notice-success" role="status" th:if="${uploadReceipt != null}">
+      <h2>Saved and queued</h2>
+      <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
+    </section>
+    <section class="notice notice-error" role="alert" th:if="${uploadError != null}">
+      <h2>Upload could not be completed</h2>
+      <p th:text="${uploadError}">Choose a supported file and try again.</p>
+    </section>
+    <section class="upload-card" aria-labelledby="upload-title" th:if="${uploadsEnabled}">
       <svg class="document-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
         <path d="M14 6h14l8 8v28H14z"/>
         <path d="M28 6v10h8M20 24h10M20 31h10"/>
       </svg>
-      <h2 id="empty-library-title">No documents yet</h2>
-      <p>Your library is empty.</p>
+      <h2 id="upload-title">Add a document</h2>
+      <p>Upload a TXT or Markdown file. Your original is stored privately.</p>
+      <form method="post" enctype="multipart/form-data" action="/documents/upload" th:action="@{/documents/upload}">
+        <label for="document-file">Choose a file</label>
+        <p id="upload-help" class="upload-help">
+          Supported formats: .txt, .md, .markdown. Maximum file size: <span th:text="${maximumUploadSize}">10MB</span>.
+        </p>
+        <input type="file" id="document-file" name="file" accept=".txt,.md,.markdown" aria-describedby="upload-help" required>
+        <button type="submit">Upload document</button>
+      </form>
+    </section>
+    <section class="upload-card" aria-labelledby="uploads-disabled-title" th:unless="${uploadsEnabled}">
+      <h2 id="uploads-disabled-title">Uploads unavailable</h2>
+      <p>Document uploads are currently disabled.</p>
     </section>
   </main>
 </body>

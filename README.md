@@ -1,6 +1,11 @@
+Work in progress...! 
+
+## Note 
+This side project was inspired by my desire to support my girlfriend through her studies. Moral support now comes with version control. 😜
+
 # SecondBrain
 
-SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. The current version displays an empty document library and includes PostgreSQL storage, durable event delivery, health checks, local metrics, and JSON console logs.
+SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. It accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and records queued processing in PostgreSQL. Health checks, local metrics, and JSON console logs support diagnostics.
 
 ## Requirements
 
@@ -28,11 +33,15 @@ docker compose up -d --wait --wait-timeout 60 postgres
 ./mvnw spring-boot:run
 ```
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). The application listens on loopback and applies pending database migrations automatically. The library currently has no document-management controls.
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT or Markdown file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Accepted documents currently remain queued. The application listens on loopback and applies pending database migrations automatically.
+
+Supported extensions are `.txt`, `.md`, and `.markdown`, with a default limit of 10 MB per file. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
 
 On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw`.
 
 ## Development checks
+
+For automatic development restarts and HTML/CSS refreshes, start with `./mvnw -Pdev spring-boot:run`. See [development reload](docs/development.md#development-reload) for the edit/compile workflow.
 
 ```sh
 ./mvnw test
@@ -51,4 +60,4 @@ docker compose down
 
 Database data remains in the Docker-managed volume and is reused on the next startup.
 
-See the [development guide](docs/development.md) for configuration options, diagnostics, formatting, and troubleshooting.
+See the [development guide](docs/development.md) for HTTP upload usage, configuration options, diagnostics, formatting, and troubleshooting.

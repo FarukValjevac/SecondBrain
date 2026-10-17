@@ -19,7 +19,7 @@ import java.util.UUID;
 @Component
 final class RequestCorrelationFilter extends OncePerRequestFilter {
     static final String HEADER = "X-Correlation-ID";
-    static final String ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".correlationId";
+    static final String ATTRIBUTE = "dev.secondbrain.web.RequestCorrelationFilter.correlationId";
     static final String MDC_KEY = "correlation_id";
     private static final Logger LOG = LoggerFactory.getLogger(RequestCorrelationFilter.class);
 

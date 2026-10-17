@@ -80,6 +80,8 @@ class TelemetryConfiguration {
                                                                 "/",
                                                                 "/**",
                                                                 "/css/**",
+                                                                "/documents",
+                                                                "/documents/upload",
                                                                 "NOT_FOUND",
                                                                 "UNKNOWN",
                                                                 "REDIRECTION",

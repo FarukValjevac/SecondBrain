@@ -262,6 +262,7 @@ class ObservabilityIT {
                         .web(WebApplicationType.NONE)
                         .run(
                                 "--spring.config.import=",
+                                "--secondbrain.documents.cleanup.enabled=false",
                                 "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                                 "--spring.datasource.username=" + POSTGRES.getUsername(),
                                 "--spring.datasource.password=" + POSTGRES.getPassword(),
