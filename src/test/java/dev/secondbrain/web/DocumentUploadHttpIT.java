@@ -17,6 +17,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -94,9 +96,10 @@ class DocumentUploadHttpIT {
                 .isEqualTo(documentId.toString());
     }
 
-    @Test
-    void rejectsOversizedFilesBeforeCallingTheService() throws Exception {
-        var response = sendMultipart("x".repeat(33));
+    @ParameterizedTest
+    @ValueSource(ints = {33, 11 * 1024 * 1024})
+    void rejectsOversizedFilesBeforeCallingTheService(int sizeInBytes) throws Exception {
+        var response = sendMultipart("x".repeat(sizeInBytes));
         assertThat(response.statusCode()).isEqualTo(413);
         assertThat(response.body()).contains("FILE_TOO_LARGE").doesNotContain("sentinel-private");
         verifyNoInteractions(acceptanceService);
@@ -140,9 +143,11 @@ class DocumentUploadHttpIT {
         }
     }
 
-    @Test
-    void redirectsAnOversizedBrowserUploadToEscapedFeedback() throws Exception {
-        var response = sendMultipart("/documents/upload", "x".repeat(33));
+    @ParameterizedTest
+    @ValueSource(ints = {33, 11 * 1024 * 1024})
+    void redirectsAnOversizedBrowserUploadToEscapedFeedback(int sizeInBytes) throws Exception {
+        // The large case exceeds Tomcat's default 2 MiB discarded-body limit.
+        var response = sendMultipart("/documents/upload", "x".repeat(sizeInBytes));
         assertThat(response.statusCode()).isEqualTo(303);
         assertThat(response.headers().firstValue("Location")).contains("/");
         var cookie = response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];

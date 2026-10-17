@@ -23,6 +23,8 @@ The upload size limit defaults to `10MB` (`secondbrain.documents.max-upload-size
 
 The same upload limit applies while parsing multipart file parts and while streaming the original into private storage. The total multipart request is bounded at that limit plus 1 MiB for headers and form fields; both bounds follow the configured upload limit.
 
+Tomcat may need to read and discard the rest of a rejected upload before the browser can receive its error response. `server.tomcat.max-swallow-size` is set to `16MB`, allowing an 11 MiB oversized-file check to return the form's error feedback with the default 10 MB upload limit. This does not increase the accepted file/request limits. Larger rejected bodies can still exhaust this finite discard bound and cause a connection reset; review this setting when changing the upload limit. See [Tomcat's maxSwallowSize](https://tomcat.apache.org/tomcat-11.0-doc/config/http.html).
+
 ### Abandoned-file cleanup
 
 The application periodically removes old originals that have no document metadata. This covers files left by a crash before acceptance committed, including partial writes. It retains files owned by any document state, recent files, symbolic links, directories, and unrelated filenames. Cleanup skips deletion while an upload is writing or committing; a database lookup failure stops that batch and retains the file.
@@ -107,7 +109,7 @@ Use small, non-sensitive fixtures. This walkthrough saves queued documents; the 
 1. Start the database and application using the README. Open the library in a fresh browser session with cookies enabled. Check the form at desktop and narrow window widths.
 2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session.
 3. Refresh after success. The message should disappear and the browser should not resubmit the file. The database should still contain one accepted record per submission.
-4. Submit an empty file, an unsupported extension such as `.pdf`, and a TXT file larger than the displayed limit. Each should show a useful error without a success message or a new accepted record. Select the file again when retrying.
+4. Submit an empty file and a TXT file larger than the displayed limit. Each should return to the form with a useful error and no success message or new accepted record. The native file picker filters unsupported extensions; use the [HTTP check](#uploading-documents-over-http) below to verify server-side rejection too. Select the file again when retrying.
 5. Use [database inspection](#database-inspection) to record the two document IDs, storage keys, checksums, and correlated events. Check that each `<storage_key>.original` exists in the configured storage directory and matches its source file.
 6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and both documents should remain queued. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
 
@@ -132,6 +134,14 @@ A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header 
 The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Accepted documents currently remain queued. The browser form uses `/documents/upload` and redirects to the page with feedback; `/documents` continues to return JSON with the status codes below.
 
 Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
+
+To check unsupported-extension rejection despite the browser's file-picker filter, submit the existing TXT bytes with a PDF filename:
+
+```sh
+curl -i -F 'file=@notes.txt;filename=notes.pdf' http://127.0.0.1:8080/documents
+```
+
+Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT and Markdown files are supported.`
 
 To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
 
