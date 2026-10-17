@@ -20,6 +20,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
@@ -76,12 +78,14 @@ class DocumentAcceptanceServiceTest {
                         telemetry);
     }
 
-    @Test
-    void storesOriginalAndWritesMetadataAndAcceptedEventInOneTransaction() throws IOException {
+    @ParameterizedTest
+    @ValueSource(strings = {"meeting.md", "../outside.txt", "..\\outside.md"})
+    void storesOriginalAndWritesMetadataAndAcceptedEventInOneTransaction(String originalName)
+            throws IOException {
         var correlationId = CORRELATION_ID;
         var document =
                 service.accept(
-                        "meeting.md",
+                        originalName,
                         CONTENT.length,
                         new ByteArrayInputStream(CONTENT),
                         correlationId);
@@ -89,6 +93,7 @@ class DocumentAcceptanceServiceTest {
         var documentCaptor = ArgumentCaptor.forClass(DocumentMetadata.class);
         verify(documentRepository).insert(documentCaptor.capture());
         assertThat(documentCaptor.getValue().documentId()).isEqualTo(document.documentId());
+        assertThat(documentCaptor.getValue().originalName()).isEqualTo(originalName);
         assertThat(document.state()).isEqualTo(ExtractionState.QUEUED);
         var eventCaptor = ArgumentCaptor.forClass(EventEnvelope.class);
         verify(eventPublisher).publish(eventCaptor.capture());
@@ -100,6 +105,12 @@ class DocumentAcceptanceServiceTest {
                                 storageDirectory.resolve(
                                         documentCaptor.getValue().storageId() + ".original")))
                 .containsExactly(CONTENT);
+        try (var files = Files.list(storageDirectory)) {
+            assertThat(files)
+                    .containsExactly(
+                            storageDirectory.resolve(
+                                    documentCaptor.getValue().storageId() + ".original"));
+        }
     }
 
     @Test
