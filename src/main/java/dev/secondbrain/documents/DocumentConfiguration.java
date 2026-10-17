@@ -51,6 +51,31 @@ class DocumentConfiguration {
     }
 
     @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.documents.deletion.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentDeletionHandler documentDeletionHandler(
+            JdbcDocumentRepository documents,
+            OriginalFileStore originals,
+            EventPublisher events,
+            PlatformTransactionManager transactions) {
+        return new DocumentDeletionHandler(documents, originals, events, transactions);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = {
+                "secondbrain.documents.deletion.enabled",
+                "secondbrain.documents.deletion.reconcile-enabled"
+            },
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentDeletionReconciliation documentDeletionReconciliation(EventPublisher events) {
+        return new DocumentDeletionReconciliation(events);
+    }
+
+    @Bean
     DocumentDeletionService documentDeletionService(
             JdbcDocumentRepository documents,
             EventPublisher events,
@@ -62,7 +87,7 @@ class DocumentConfiguration {
 
     @Bean
     EventEnvelope.Type documentDeletionRequestedEventType() {
-        // Kept unconsumed until the cleanup handler is introduced; event retention preserves it.
+        // Remains known when cleanup is disabled, preserving requests for later reconciliation.
         return DocumentDeletionRequestedEvent.TYPE;
     }
 

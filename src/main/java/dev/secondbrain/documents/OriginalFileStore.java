@@ -115,7 +115,12 @@ final class OriginalFileStore {
     }
 
     void delete(StoredOriginal original) throws IOException {
-        Files.deleteIfExists(pathFor(original.storageId()));
+        delete(original.storageId());
+    }
+
+    /** Deletes only the generated key; a missing file succeeds and links are never followed. */
+    void delete(UUID storageId) throws IOException {
+        Files.deleteIfExists(pathFor(Objects.requireNonNull(storageId, "storageId")));
     }
 
     /** Opens only a generated storage key; the caller must close the returned stream. */

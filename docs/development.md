@@ -125,6 +125,21 @@ Existing accepted uploads are reconciled in batches of 100 every second. `second
 
 Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.duration`, and backlog metrics for processing diagnostics. `event.delivery` observations and safe structured logs carry document/version/event/delivery/correlation IDs across restart; fixed outcomes/codes distinguish completion, skipped stale work, retries, and failure. No document text, names, or exception messages enter this telemetry. Failure state and attempt/retry bookkeeping commit together under the same lease fence as successful completion.
 
+## Deleted-document cleanup
+
+The internal deletion service hides a document immediately and commits a durable cleanup request. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `secondbrain.documents.deletion.enabled` | `true` | Register the durable cleanup handler |
+| `secondbrain.documents.deletion.reconcile-enabled` | `true` | Schedule retained requests that predate the handler |
+
+Reconciliation runs every second in batches of up to 100. It does not duplicate deliveries or reset failed attempts. Disabling the handler still permits deletion requests and preserves their events. `secondbrain.events.polling-enabled=false` pauses execution; `secondbrain.documents.cleanup.enabled` controls the separate abandoned-file scanner. There is no deletion HTTP action or browser button yet.
+
+Restarting the application with normal settings processes existing deletion requests automatically. Use the document UUID with the [database inspection](#database-inspection) connection: successful cleanup leaves no matching row in `documents` or `document_extractions`, and its `documents.delete.v1` delivery is `COMPLETED` (or `SKIPPED` for already absent work). The generated `.original` file is removed; source files selected for upload remain untouched. Generic event-delivery logs, attempt metrics, and backlog metrics cover cleanup using persisted correlation IDs. The `secondbrain.document.cleanup.deleted` counter belongs to the abandoned-file scanner and does not count this durable handler.
+
+Run `./mvnw -Dit.test=DocumentDeletionIT verify` for isolated PostgreSQL cleanup, missing-file recovery, retry, and deletion-request checks. The full gate remains `./mvnw verify`.
+
 ## Uploading documents over HTTP
 
 With the application running, submit one existing TXT or Markdown file using the `file` field:

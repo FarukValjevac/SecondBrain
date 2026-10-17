@@ -2,6 +2,9 @@ package dev.secondbrain.documents;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.events.EventEnvelope;
@@ -9,15 +12,23 @@ import dev.secondbrain.events.EventHandler;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
+import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -25,17 +36,20 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Testcontainers
 class DocumentDeletionIT {
@@ -48,6 +62,265 @@ class DocumentDeletionIT {
     private static final byte[] CONTENT =
             "# Study notes\nCafé 📚\n".getBytes(StandardCharsets.UTF_8);
     @TempDir Path storage;
+
+    @AfterEach
+    void clearOnlyTheIsolatedTestDatabase() {
+        JdbcClient.create(
+                        new DriverManagerDataSource(
+                                POSTGRES.getJdbcUrl(),
+                                POSTGRES.getUsername(),
+                                POSTGRES.getPassword()))
+                .sql(
+                        "TRUNCATE TABLE documents, event_keys, domain_events, event_deliveries, event_delivery_attempts CASCADE")
+                .update();
+    }
+
+    @Test
+    void reconcilesRetainedRequestsAfterRestartAndRemovesAllContentAndObsoleteProcessingState()
+            throws Exception {
+        UUID id;
+        UUID storageId;
+        try (var context = start(false, false, false)) {
+            var fixture = upload(context);
+            id = fixture.document().documentId();
+            storageId = fixture.document().storageId();
+            var text =
+                    context.getBean(DocumentTextExtractionService.class)
+                            .extract(fixture.document());
+            assertThat(
+                            transaction(context)
+                                    .<Boolean>execute(
+                                            status ->
+                                                    context.getBean(
+                                                                    DocumentExtractionCompletion
+                                                                            .class)
+                                                            .complete(text, fixture.accepted())))
+                    .isTrue();
+            context.getBean(JdbcExtractedTextRepository.class)
+                    .insert(new ExtractedText(id, 9, text.extractedAt(), text.lines()));
+            assertThat(
+                            context.getBean(DocumentDeletionService.class)
+                                    .request(id, UUID.randomUUID()))
+                    .isTrue();
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            """
+                    SELECT count(*) FROM event_deliveries d JOIN event_keys k USING (event_id)
+                    WHERE k.document_id = :id AND k.event_type = 'DocumentDeletionRequested'
+                    """)
+                                    .param("id", id)
+                                    .query(Integer.class)
+                                    .single())
+                    .isZero();
+        }
+        try (var context = start(true, true, true)) {
+            awaitRemoved(context, id);
+            assertThat(Files.exists(storage.resolve(storageId + ".original"))).isFalse();
+            assertThat(
+                            context.getBean(JdbcExtractedTextRepository.class)
+                                    .findByDocumentVersion(id, 1))
+                    .isEmpty();
+            assertThat(
+                            context.getBean(JdbcExtractedTextRepository.class)
+                                    .findByDocumentVersion(id, 9))
+                    .isEmpty();
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            """
+                    SELECT count(*) FROM domain_events e JOIN event_keys k USING (event_id)
+                    WHERE k.document_id = :id AND k.processing_version < 2
+                    """)
+                                    .param("id", id)
+                                    .query(Integer.class)
+                                    .single())
+                    .isZero();
+            assertThat(eventCount(context, id, "DocumentAccepted")).isEqualTo(1);
+            assertThat(eventCount(context, id, "TextExtracted")).isEqualTo(1);
+            assertThat(cleanupState(context, id)).isEqualTo("COMPLETED");
+            assertThat(
+                            context.getBean(DocumentDeletionHandler.class)
+                                    .prepare(deletionEvent(context, id))
+                                    .apply())
+                    .isEqualTo(EventHandler.Outcome.SKIPPED);
+            // Reconciliation cannot create a duplicate delivery or revive cleaned content.
+            context.getBean(DocumentDeletionReconciliation.class).reconcile();
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            """
+                    SELECT count(*) FROM event_deliveries d JOIN event_keys k USING (event_id)
+                    WHERE k.document_id = :id
+                    """)
+                                    .param("id", id)
+                                    .query(Integer.class)
+                                    .single())
+                    .isEqualTo(1);
+            assertHidden(context, id);
+        }
+    }
+
+    @Test
+    void canRetryAfterTheFileWasRemovedButDatabaseFinalizationRolledBack() throws Exception {
+        try (var context = start()) {
+            var fixture = upload(context);
+            var id = fixture.document().documentId();
+            var text =
+                    context.getBean(DocumentTextExtractionService.class)
+                            .extract(fixture.document());
+            assertThat(
+                            transaction(context)
+                                    .<Boolean>execute(
+                                            status ->
+                                                    context.getBean(
+                                                                    DocumentExtractionCompletion
+                                                                            .class)
+                                                            .complete(text, fixture.accepted())))
+                    .isTrue();
+            assertThat(
+                            context.getBean(DocumentDeletionService.class)
+                                    .request(id, UUID.randomUUID()))
+                    .isTrue();
+            var handler = context.getBean(DocumentDeletionHandler.class);
+            var event = deletionEvent(context, id);
+            var prepared = handler.prepare(event);
+            assertThat(Files.exists(storage.resolve(fixture.document().storageId() + ".original")))
+                    .isFalse();
+            transaction(context)
+                    .executeWithoutResult(
+                            status -> {
+                                assertThat(prepared.apply())
+                                        .isEqualTo(EventHandler.Outcome.COMPLETED);
+                                status.setRollbackOnly();
+                            });
+            assertThat(context.getBean(JdbcDocumentRepository.class).deletedStorageId(id, 2))
+                    .isPresent();
+            assertThat(
+                            context.getBean(JdbcExtractedTextRepository.class)
+                                    .findByDocumentVersion(id, 1))
+                    .contains(text);
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            """
+                    SELECT count(*) FROM domain_events e JOIN event_keys k USING (event_id)
+                    WHERE k.document_id = :id AND k.event_type = 'DocumentAccepted'
+                    """)
+                                    .param("id", id)
+                                    .query(Integer.class)
+                                    .single())
+                    .isEqualTo(1);
+        }
+        // A fresh process sees the missing file as success and acknowledges only after DB commit.
+        // Find the sole pending deletion in this isolated database; other tests are cleared between
+        // cases.
+        try (var context = start(true, true, false)) {
+            var id =
+                    jdbc(context)
+                            .sql(
+                                    "SELECT document_id FROM event_keys WHERE event_type = 'DocumentDeletionRequested'")
+                            .query(UUID.class)
+                            .single();
+            awaitRemoved(context, id);
+            assertThat(cleanupState(context, id)).isEqualTo("COMPLETED");
+        }
+    }
+
+    @Test
+    void storageFailureLeavesHiddenRecoverableWorkAndTheWorkerRetries() throws Exception {
+        try (var context = start(true, true, false)) {
+            var fixture = upload(context);
+            var id = fixture.document().documentId();
+            var gate = context.getBean(CleanupGate.class);
+            gate.fail.set(true);
+            assertThat(
+                            context.getBean(DocumentDeletionService.class)
+                                    .request(id, UUID.randomUUID()))
+                    .isTrue();
+            Awaitility.await()
+                    .atMost(Duration.ofSeconds(10))
+                    .untilAsserted(
+                            () -> {
+                                assertThat(cleanupState(context, id)).isEqualTo("PENDING");
+                                assertThat(
+                                                jdbc(context)
+                                                        .sql(
+                                                                """
+                        SELECT attempts FROM event_deliveries d JOIN event_keys k USING (event_id)
+                        WHERE k.document_id = :id AND d.handler_id = :handler
+                        """)
+                                                        .param("id", id)
+                                                        .param(
+                                                                "handler",
+                                                                DocumentDeletionHandler.ID)
+                                                        .query(Integer.class)
+                                                        .single())
+                                        .isGreaterThanOrEqualTo(1);
+                            });
+            assertHidden(context, id);
+            assertThat(context.getBean(JdbcDocumentRepository.class).deletedStorageId(id, 2))
+                    .isPresent();
+            assertThat(
+                            Files.readAllBytes(
+                                    storage.resolve(fixture.document().storageId() + ".original")))
+                    .isEqualTo(CONTENT);
+            gate.fail.set(false);
+            awaitRemoved(context, id);
+            assertThat(cleanupState(context, id)).isEqualTo("COMPLETED");
+        }
+    }
+
+    private static void awaitRemoved(ConfigurableApplicationContext context, UUID id) {
+        Awaitility.await()
+                .atMost(Duration.ofSeconds(10))
+                .untilAsserted(
+                        () ->
+                                assertThat(
+                                                jdbc(context)
+                                                        .sql(
+                                                                "SELECT count(*) FROM documents WHERE document_id = :id")
+                                                        .param("id", id)
+                                                        .query(Integer.class)
+                                                        .single())
+                                        .isZero());
+    }
+
+    private static String cleanupState(ConfigurableApplicationContext context, UUID id) {
+        return jdbc(context)
+                .sql(
+                        """
+                SELECT d.state FROM event_deliveries d JOIN event_keys k USING (event_id)
+                WHERE k.document_id = :id AND d.handler_id = :handler
+                """)
+                .param("id", id)
+                .param("handler", DocumentDeletionHandler.ID)
+                .query(String.class)
+                .single();
+    }
+
+    private static EventEnvelope deletionEvent(ConfigurableApplicationContext context, UUID id) {
+        return jdbc(context)
+                .sql(
+                        """
+                SELECT e.event_id, e.occurred_at, e.correlation_id FROM domain_events e JOIN event_keys k USING(event_id)
+                WHERE k.document_id = :id AND k.event_type = 'DocumentDeletionRequested'
+                """)
+                .param("id", id)
+                .query(
+                        (row, index) ->
+                                new EventEnvelope(
+                                        row.getObject("event_id", UUID.class),
+                                        DocumentDeletionRequestedEvent.TYPE,
+                                        id,
+                                        2,
+                                        row.getTimestamp("occurred_at").toInstant(),
+                                        row.getObject("correlation_id", UUID.class),
+                                        null,
+                                        null,
+                                        Map.of()))
+                .single();
+    }
 
     @Test
     void hidesCompletedTextAndRecordsOneDurableRequestAcrossRestartWithoutRemovingOriginals()
@@ -323,8 +596,7 @@ class DocumentDeletionIT {
         assertThat(event.get("correlation_id")).isEqualTo(correlation);
         assertThat(event.get("causation_id")).isNull();
         assertThat(event.get("refs")).isEqualTo("{}");
-        // A real cleanup consumer and reconciliation are the next slice; never consume with a
-        // no-op.
+        // The real cleanup delivery commits with the request; polling is disabled in this fixture.
         assertThat(
                         jdbc(context)
                                 .sql(
@@ -335,7 +607,7 @@ class DocumentDeletionIT {
                                 .param("id", id)
                                 .query(Integer.class)
                                 .single())
-                .isZero();
+                .isEqualTo(1);
     }
 
     private static int eventCount(ConfigurableApplicationContext context, UUID id, String type) {
@@ -402,12 +674,25 @@ class DocumentDeletionIT {
     }
 
     private ConfigurableApplicationContext start() {
-        return new SpringApplicationBuilder(SecondBrainApplication.class)
+        return start(false, true, false);
+    }
+
+    private ConfigurableApplicationContext start(
+            boolean polling, boolean cleanup, boolean reconcile) {
+        return new SpringApplicationBuilder(
+                        SecondBrainApplication.class, CleanupConfiguration.class)
                 .web(WebApplicationType.NONE)
                 .run(
                         "--spring.config.import=",
                         "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.events.polling-enabled=false",
+                        "--secondbrain.events.polling-enabled=" + polling,
+                        "--secondbrain.events.poll-interval=50ms",
+                        "--secondbrain.events.initial-backoff=1s",
+                        "--secondbrain.events.max-backoff=1s",
+                        "--secondbrain.events.max-attempts=5",
+                        "--secondbrain.documents.extraction.enabled=" + !polling,
+                        "--secondbrain.documents.deletion.enabled=" + cleanup,
+                        "--secondbrain.documents.deletion.reconcile-enabled=" + reconcile,
                         "--secondbrain.documents.extraction.reconcile-enabled=false",
                         "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                         "--spring.datasource.username=" + POSTGRES.getUsername(),
@@ -416,4 +701,39 @@ class DocumentDeletionIT {
     }
 
     private record Fixture(DocumentMetadata document, EventEnvelope accepted) {}
+
+    static final class CleanupGate {
+        final AtomicBoolean fail = new AtomicBoolean();
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class CleanupConfiguration {
+        @Bean
+        CleanupGate cleanupGate() {
+            return new CleanupGate();
+        }
+
+        @Bean
+        @Primary
+        OriginalFileStore controlledOriginals(
+                @Value("${secondbrain.documents.storage-directory}") String directory,
+                DocumentUploadPolicy policy,
+                CleanupGate gate)
+                throws IOException {
+            var originals = spy(new OriginalFileStore(directory, policy));
+            doAnswer(
+                            invocation -> {
+                                assertThat(
+                                                TransactionSynchronizationManager
+                                                        .isActualTransactionActive())
+                                        .isFalse();
+                                if (gate.fail.get())
+                                    throw new IOException("sentinel-private-delete-error");
+                                return invocation.callRealMethod();
+                            })
+                    .when(originals)
+                    .delete(any(UUID.class));
+            return originals;
+        }
+    }
 }

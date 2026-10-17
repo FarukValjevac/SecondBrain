@@ -126,6 +126,34 @@ final class JdbcDocumentRepository {
                 .optional();
     }
 
+    Optional<UUID> deletedStorageId(UUID id, long version) {
+        return jdbc.sql(
+                        """
+                        SELECT storage_key FROM documents
+                        WHERE document_id = :id AND processing_version = :version AND deleted_at IS NOT NULL
+                        """)
+                .withQueryTimeout(5)
+                .param("id", id)
+                .param("version", version)
+                .query(UUID.class)
+                .optional();
+    }
+
+    /** Cascades all stored text versions; event keys remain as non-content deduplication fences. */
+    boolean finishDeletion(UUID id, long version, UUID storageId) {
+        return jdbc.sql(
+                                """
+                        DELETE FROM documents WHERE document_id = :id AND processing_version = :version
+                            AND deleted_at IS NOT NULL AND storage_key = :storage
+                        """)
+                        .withQueryTimeout(5)
+                        .param("id", id)
+                        .param("version", version)
+                        .param("storage", storageId)
+                        .update()
+                == 1;
+    }
+
     boolean ownsStorageId(UUID storageId) {
         // Deleted rows still own their original until the durable cleanup removes it.
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM documents WHERE storage_key = :storageId)")
