@@ -10,13 +10,18 @@ import org.springframework.util.unit.DataSize;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HexFormat;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 
 class OriginalFileStoreTest {
     private static final byte[] CONTENT =
@@ -126,6 +131,76 @@ class OriginalFileStoreTest {
         } catch (IOException exception) {
             throw new AssertionError(exception);
         }
+    }
+
+    @Test
+    void removesInterruptedWritePreservesInterruptAndReleasesCleanupProtection() throws Exception {
+        var store = store(temporaryDirectory, CONTENT.length);
+        var waitingForMoreInput = new CountDownLatch(1);
+        var keepReading = new CountDownLatch(1);
+        var input =
+                new InputStream() {
+                    private boolean suppliedContent;
+
+                    @Override
+                    public int read() {
+                        throw new UnsupportedOperationException();
+                    }
+
+                    @Override
+                    public int read(byte[] buffer, int offset, int length) throws IOException {
+                        if (!suppliedContent) {
+                            System.arraycopy(CONTENT, 0, buffer, offset, CONTENT.length);
+                            suppliedContent = true;
+                            return CONTENT.length;
+                        }
+                        waitingForMoreInput.countDown();
+                        try {
+                            if (!keepReading.await(10, TimeUnit.SECONDS)) {
+                                throw new IOException("Test input timed out");
+                            }
+                            return -1;
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            var failure = new InterruptedIOException("Test input interrupted");
+                            failure.initCause(interrupted);
+                            throw failure;
+                        }
+                    }
+                };
+        var result =
+                new FutureTask<Boolean>(
+                        () -> {
+                            assertThatThrownBy(() -> store.stage(input))
+                                    .isInstanceOf(InterruptedIOException.class);
+                            return Thread.currentThread().isInterrupted();
+                        });
+        var writer = new Thread(result, "interrupted-upload-test");
+        writer.start();
+        try {
+            assertThat(waitingForMoreInput.await(10, TimeUnit.SECONDS)).isTrue();
+            try (var files = Files.list(temporaryDirectory)) {
+                var paths = files.toList();
+                assertThat(paths).hasSize(1);
+                assertThat(Files.readAllBytes(paths.getFirst())).containsExactly(CONTENT);
+            }
+
+            writer.interrupt();
+            assertThat(result.get(10, TimeUnit.SECONDS)).isTrue();
+            try (var files = Files.list(temporaryDirectory)) {
+                assertThat(files).isEmpty();
+            }
+
+            // A subsequent upload and exclusive cleanup must both work after cancellation.
+            var retry = storeAndRelease(store, CONTENT);
+            assertThat(store.deleteIfAbandoned(retry.storageId(), Instant.MAX, id -> false))
+                    .isEqualTo(OriginalFileStore.CleanupResult.DELETED);
+        } finally {
+            writer.interrupt();
+            keepReading.countDown();
+            writer.join(TimeUnit.SECONDS.toMillis(10));
+        }
+        assertThat(writer.isAlive()).isFalse();
     }
 
     @Test

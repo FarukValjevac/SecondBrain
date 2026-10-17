@@ -334,6 +334,15 @@ Failure codes are safe categories; raw handler exception messages and document c
 
 The README lists the standard test commands. Fast tests check application wiring, library rendering, event policies/worker behavior, health/metrics, log context, real in-memory traces, privacy, and export failure isolation. PostgreSQL/pgvector Testcontainers verify committed metrics, restart backlog/trace context, and delivery with failed telemetry export; those tests do not use the Compose database or `.env`. Required integration tests fail if Docker is unavailable. Routine tests need no AI credentials or external telemetry service; tests tagged `live-ai` are excluded.
 
+For upload failure recovery checks:
+
+```sh
+./mvnw -Dtest=OriginalFileStoreTest test
+./mvnw -Dit.test=DocumentAcceptanceIT verify
+```
+
+The first command checks private original storage, including cancellation after a partial write, preserved interruption, and subsequent upload/cleanup. The second also runs the fast suite and requires Docker: an isolated PostgreSQL fixture rejects event insertion or final commit, then checks rollback, file compensation, failure counters, and a successful retry. It uses temporary storage and a container database. Run the full `./mvnw verify` before considering the issue complete.
+
 Apply Java formatting before committing:
 
 ```sh
