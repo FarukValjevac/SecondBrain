@@ -32,6 +32,7 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
                             assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
+                            assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context).hasSingleBean(DocumentTelemetry.class);
                             assertThat(context.getBean(EventEnvelope.Type.class))
@@ -49,6 +50,8 @@ class DocumentConfigurationTest {
                             assertThat(context).doesNotHaveBean(DocumentAcceptanceService.class);
                             assertThat(context).doesNotHaveBean(JdbcDocumentRepository.class);
                             assertThat(context).doesNotHaveBean(JdbcExtractedTextRepository.class);
+                            assertThat(context)
+                                    .doesNotHaveBean(DocumentTextExtractionService.class);
                             assertThat(context).doesNotHaveBean(OriginalFileReconciler.class);
                             assertThat(context).doesNotHaveBean(DocumentTelemetry.class);
                         });

@@ -57,6 +57,13 @@ class DocumentConfiguration {
     }
 
     @Bean
+    DocumentTextExtractionService documentTextExtractionService(
+            OriginalFileStore originals, DocumentUploadPolicy uploadPolicy, Clock clock) {
+        return new DocumentTextExtractionService(
+                originals, new Utf8TextExtractor(uploadPolicy.maximumUploadBytes()), clock);
+    }
+
+    @Bean
     EventEnvelope.Type documentAcceptedEventType() {
         return DocumentAcceptedEvent.TYPE;
     }

@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HexFormat;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -115,6 +116,18 @@ final class OriginalFileStore {
 
     void delete(StoredOriginal original) throws IOException {
         Files.deleteIfExists(pathFor(original.storageId()));
+    }
+
+    /** Opens only a generated storage key; the caller must close the returned stream. */
+    InputStream open(UUID storageId) throws IOException {
+        var path = pathFor(Objects.requireNonNull(storageId, "storageId"));
+        var attributes =
+                Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        if (!attributes.isRegularFile()) {
+            throw new IOException("Stored original must be a regular file");
+        }
+        // Reject a final-component symlink even if it was substituted after the attribute check.
+        return Files.newInputStream(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
     }
 
     Scan openScan() throws IOException {
