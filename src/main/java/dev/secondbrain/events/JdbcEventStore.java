@@ -358,6 +358,75 @@ final class JdbcEventStore {
                 });
     }
 
+    /** Domain failure effects and retry bookkeeping share an unexpired, fenced transaction. */
+    boolean fail(
+            DeliveryLease lease,
+            DeliveryFailure.Code code,
+            boolean retryable,
+            EventHandler.Effect effect) {
+        try {
+            return inTransaction(
+                    () -> {
+                        if (!lockToken(lease, true, clock.instant())) return false;
+                        Objects.requireNonNull(effect.apply(), "Failure outcome");
+                        var now = clock.instant();
+                        if (!lockToken(lease, true, now)) throw new LostLease();
+                        finishAttempt(
+                                lease.deliveryId(),
+                                lease.attempt(),
+                                "FAILED",
+                                code,
+                                now,
+                                retryable && lease.attempt() < settings.maxAttempts()
+                                        ? EventMetrics.Outcome.RETRY
+                                        : EventMetrics.Outcome.FAILED);
+                        reschedule(lease.deliveryId(), lease.attempt(), retryable, code, now);
+                        return true;
+                    });
+        } catch (LostLease lost) {
+            return false;
+        }
+    }
+
+    int scheduleMissing(EventEnvelope.Type type, String handler, int limit) {
+        if (limit < 1 || limit > 1000)
+            throw new IllegalArgumentException("Invalid scheduling batch");
+        return inTransaction(
+                () -> {
+                    var ids =
+                            jdbc.sql(
+                                            """
+                    SELECT e.event_id FROM domain_events e JOIN event_keys k USING (event_id)
+                    WHERE k.event_type = :type AND k.schema_version = :schema
+                      AND NOT EXISTS (SELECT 1 FROM event_deliveries d
+                                      WHERE d.event_id = e.event_id AND d.handler_id = :handler)
+                    ORDER BY e.created_at, e.event_id LIMIT :limit FOR UPDATE OF e SKIP LOCKED
+                    """)
+                                    .param("type", type.name())
+                                    .param("schema", type.schemaVersion())
+                                    .param("handler", handler)
+                                    .param("limit", limit)
+                                    .query(UUID.class)
+                                    .list();
+                    var now = timestamp(clock.instant());
+                    for (var id : ids) {
+                        jdbc.sql(
+                                        """
+                        INSERT INTO event_deliveries
+                            (delivery_id, event_id, handler_id, eligible_at, created_at, updated_at)
+                        VALUES (:id, :event, :handler, :now, :now, :now)
+                        ON CONFLICT (event_id, handler_id) DO NOTHING
+                        """)
+                                .param("id", UUID.randomUUID())
+                                .param("event", id)
+                                .param("handler", handler)
+                                .param("now", now)
+                                .update();
+                    }
+                    return ids.size();
+                });
+    }
+
     int cleanup() {
         return inTransaction(
                 () -> {

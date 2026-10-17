@@ -40,7 +40,7 @@ The first batch starts after one interval; each later batch starts one interval 
 
 Run one application process for each storage directory and keep that directory paired with its database. Upload/cleanup protection is shared within the process; sharing a folder across multiple processes or changing its database is unsupported.
 
-After restarting with `./mvnw spring-boot:run`, look for JSON console entries with `operation=original_cleanup`. Successful batches report `inspected`, `deleted`, and `busy` counts; failures report the fixed `STORAGE_OR_DATABASE_UNAVAILABLE` code. No filenames, paths, document text, or exception details are logged. `busy` means deletion was deferred because an upload was protected. These are cleanup diagnostics; accepted documents still remain queued.
+After restarting with `./mvnw spring-boot:run`, look for JSON console entries with `operation=original_cleanup`. Successful batches report `inspected`, `deleted`, and `busy` counts; failures report the fixed `STORAGE_OR_DATABASE_UNAVAILABLE` code. No filenames, paths, document text, or exception details are logged. `busy` means deletion was deferred because an upload was protected. These are original-file cleanup diagnostics; document extraction uses the durable event worker.
 
 To exercise cleanup with isolated temporary files and a controlled clock:
 
@@ -104,16 +104,26 @@ Allow cookies for the local application to receive this feedback. Sessions use c
 
 ### Browser and restart walkthrough
 
-Use small, non-sensitive fixtures. This walkthrough saves queued documents; the application does not yet list or extract them.
+Use small, non-sensitive UTF-8 fixtures. Stored-document listing is not available yet; save the document URL if you want to return to it.
 
 1. Start the database and application using the README. Open the library in a fresh browser session with cookies enabled. Check the form at desktop and narrow window widths.
-2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session.
+2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session. Follow **Open document** and wait for **EXTRACTED**; verify Unicode, blank lines, and numbered source anchors.
 3. Refresh after success. The message should disappear and the browser should not resubmit the file. The database should still contain one accepted record per submission.
 4. Submit an empty file and a TXT file larger than the displayed limit. Each should return to the form with a useful error and no success message or new accepted record. The native file picker filters unsupported extensions; use the [HTTP check](#uploading-documents-over-http) below to verify server-side rejection too. Select the file again when retrying.
 5. Use [database inspection](#database-inspection) to record the two document IDs, storage keys, checksums, and correlated events. Check that each `<storage_key>.original` exists in the configured storage directory and matches its source file.
-6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and both documents should remain queued. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
+6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and extracted text should remain available at the saved document URLs. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
 
 Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
+
+## Text extraction and retry
+
+The worker decodes TXT/Markdown strictly as UTF-8. It removes an optional leading byte-order mark, recognizes CR/LF/CRLF, and preserves Unicode, indentation, blank lines, and literal Markdown syntax. The upload byte budget also bounds extraction; documents may contain at most 100,000 numbered lines. Empty/whitespace-only text, NUL characters, and invalid encoding produce safe failures. The detail page escapes all names and content; it does not render document HTML.
+
+Open `/documents/{documentId}` or follow **Open document** after uploading. Queued/processing pages refresh every two seconds. A failed document offers **Retry extraction** after automatic attempts finish. A manual retry keeps the document/original identity and increments its processing version; it does not repair invalid source content. Extracted text is not yet a searchable index.
+
+Existing accepted uploads are reconciled in batches of 100 every second. `secondbrain.documents.extraction.enabled=false` disables the handler and reconciliation while acceptance remains possible; `secondbrain.documents.extraction.reconcile-enabled=false` disables only legacy scheduling. Worker polling/retry/concurrency settings remain under `secondbrain.events`. Restarting with normal settings resumes committed work; reconciliation never resets failed deliveries.
+
+Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.duration`, and backlog metrics for processing diagnostics. `event.delivery` observations and safe structured logs carry document/version/event/delivery/correlation IDs across restart; fixed outcomes/codes distinguish completion, skipped stale work, retries, and failure. No document text, names, or exception messages enter this telemetry. Failure state and attempt/retry bookkeeping commit together under the same lease fence as successful completion.
 
 ## Uploading documents over HTTP
 
@@ -131,7 +141,7 @@ A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header 
 {"documentId":"00000000-0000-4000-8000-000000000001","state":"QUEUED"}
 ```
 
-The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Accepted documents currently remain queued. The browser form uses `/documents/upload` and redirects to the page with feedback; `/documents` continues to return JSON with the status codes below.
+The ID above is illustrative; each upload returns its own ID. Metadata and its durable `DocumentAccepted` event commit together before the response. Only the ID and queued state are returned; the original path and checksum are internal. Open `/documents/{documentId}` to follow extraction and read the result. The browser form uses `/documents/upload` and redirects to the page with feedback; `/documents` continues to return JSON with the status codes below.
 
 Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
 
@@ -147,9 +157,9 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, and V4 creates versioned extraction/numbered-text-line tables. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
-`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. These tables are currently unused by uploads, which continue to report `QUEUED`.
+`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 
 Open a database shell using the configured user and database:
 
@@ -164,7 +174,7 @@ SELECT version, description, success FROM flyway_schema_history ORDER BY install
 SELECT extversion FROM pg_extension WHERE extname = 'vector';
 ```
 
-After an upload, inspect its queued state and event correlation without selecting private names or text:
+After an upload, inspect its current stored extraction state and event correlation without selecting private names or text:
 
 ```sql
 SELECT d.document_id, d.storage_key, d.original_size_bytes, d.content_sha256,

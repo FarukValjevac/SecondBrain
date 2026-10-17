@@ -31,6 +31,10 @@ final class TextExtractionException extends RuntimeException {
         SOURCE_UNAVAILABLE("The original document could not be read."),
         CANCELLED("Text extraction was interrupted.");
 
+        String message() {
+            return message;
+        }
+
         private final String message;
 
         Reason(String message) {

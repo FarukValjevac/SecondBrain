@@ -27,6 +27,40 @@ import java.time.Clock;
         matchIfMissing = true)
 class DocumentConfiguration {
     @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.documents.extraction.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentExtractionHandler documentExtractionHandler(
+            JdbcDocumentRepository documents,
+            DocumentTextExtractionService extraction,
+            DocumentExtractionCompletion completion) {
+        return new DocumentExtractionHandler(documents, extraction, completion);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = {
+                "secondbrain.documents.extraction.enabled",
+                "secondbrain.documents.extraction.reconcile-enabled"
+            },
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentExtractionReconciliation documentExtractionReconciliation(EventPublisher events) {
+        return new DocumentExtractionReconciliation(events);
+    }
+
+    @Bean
+    DocumentInspectionService documentInspectionService(
+            JdbcDocumentRepository documents,
+            JdbcExtractedTextRepository texts,
+            EventPublisher events,
+            PlatformTransactionManager transactions,
+            Clock clock) {
+        return new DocumentInspectionService(documents, texts, events, transactions, clock);
+    }
+
+    @Bean
     DocumentTelemetry documentTelemetry(MeterRegistry meters, ObservationRegistry observations) {
         return new DocumentTelemetry(meters, observations);
     }

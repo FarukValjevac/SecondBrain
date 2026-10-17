@@ -151,6 +151,32 @@ class EventDispatcherTest {
                 .isEqualTo(code == DeliveryFailure.Code.TIMED_OUT);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void classifiesDomainFailuresAndPassesTheirEffectsToTheFencedStore(boolean retryable)
+            throws Exception {
+        var lease = lease();
+        EventHandler.Effect effect = () -> EventHandler.Outcome.COMPLETED;
+        var code =
+                retryable
+                        ? DeliveryFailure.Code.HANDLER_TRANSIENT
+                        : DeliveryFailure.Code.HANDLER_PERMANENT;
+        Mockito.when(handler.prepare(lease.event()))
+                .thenThrow(
+                        new DeliveryFailure(
+                                new IllegalStateException("private-document-source"),
+                                retryable,
+                                effect));
+        Mockito.when(store.fail(lease, code, retryable, effect)).thenReturn(true);
+        dispatch(lease, List.of(handler));
+        Mockito.verify(store).fail(lease, code, retryable, effect);
+        Assertions.assertThat(fields(lease))
+                .containsEntry("code", code.name())
+                .containsEntry("outcome", "failure_recorded");
+        Assertions.assertThat(logs.list.getFirst().getFormattedMessage())
+                .doesNotContain("private-document-source");
+    }
+
     private void dispatch(DeliveryLease lease, List<EventHandler> handlers) {
         var dispatcher =
                 new EventDispatcher(

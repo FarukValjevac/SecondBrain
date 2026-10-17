@@ -71,4 +71,18 @@ final class DocumentExtractionCompletion {
                             return true;
                         }));
     }
+
+    boolean fail(EventEnvelope accepted, TextExtractionException.Reason reason) {
+        Objects.requireNonNull(reason, "reason");
+        if (!accepted.type().equals(DocumentAcceptedEvent.TYPE))
+            throw new IllegalArgumentException("Expected document acceptance");
+        return Objects.requireNonNull(
+                mandatory.execute(
+                        status ->
+                                documents.markFailed(
+                                        accepted.documentId(),
+                                        accepted.processingVersion(),
+                                        reason,
+                                        clock.instant())));
+    }
 }

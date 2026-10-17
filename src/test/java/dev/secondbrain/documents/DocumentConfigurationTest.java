@@ -34,6 +34,8 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
                             assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
                             assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
+                            assertThat(context).hasSingleBean(DocumentExtractionHandler.class);
+                            assertThat(context).hasSingleBean(DocumentInspectionService.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context).hasSingleBean(DocumentTelemetry.class);
                             assertThat(context.getBeansOfType(EventEnvelope.Type.class).values())
@@ -46,6 +48,7 @@ class DocumentConfigurationTest {
     void disablesAcceptanceWhenDurablePublicationIsDisabled() {
         new ApplicationContextRunner()
                 .withUserConfiguration(DocumentConfiguration.class)
+                .withPropertyValues("secondbrain.documents.extraction.reconcile-enabled=false")
                 .withPropertyValues("secondbrain.events.enabled=false")
                 .run(
                         context -> {
@@ -87,6 +90,7 @@ class DocumentConfigurationTest {
         var policy = new DocumentUploadPolicy(DataSize.ofMegabytes(10));
         return new ApplicationContextRunner()
                 .withUserConfiguration(DocumentConfiguration.class)
+                .withPropertyValues("secondbrain.documents.extraction.reconcile-enabled=false")
                 .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(EventPublisher.class, () -> mock(EventPublisher.class))

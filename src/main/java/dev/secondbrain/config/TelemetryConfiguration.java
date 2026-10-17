@@ -82,6 +82,8 @@ class TelemetryConfiguration {
                                                                 "/css/**",
                                                                 "/documents",
                                                                 "/documents/upload",
+                                                                "/documents/{id}",
+                                                                "/documents/{id}/retry",
                                                                 "NOT_FOUND",
                                                                 "UNKNOWN",
                                                                 "REDIRECTION",

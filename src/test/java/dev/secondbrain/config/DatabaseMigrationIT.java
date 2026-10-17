@@ -40,9 +40,9 @@ class DatabaseMigrationIT {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(4);
+            Assertions.assertThat(flyway.info().applied()).hasSize(5);
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("4");
+            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("5");
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -134,7 +134,7 @@ class DatabaseMigrationIT {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(4);
+            Assertions.assertThat(flyway.info().applied()).hasSize(5);
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(

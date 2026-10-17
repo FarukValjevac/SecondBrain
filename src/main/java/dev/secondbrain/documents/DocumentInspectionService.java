@@ -1,0 +1,126 @@
+package dev.secondbrain.documents;
+
+import dev.secondbrain.events.EventEnvelope;
+import dev.secondbrain.events.EventPublisher;
+
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.Clock;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+
+/** Public document-detail use cases; persistence types stay inside the documents feature. */
+public final class DocumentInspectionService {
+    private final JdbcDocumentRepository documents;
+    private final JdbcExtractedTextRepository texts;
+    private final EventPublisher events;
+    private final Clock clock;
+    private final TransactionTemplate transactions;
+
+    DocumentInspectionService(
+            JdbcDocumentRepository documents,
+            JdbcExtractedTextRepository texts,
+            EventPublisher events,
+            PlatformTransactionManager manager,
+            Clock clock) {
+        this.documents = Objects.requireNonNull(documents, "documents");
+        this.texts = Objects.requireNonNull(texts, "texts");
+        this.events = Objects.requireNonNull(events, "events");
+        this.clock = Objects.requireNonNull(clock, "clock");
+        transactions = new TransactionTemplate(Objects.requireNonNull(manager, "manager"));
+        transactions.setTimeout(5);
+    }
+
+    public Optional<DocumentView> find(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return Objects.requireNonNull(
+                transactions.execute(status -> documents.findById(id).map(this::view)));
+    }
+
+    private DocumentView view(DocumentMetadata document) {
+        var id = document.documentId();
+        var progress = documents.progress(id, document.processingVersion());
+        var state = document.extractionState();
+        boolean active =
+                progress.deliveryState().equals("PENDING")
+                        || progress.deliveryState().equals("RUNNING");
+        if (state != ExtractionState.EXTRACTED && progress.deliveryState().equals("FAILED")) {
+            state = ExtractionState.FAILED;
+        } else if (active
+                && (state == ExtractionState.FAILED
+                        || progress.deliveryState().equals("RUNNING"))) {
+            state = ExtractionState.PROCESSING;
+        }
+        var lines =
+                state == ExtractionState.EXTRACTED
+                        ? texts
+                                .findByDocumentVersion(id, document.processingVersion())
+                                .orElseThrow(
+                                        () ->
+                                                new IllegalStateException(
+                                                        "Completed extraction is missing"))
+                                .lines()
+                                .stream()
+                                .map(line -> new Line(line.number(), line.text()))
+                                .toList()
+                        : List.<Line>of();
+        String message = progress.failure().map(TextExtractionException.Reason::message).orElse("");
+        if (state == ExtractionState.FAILED && message.isEmpty()) {
+            message = "Processing could not be completed. Try again.";
+        }
+        if (active && !message.isEmpty()) message += " Retrying automatically.";
+        return new DocumentView(
+                id,
+                document.originalName(),
+                document.processingVersion(),
+                state,
+                message,
+                state == ExtractionState.FAILED && progress.deliveryState().equals("FAILED"),
+                lines);
+    }
+
+    public boolean retry(UUID id, UUID correlationId) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(correlationId, "correlationId");
+        return Objects.requireNonNull(
+                transactions.execute(
+                        status -> {
+                            var document = documents.findById(id);
+                            if (document.isEmpty()) return false;
+                            var version = document.orElseThrow().processingVersion();
+                            var now = clock.instant();
+                            if (!documents.retry(id, version, now)) return false;
+                            events.publish(
+                                    new EventEnvelope(
+                                            UUID.randomUUID(),
+                                            DocumentAcceptedEvent.TYPE,
+                                            id,
+                                            Math.addExact(version, 1),
+                                            now,
+                                            correlationId,
+                                            null,
+                                            null,
+                                            Map.of()));
+                            return true;
+                        }));
+    }
+
+    public record Line(int number, String text) {}
+
+    public record DocumentView(
+            UUID documentId,
+            String name,
+            long processingVersion,
+            ExtractionState state,
+            String message,
+            boolean retryAllowed,
+            List<Line> lines) {
+        public DocumentView {
+            lines = List.copyOf(lines);
+        }
+    }
+}

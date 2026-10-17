@@ -49,6 +49,7 @@ final class JdbcDocumentRepository {
                         FROM documents
                         WHERE document_id = :documentId
                         """)
+                .withQueryTimeout(5)
                 .param("documentId", documentId)
                 .query(
                         (resultSet, rowNumber) ->
@@ -79,7 +80,7 @@ final class JdbcDocumentRepository {
     boolean markExtracted(UUID documentId, long processingVersion, Instant completedAt) {
         return jdbc.sql(
                                 """
-                        UPDATE documents SET extraction_state = 'EXTRACTED', updated_at = :completedAt
+                        UPDATE documents SET extraction_state = 'EXTRACTED', extraction_failure = NULL, updated_at = :completedAt
                         WHERE document_id = :documentId AND processing_version = :version
                           AND extraction_state IN ('QUEUED', 'PROCESSING', 'FAILED')
                         """)
@@ -90,4 +91,67 @@ final class JdbcDocumentRepository {
                         .update()
                 == 1;
     }
+
+    boolean markFailed(UUID id, long version, TextExtractionException.Reason reason, Instant now) {
+        return jdbc.sql(
+                                """
+                UPDATE documents SET extraction_state = 'FAILED', extraction_failure = :reason, updated_at = :now
+                WHERE document_id = :id AND processing_version = :version AND extraction_state <> 'EXTRACTED'
+                """)
+                        .withQueryTimeout(5)
+                        .param("id", id)
+                        .param("version", version)
+                        .param("reason", reason.name())
+                        .param("now", Timestamp.from(now))
+                        .update()
+                == 1;
+    }
+
+    Progress progress(UUID id, long version) {
+        return jdbc.sql(
+                        """
+                SELECT d.extraction_failure, COALESCE(delivery.state, '') AS delivery_state
+                FROM documents d
+                LEFT JOIN event_keys k ON k.document_id = d.document_id
+                    AND k.processing_version = d.processing_version AND k.event_type = 'DocumentAccepted'
+                LEFT JOIN event_deliveries delivery ON delivery.event_id = k.event_id
+                    AND delivery.handler_id = :handler
+                WHERE d.document_id = :id AND d.processing_version = :version
+                """)
+                .withQueryTimeout(5)
+                .param("id", id)
+                .param("version", version)
+                .param("handler", DocumentExtractionHandler.ID)
+                .query(
+                        (row, index) ->
+                                new Progress(
+                                        Optional.ofNullable(row.getString("extraction_failure"))
+                                                .map(TextExtractionException.Reason::valueOf),
+                                        row.getString("delivery_state")))
+                .optional()
+                .orElse(new Progress(Optional.empty(), ""));
+    }
+
+    boolean retry(UUID id, long version, Instant now) {
+        return jdbc.sql(
+                                """
+                UPDATE documents d SET processing_version = processing_version + 1,
+                    extraction_state = 'QUEUED', extraction_failure = NULL, updated_at = :now
+                WHERE d.document_id = :id AND d.processing_version = :version
+                  AND d.extraction_state <> 'EXTRACTED'
+                  AND EXISTS (SELECT 1 FROM event_keys k JOIN event_deliveries delivery USING (event_id)
+                      WHERE k.document_id = d.document_id AND k.processing_version = d.processing_version
+                        AND k.event_type = 'DocumentAccepted' AND delivery.handler_id = :handler
+                        AND delivery.state = 'FAILED')
+                """)
+                        .withQueryTimeout(5)
+                        .param("id", id)
+                        .param("version", version)
+                        .param("handler", DocumentExtractionHandler.ID)
+                        .param("now", Timestamp.from(now))
+                        .update()
+                == 1;
+    }
+
+    record Progress(Optional<TextExtractionException.Reason> failure, String deliveryState) {}
 }
