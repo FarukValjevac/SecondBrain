@@ -5,7 +5,20 @@ This side project was inspired by my desire to support my girlfriend through her
 
 # SecondBrain
 
-SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. It accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and records queued processing in PostgreSQL. Health checks, local metrics, and JSON console logs support diagnostics.
+SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts TXT and Markdown files through a browser form or HTTP endpoint, stores originals privately, and records queued processing in PostgreSQL. Health checks, local metrics, and JSON console logs support diagnostics.
+
+## Project goal
+
+The goal is to turn a personal collection of notes and study materials into a library you can search and ask questions about. When complete, SecondBrain will let you:
+
+- Upload TXT, Markdown, and PDFs containing selectable text, then inspect the extracted content.
+- Find relevant passages by meaning, even when you do not remember the exact words.
+- Ask questions about your documents and receive answers with citations linking to supporting passages.
+- Track document processing, retry failures, and delete documents and their derived data.
+
+Answers should acknowledge when the documents do not contain enough information. For example, you could ask “How do these notes explain photosynthesis?” and check the passages used to answer.
+
+These capabilities are still under development; uploads currently remain queued. The application and library run locally, with hosted AI services planned for semantic search and answering.
 
 ## Requirements
 
