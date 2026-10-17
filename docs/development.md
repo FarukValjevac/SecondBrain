@@ -75,7 +75,18 @@ The browser uses a normal multipart form and a `303 See Other` redirect after su
 
 Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
 
-For a manual check, upload a small TXT file and a Markdown file, then submit an empty file and confirm the error. Refresh after success and check that acceptance is not repeated.
+### Browser and restart walkthrough
+
+Use small, non-sensitive fixtures. This walkthrough saves queued documents; the application does not yet list or extract them.
+
+1. Start the database and application using the README. Open the library in a fresh browser session with cookies enabled. Check the form at desktop and narrow window widths.
+2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session.
+3. Refresh after success. The message should disappear and the browser should not resubmit the file. The database should still contain one accepted record per submission.
+4. Submit an empty file, an unsupported extension such as `.pdf`, and a TXT file larger than the displayed limit. Each should show a useful error without a success message or a new accepted record. Select the file again when retrying.
+5. Use [database inspection](#database-inspection) to record the two document IDs, storage keys, checksums, and correlated events. Check that each `<storage_key>.original` exists in the configured storage directory and matches its source file.
+6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and both documents should remain queued. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
+
+Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
 
 ## Uploading documents over HTTP
 
@@ -119,14 +130,21 @@ SELECT extversion FROM pg_extension WHERE extname = 'vector';
 After an upload, inspect its queued state and event correlation without selecting private names or text:
 
 ```sql
-SELECT d.document_id, d.extraction_state, k.event_type, e.correlation_id
+SELECT d.document_id, d.storage_key, d.original_size_bytes, d.content_sha256,
+       d.extraction_state, k.event_type, e.correlation_id
 FROM documents d
 JOIN event_keys k ON k.document_id = d.document_id
 JOIN domain_events e ON e.event_id = k.event_id
 WHERE k.event_type = 'DocumentAccepted';
 ```
 
-Use `\q` to exit. Stop the application with `Ctrl+C`, start it again, and repeat the queries to inspect the unchanged migration history.
+Each original is stored as `<storage_key>.original` in the configured private directory. Use `\q` to exit the database shell. To compare one with its source on macOS/Linux, replace the illustrative UUID and source path below (also adjust the storage directory if configured):
+
+```sh
+cmp notes.txt ./data/documents/00000000-0000-4000-8000-000000000001.original
+```
+
+`cmp` exits successfully with no output when the files match. After restart, the migration history and accepted document/event records should be unchanged.
 
 ## Health checks
 

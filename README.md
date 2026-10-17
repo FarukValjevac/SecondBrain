@@ -35,6 +35,8 @@ docker compose up -d --wait --wait-timeout 60 postgres
 
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT or Markdown file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Accepted documents currently remain queued. The application listens on loopback and applies pending database migrations automatically.
 
+Supported extensions are `.txt`, `.md`, and `.markdown`, with a default limit of 10 MB per file. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
+
 On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw`.
 
 ## Development checks
