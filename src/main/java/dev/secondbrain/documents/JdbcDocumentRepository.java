@@ -3,6 +3,7 @@ package dev.secondbrain.documents;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -72,5 +73,21 @@ final class JdbcDocumentRepository {
                 .param("storageId", storageId)
                 .query(Boolean.class)
                 .single();
+    }
+
+    /** Must participate in the same transaction as the text and downstream event writes. */
+    boolean markExtracted(UUID documentId, long processingVersion, Instant completedAt) {
+        return jdbc.sql(
+                                """
+                        UPDATE documents SET extraction_state = 'EXTRACTED', updated_at = :completedAt
+                        WHERE document_id = :documentId AND processing_version = :version
+                          AND extraction_state IN ('QUEUED', 'PROCESSING', 'FAILED')
+                        """)
+                        .withQueryTimeout(5)
+                        .param("documentId", documentId)
+                        .param("version", processingVersion)
+                        .param("completedAt", Timestamp.from(completedAt))
+                        .update()
+                == 1;
     }
 }

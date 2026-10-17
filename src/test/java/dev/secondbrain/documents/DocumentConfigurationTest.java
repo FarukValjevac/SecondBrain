@@ -33,10 +33,12 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
                             assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
                             assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
+                            assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context).hasSingleBean(DocumentTelemetry.class);
-                            assertThat(context.getBean(EventEnvelope.Type.class))
-                                    .isEqualTo(DocumentAcceptedEvent.TYPE);
+                            assertThat(context.getBeansOfType(EventEnvelope.Type.class).values())
+                                    .containsExactlyInAnyOrder(
+                                            DocumentAcceptedEvent.TYPE, TextExtractedEvent.TYPE);
                         });
     }
 
@@ -52,6 +54,7 @@ class DocumentConfigurationTest {
                             assertThat(context).doesNotHaveBean(JdbcExtractedTextRepository.class);
                             assertThat(context)
                                     .doesNotHaveBean(DocumentTextExtractionService.class);
+                            assertThat(context).doesNotHaveBean(DocumentExtractionCompletion.class);
                             assertThat(context).doesNotHaveBean(OriginalFileReconciler.class);
                             assertThat(context).doesNotHaveBean(DocumentTelemetry.class);
                         });

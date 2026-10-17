@@ -69,6 +69,21 @@ class DocumentConfiguration {
     }
 
     @Bean
+    EventEnvelope.Type textExtractedEventType() {
+        return TextExtractedEvent.TYPE;
+    }
+
+    @Bean
+    DocumentExtractionCompletion documentExtractionCompletion(
+            JdbcDocumentRepository documents,
+            JdbcExtractedTextRepository texts,
+            EventPublisher events,
+            Clock clock,
+            PlatformTransactionManager transactions) {
+        return new DocumentExtractionCompletion(documents, texts, events, clock, transactions);
+    }
+
+    @Bean
     DocumentAcceptanceService documentAcceptanceService(
             DocumentUploadPolicy uploadPolicy,
             OriginalFileStore originalFileStore,
