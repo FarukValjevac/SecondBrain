@@ -125,10 +125,17 @@ class TelemetryPrivacyTest {
                         .build()) {
             for (var operation :
                     new String[][] {
-                        {"document.upload", "accepted"}, {"document.upload", "rejected"},
-                        {"document.upload", "unavailable"}, {"document.cleanup", "completed"},
-                        {"document.cleanup", "failed"}, {"document.deletion", "requested"},
-                        {"document.deletion", "unchanged"}, {"document.deletion", "unavailable"}
+                        {"document.upload", "accepted"},
+                        {"document.upload", "rejected"},
+                        {"document.upload", "unavailable"},
+                        {"document.cleanup", "completed"},
+                        {"document.cleanup", "failed"},
+                        {"document.deletion", "requested"},
+                        {"document.deletion", "unchanged"},
+                        {"document.deletion", "unavailable"},
+                        {"document.indexing.request", "requested"},
+                        {"document.indexing.request", "unchanged"},
+                        {"document.indexing.request", "unavailable"}
                     }) {
                 var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
                 span.setAttribute("outcome", operation[1]);

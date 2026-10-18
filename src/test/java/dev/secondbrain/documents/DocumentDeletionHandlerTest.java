@@ -62,7 +62,7 @@ class DocumentDeletionHandlerTest {
         order.verify(originals).delete(storage);
         assertThat(effect.apply())
                 .isEqualTo(current ? EventHandler.Outcome.COMPLETED : EventHandler.Outcome.SKIPPED);
-        order.verify(events).discardSuperseded(id, 2);
+        order.verify(events).discardOtherDocumentEvents(id, event.eventId());
         order.verify(documents).finishDeletion(id, 2, storage);
     }
 

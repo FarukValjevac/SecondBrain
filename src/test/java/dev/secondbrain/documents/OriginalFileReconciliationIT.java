@@ -222,6 +222,7 @@ class OriginalFileReconciliationIT {
                         "--spring.datasource.password=" + POSTGRES.getPassword(),
                         "--secondbrain.events.polling-enabled=false",
                         "--secondbrain.documents.cleanup.enabled=false",
+                        "--secondbrain.documents.indexing.enabled=false",
                         "--secondbrain.documents.storage-directory=" + directory);
     }
 

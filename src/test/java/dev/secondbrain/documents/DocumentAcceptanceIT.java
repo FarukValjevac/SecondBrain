@@ -198,6 +198,7 @@ class DocumentAcceptanceIT {
                 .run(
                         "--spring.config.import=",
                         "--secondbrain.documents.cleanup.enabled=false",
+                        "--secondbrain.documents.indexing.enabled=false",
                         "--secondbrain.events.polling-enabled=false",
                         "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                         "--spring.datasource.username=" + POSTGRES.getUsername(),

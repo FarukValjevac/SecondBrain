@@ -427,9 +427,9 @@ final class JdbcEventStore {
                 });
     }
 
-    int discardSuperseded(UUID documentId, long processingVersion) {
+    int discardOtherDocumentEvents(UUID documentId, UUID retainedEventId) {
         Objects.requireNonNull(documentId, "documentId");
-        if (processingVersion < 1) throw new IllegalArgumentException("Version must be positive");
+        Objects.requireNonNull(retainedEventId, "retainedEventId");
         return Objects.requireNonNull(
                 mandatory.execute(
                         status -> {
@@ -438,10 +438,10 @@ final class JdbcEventStore {
                                             """
                     DELETE FROM domain_events e USING event_keys k
                     WHERE e.event_id = k.event_id AND k.document_id = :document
-                        AND k.processing_version < :version
+                        AND k.event_id <> :retained
                     """)
                                     .param("document", documentId)
-                                    .param("version", processingVersion)
+                                    .param("retained", retainedEventId)
                                     .update();
                         }));
     }

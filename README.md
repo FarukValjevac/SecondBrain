@@ -15,10 +15,11 @@ The goal is to turn a personal collection of notes and study materials into a li
 - Find relevant passages by meaning, even when you do not remember the exact words.
 - Ask questions about your documents and receive answers with citations linking to supporting passages.
 - Track document processing, retry failures, and delete documents and their derived data.
+- Use search and answering without paid AI APIs or subscriptions, within a hosted provider's free allowance.
 
 Answers should acknowledge when the documents do not contain enough information. For example, you could ask “How do these notes explain photosynthesis?” and check the passages used to answer.
 
-Semantic search and AI answers are still under development. The application and library run locally, with hosted AI services planned for semantic search and answering.
+Semantic search and AI answers are still under development.
 
 ## Requirements
 
