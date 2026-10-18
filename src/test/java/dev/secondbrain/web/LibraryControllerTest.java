@@ -198,6 +198,10 @@ class LibraryControllerTest {
                         "Upload document")
                 .contains("href=\"/css/library.css\"")
                 .doesNotContain("0 documents", "Your library is empty.", "th:href");
+
+        mvc.perform(MockMvcRequestBuilders.get("/css/library.css"))
+                .andExpect(status().isOk())
+                .andExpect(MockMvcResultMatchers.content().contentTypeCompatibleWith("text/css"));
     }
 
     @Test

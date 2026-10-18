@@ -77,7 +77,7 @@ Start PostgreSQL as described in the README, then run:
 ./mvnw -Pdev spring-boot:run
 ```
 
-The Maven `dev` profile adds Boot-managed DevTools 4.1.1, activates the Spring `dev` settings, and serves resources directly from `src/main/resources`. The Spring settings disable template/static-resource caches while preserving the application's usual error and logging configuration. Normal startup uses `./mvnw spring-boot:run`; DevTools is absent from the default dependency set and excluded from executable JARs by Spring Boot's packaging defaults.
+The Maven `dev` profile adds Boot-managed DevTools 4.1.1 and activates the Spring `dev` settings. Those settings read templates and static files directly from `src/main/resources` using filesystem locations, with their caches disabled. Application configuration and migrations remain on the normal compiled classpath. Normal startup uses `./mvnw spring-boot:run`; DevTools is absent from the default dependency set and excluded from executable JARs by Spring Boot's packaging defaults.
 
 - **HTML/CSS:** save the template or stylesheet and refresh the browser. No compilation or application restart is required. Browser refresh is manual; the LiveReload server is disabled.
 - **Java:** save the code, then run the following in another terminal from the project root:
@@ -92,7 +92,9 @@ The Maven `dev` profile adds Boot-managed DevTools 4.1.1, activates the Spring `
 
 To check the setup, make a temporary text change in `src/main/resources/templates/library.html`, refresh and confirm it appears, then revert it. For Java, temporarily append `" (reload check)"` to the `maximumUploadSize` model value in `LibraryController.java`, compile, and confirm a new startup log and the marker next to the form's size limit; revert and compile again. Stop the existing normal-mode process before starting development mode on the same port. Do not edit applied Flyway migrations to test reloads.
 
-The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devtools.html) explains restart behavior; the [Maven plugin reference](https://docs.spring.io/spring-boot/maven-plugin/run.html) covers direct source resources.
+If tests report missing application settings, missing templates, or missing tables after finding zero Flyway migrations, stop any development process started with the older build configuration. Run `./mvnw clean verify` to restore and check the compiled resources, then relaunch development mode. The previous Maven `addResources` setting removed resource copies from `target/classes`; the current configuration preserves them for tests. Relaunching the old process once is necessary because it keeps its original Maven configuration.
+
+The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devtools.html) explains restart behavior; the [Maven plugin reference](https://docs.spring.io/spring-boot/maven-plugin/run.html) documents how `addResources` removes duplicate output resources.
 
 ## Uploading documents in the browser
 
