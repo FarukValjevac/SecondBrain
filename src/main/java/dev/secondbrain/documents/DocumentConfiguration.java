@@ -199,6 +199,14 @@ class DocumentConfiguration {
     }
 
     @Bean
+    JdbcPassageRepository jdbcPassageRepository(
+            JdbcTemplate jdbc,
+            JdbcIndexingRepository indexes,
+            PlatformTransactionManager transactions) {
+        return new JdbcPassageRepository(jdbc, indexes, transactions);
+    }
+
+    @Bean
     DocumentTextExtractionService documentTextExtractionService(
             OriginalFileStore originals, DocumentUploadPolicy uploadPolicy, Clock clock) {
         return new DocumentTextExtractionService(

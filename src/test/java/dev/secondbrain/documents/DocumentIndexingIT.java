@@ -226,7 +226,7 @@ class DocumentIndexingIT {
                             status -> {
                                 jdbc(context)
                                         .sql(
-                                                "INSERT INTO document_index_versions VALUES (:id, 7, 1, :at)")
+                                                "INSERT INTO document_index_versions(document_id, indexing_version, extraction_version, created_at) VALUES (:id, 7, 1, :at)")
                                         .param("id", second)
                                         .param("at", Timestamp.from(CREATED))
                                         .update();

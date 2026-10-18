@@ -33,6 +33,7 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
                             assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
                             assertThat(context).hasSingleBean(JdbcIndexingRepository.class);
+                            assertThat(context).hasSingleBean(JdbcPassageRepository.class);
                             assertThat(context).hasSingleBean(DocumentIndexingService.class);
                             assertThat(context).hasSingleBean(DocumentIndexingHandler.class);
                             assertThat(context).doesNotHaveBean(DocumentPassageHandler.class);
