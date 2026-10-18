@@ -498,6 +498,8 @@ The PDF extraction component can be checked independently with `./mvnw -Dtest=Pd
 
 Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker). Atomic requests, concurrent allocation, enrollment/restart, controlled passage routing, stale-work guards, and acknowledgment rollback are covered by `./mvnw -Dit.test=DocumentIndexingIT,DurableEventsIT verify`. The stage in this test is a controlled probe; it does not establish real passage splitting, embeddings, or search readiness.
 
+The standalone passage splitter can be checked with `./mvnw -Dtest=PassageSplitterTest test` without Docker. Its fixtures verify bounded overlapping text, Unicode, exact line references, and physical PDF page boundaries. Passage storage and background-stage integration are separate steps.
+
 Apply Java formatting before committing:
 
 ```sh
