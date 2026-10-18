@@ -127,14 +127,14 @@ Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.
 
 ## Deleted-document cleanup
 
-The internal deletion service hides a document immediately and commits a durable cleanup request. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
+Select **Delete** beside a document’s status in **Your documents**, or open its detail page and select **Delete document**, then review the confirmation page. **Cancel** returns without changes. Confirming submits a POST request, hides the document immediately, commits a durable cleanup request, and redirects to the library with one-time feedback. Refreshing the library does not resubmit deletion; repeated submissions safely report that the document is already absent. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
 
 | Setting | Default | Purpose |
 |---|---|---|
 | `secondbrain.documents.deletion.enabled` | `true` | Register the durable cleanup handler |
 | `secondbrain.documents.deletion.reconcile-enabled` | `true` | Schedule retained requests that predate the handler |
 
-Reconciliation runs every second in batches of up to 100. It does not duplicate deliveries or reset failed attempts. Disabling the handler still permits deletion requests and preserves their events. `secondbrain.events.polling-enabled=false` pauses execution; `secondbrain.documents.cleanup.enabled` controls the separate abandoned-file scanner. There is no deletion HTTP action or browser button yet.
+Reconciliation runs every second in batches of up to 100. It does not duplicate deliveries or reset failed attempts. Disabling the handler still permits deletion requests and preserves their events. `secondbrain.events.polling-enabled=false` pauses execution; `secondbrain.documents.cleanup.enabled` controls the separate abandoned-file scanner. GET `/documents/{id}/delete` displays confirmation without changing state; POST to that URL requests deletion and returns `303 See Other` to `/`. Malformed IDs return 400, unavailable confirmation targets return 404, and database/transaction failures return fixed 503 text without a success message.
 
 Restarting the application with normal settings processes existing deletion requests automatically. Use the document UUID with the [database inspection](#database-inspection) connection: successful cleanup leaves no matching row in `documents` or `document_extractions`, and its `documents.delete.v1` delivery is `COMPLETED` (or `SKIPPED` for already absent work). The generated `.original` file is removed; source files selected for upload remain untouched. Generic event-delivery logs, attempt metrics, and backlog metrics cover cleanup using persisted correlation IDs. The `secondbrain.document.cleanup.deleted` counter belongs to the abandoned-file scanner and does not count this durable handler.
 
@@ -285,8 +285,19 @@ Reading the filtered request timer does not increase the count for `GET /`. Requ
 | `secondbrain.document.cleanup.deleted` | count | Originals actually deleted; no labels |
 | `secondbrain.document.deletions` | count | Deletion requests; `outcome=requested,unchanged,unavailable` |
 | `secondbrain.document.deletion.duration` | seconds | Deletion-request duration through transaction completion; same outcomes, plus fixed `error=none` |
+| `secondbrain.document.deletion.backlog` | documents | `state=pending,failed`; outstanding cleanup requests, split into disjoint states |
+| `secondbrain.document.deletion.backlog.oldest` | seconds | Age since the oldest outstanding deletion request, including failures |
+| `secondbrain.document.deletion.backlog.available` | 0 or 1 | Whether the most recent cleanup backlog query succeeded |
 
-Deletion-request measurements cover calls to the internal deletion service. `requested` means a new deletion marker and event committed; `unchanged` means the document was absent or already marked deleted. Rollback or transaction failure records `unavailable`. These outcomes do not mean original files or text have been physically removed. Logs use `operation=document_deletion` and a UUID correlation ID. The isolated PostgreSQL checks run with `./mvnw -Dit.test=DocumentDeletionIT verify`; there is no deletion HTTP action or browser button yet.
+Deletion-request measurements cover calls to the internal deletion service. `requested` means a new deletion marker and event committed; `unchanged` means the document was absent or already marked deleted. Rollback or transaction failure records `unavailable`. These outcomes do not mean original files or text have been physically removed. Logs use `operation=document_deletion` and a UUID correlation ID. The isolated PostgreSQL checks run with `./mvnw -Dit.test=DocumentDeletionIT verify`; the browser confirmation action uses the same measured service.
+
+Cleanup backlog gauges share one five-second-cached query with a five-second SQL timeout. Pending includes hidden documents waiting for a delivery, execution, or retry, including requests made while the handler was disabled; failed includes current terminal cleanup failures. Active documents and obsolete delivery versions are excluded. Physical cleanup removes the document row and clears its contribution. Counts are zero and age is zero when nothing remains. A failed database read yields `NaN` counts/age and availability 0; it never invents an empty backlog. No document IDs, names, or paths are metric labels.
+
+```sh
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.deletion.backlog?tag=state:pending'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.deletion.backlog?tag=state:failed'
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.document.deletion.backlog.oldest
+```
 
 Upload measurements cover attempts that reach DocumentAcceptanceService, including domain validation, original storage, transaction completion, and failure compensation. `accepted` increments after the metadata/event transaction returns successfully. `rejected` means application upload validation rejected the input; `unavailable` covers storage, database/transaction, and unexpected acceptance failures. Multipart parsing, missing/repeated file parts, and failures opening the HTTP input stream can occur before the service and are excluded from these application counters; the existing HTTP metrics still measure their requests. Both browser and JSON uploads use the same acceptance measurements.
 

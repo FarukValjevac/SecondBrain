@@ -93,7 +93,7 @@ class LibraryControllerTest {
                                         new DocumentSummary(
                                                 id,
                                                 "sentinel-private-<script>alert(1)</script>.md",
-                                                ExtractionState.PROCESSING,
+                                                ExtractionState.EXTRACTED,
                                                 Instant.parse("2026-01-01T00:00:00Z"))),
                                 0,
                                 false));
@@ -106,7 +106,9 @@ class LibraryControllerTest {
         Assertions.assertThat(html)
                 .contains(
                         "href=\"/documents/" + id + "\"",
-                        "PROCESSING",
+                        "EXTRACTED",
+                        "href=\"/documents/" + id + "/delete\"",
+                        "aria-label=\"Delete sentinel-private-&lt;script&gt;alert(1)&lt;/script&gt;.md\"",
                         "sentinel-private-&lt;script&gt;alert(1)&lt;/script&gt;.md",
                         "datetime=\"2026-01-01T00:00:00Z\"")
                 .doesNotContain("<script>", "No documents on this page.", "rel=\"next\"");

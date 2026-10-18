@@ -14,6 +14,7 @@
     <h1 th:text="${document.name}">Document</h1>
     <p role="status">Status: <strong th:text="${document.state}">QUEUED</strong>
       · Version <span th:text="${document.processingVersion}">1</span></p>
+    <p><a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a></p>
     <p th:if="${document.state.name() == 'QUEUED' or document.state.name() == 'PROCESSING'}">Processing your document. This page refreshes automatically.</p>
     <section class="notice notice-error" role="alert" th:if="${!document.message.isEmpty()}">
       <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>

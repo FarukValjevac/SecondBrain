@@ -9,6 +9,7 @@ import static org.mockito.Mockito.spy;
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventHandler;
+import dev.secondbrain.events.EventPublisher;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
@@ -43,6 +44,7 @@ import java.nio.file.Path;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,6 +75,88 @@ class DocumentDeletionIT {
                 .sql(
                         "TRUNCATE TABLE documents, event_keys, domain_events, event_deliveries, event_delivery_attempts CASCADE")
                 .update();
+    }
+
+    @Test
+    void cleanupBacklogIncludesUnscheduledAndFailedRequestsAndIgnoresObsoleteDeliveries()
+            throws Exception {
+        try (var context = start()) {
+            var first = upload(context);
+            var second = upload(context);
+            var visible = upload(context);
+            var now = Instant.parse("2030-01-01T00:00:00Z");
+            var documents = context.getBean(JdbcDocumentRepository.class);
+            assertThat(documents.cleanupBacklog(now))
+                    .isEqualTo(new JdbcDocumentRepository.CleanupBacklog(0, 0, 0));
+            // A preserved failure from an older processing version must not classify today's
+            // request.
+            transaction(context)
+                    .executeWithoutResult(
+                            status ->
+                                    context.getBean(EventPublisher.class)
+                                            .publish(
+                                                    new EventEnvelope(
+                                                            UUID.randomUUID(),
+                                                            DocumentDeletionRequestedEvent.TYPE,
+                                                            first.document().documentId(),
+                                                            1,
+                                                            now.minusSeconds(300),
+                                                            UUID.randomUUID(),
+                                                            null,
+                                                            null,
+                                                            Map.of())));
+            for (var fixture : List.of(first, second)) {
+                assertThat(
+                                context.getBean(DocumentDeletionService.class)
+                                        .request(
+                                                fixture.document().documentId(), UUID.randomUUID()))
+                        .isTrue();
+                jdbc(context)
+                        .sql("UPDATE documents SET deleted_at = :time WHERE document_id = :id")
+                        .param(
+                                "time",
+                                Timestamp.from(now.minusSeconds(fixture == first ? 30 : 120)))
+                        .param("id", fixture.document().documentId())
+                        .update();
+            }
+            jdbc(context)
+                    .sql(
+                            """
+                    UPDATE event_deliveries d SET state = 'FAILED' FROM event_keys k
+                    WHERE d.event_id = k.event_id AND ((k.document_id = :first AND k.processing_version = 1)
+                        OR k.document_id = :second OR k.document_id = :visible)
+                    """)
+                    .param("first", first.document().documentId())
+                    .param("second", second.document().documentId())
+                    .param("visible", visible.document().documentId())
+                    .update();
+            // Model a request made before the consumer existed: its envelope is retained, no
+            // delivery yet.
+            jdbc(context)
+                    .sql(
+                            """
+                    DELETE FROM event_deliveries d USING event_keys k WHERE d.event_id = k.event_id
+                        AND k.document_id = :id AND k.processing_version = 2
+                    """)
+                    .param("id", first.document().documentId())
+                    .update();
+
+            assertThat(documents.cleanupBacklog(now))
+                    .isEqualTo(new JdbcDocumentRepository.CleanupBacklog(1, 1, 120));
+            for (var fixture : List.of(first, second)) {
+                transaction(context)
+                        .executeWithoutResult(
+                                status ->
+                                        assertThat(
+                                                        documents.finishDeletion(
+                                                                fixture.document().documentId(),
+                                                                2,
+                                                                fixture.document().storageId()))
+                                                .isTrue());
+            }
+            assertThat(documents.cleanupBacklog(now))
+                    .isEqualTo(new JdbcDocumentRepository.CleanupBacklog(0, 0, 0));
+        }
     }
 
     @Test
@@ -139,6 +223,8 @@ class DocumentDeletionIT {
             assertThat(eventCount(context, id, "DocumentAccepted")).isEqualTo(1);
             assertThat(eventCount(context, id, "TextExtracted")).isEqualTo(1);
             assertThat(cleanupState(context, id)).isEqualTo("COMPLETED");
+            assertThat(context.getBean(JdbcDocumentRepository.class).cleanupBacklog(Instant.now()))
+                    .isEqualTo(new JdbcDocumentRepository.CleanupBacklog(0, 0, 0));
             assertThat(
                             context.getBean(DocumentDeletionHandler.class)
                                     .prepare(deletionEvent(context, id))

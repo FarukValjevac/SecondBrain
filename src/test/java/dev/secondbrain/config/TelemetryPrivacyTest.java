@@ -41,7 +41,8 @@ class TelemetryPrivacyTest {
                             Assertions.assertThat(tag.getValue()).isEqualTo("OTHER");
                         });
         request.setMethod("POST");
-        for (String route : new String[] {"/documents", "/documents/upload"}) {
+        for (String route :
+                new String[] {"/documents", "/documents/upload", "/documents/{id}/delete"}) {
             context.setPathPattern(route);
             Assertions.assertThat(convention.getLowCardinalityKeyValues(context))
                     .anySatisfy(

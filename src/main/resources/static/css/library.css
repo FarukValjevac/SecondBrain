@@ -176,5 +176,26 @@ button:hover {
 .document-summary a { color: #205c48; font-weight: 600; }
 .document-summary time { display: block; color: #52665d; font-size: .875rem; }
 .document-state { padding: .25rem .5rem; border-radius: .375rem; background: #e6f3eb; font-size: .875rem; }
+.document-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.library-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: .375rem .75rem;
+  border: 1px solid #87342c;
+  border-radius: .5rem;
+  color: #87342c;
+  background: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.library-delete:hover { background: #fff1f0; }
 .library-pages { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
 .library-pages a { color: #205c48; }
+
+.delete-link { color: #87342c; }
+.deletion-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1.5rem; }
+.deletion-actions a { color: #205c48; }
+.danger-button { background: #87342c; border-color: #87342c; }
+.danger-button:hover { background: #68271f; }

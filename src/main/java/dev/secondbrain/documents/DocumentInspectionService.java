@@ -60,6 +60,20 @@ public final class DocumentInspectionService {
                         }));
     }
 
+    /** Lightweight visible metadata for confirmation screens; never loads document text. */
+    public Optional<DocumentSummary> summary(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return Objects.requireNonNull(
+                transactions.execute(status -> documents.findById(id).map(this::summarize)));
+    }
+
+    private DocumentSummary summarize(DocumentMetadata document) {
+        var progress = documents.progress(document.documentId(), document.processingVersion());
+        var state = document.extractionState().displayedWith(progress.deliveryState());
+        return new DocumentSummary(
+                document.documentId(), document.originalName(), state, document.createdAt());
+    }
+
     public Optional<DocumentView> find(UUID id) {
         Objects.requireNonNull(id, "id");
         return Objects.requireNonNull(

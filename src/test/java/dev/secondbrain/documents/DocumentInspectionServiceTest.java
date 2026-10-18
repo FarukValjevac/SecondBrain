@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 class DocumentInspectionServiceTest {
@@ -34,6 +35,31 @@ class DocumentInspectionServiceTest {
     void transaction() {
         when(transactions.getTransaction(any()))
                 .thenAnswer(invocation -> new SimpleTransactionStatus());
+    }
+
+    @Test
+    void confirmationSummaryDoesNotRequireStoredText() {
+        var id = UUID.randomUUID();
+        when(documents.findById(id))
+                .thenReturn(
+                        Optional.of(
+                                new DocumentMetadata(
+                                        id,
+                                        "Notes.md",
+                                        DocumentType.MARKDOWN,
+                                        UUID.randomUUID(),
+                                        "a".repeat(64),
+                                        10,
+                                        1,
+                                        ExtractionState.EXTRACTED,
+                                        Instant.EPOCH,
+                                        Instant.EPOCH)));
+        when(documents.progress(id, 1))
+                .thenReturn(new JdbcDocumentRepository.Progress(Optional.empty(), "COMPLETED"));
+        var summary = service.summary(id).orElseThrow();
+        assertThat(summary.name()).isEqualTo("Notes.md");
+        assertThat(summary.state()).isEqualTo(ExtractionState.EXTRACTED);
+        verifyNoInteractions(texts, events);
     }
 
     @Test

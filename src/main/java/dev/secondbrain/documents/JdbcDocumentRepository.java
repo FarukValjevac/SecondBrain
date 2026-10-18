@@ -244,4 +244,33 @@ final class JdbcDocumentRepository {
     }
 
     record Progress(Optional<TextExtractionException.Reason> failure, String deliveryState) {}
+
+    CleanupBacklog cleanupBacklog(Instant now) {
+        return jdbc.sql(
+                        """
+                        SELECT count(*) FILTER (WHERE COALESCE(delivery.state, '') <> 'FAILED') AS pending,
+                               count(*) FILTER (WHERE delivery.state = 'FAILED') AS failed,
+                               GREATEST(0, COALESCE(EXTRACT(EPOCH FROM
+                                   (CAST(:now AS timestamptz) - min(d.deleted_at))), 0)) AS age
+                        FROM documents d
+                        LEFT JOIN event_keys k ON k.document_id = d.document_id
+                            AND k.processing_version = d.processing_version
+                            AND k.event_type = 'DocumentDeletionRequested'
+                        LEFT JOIN event_deliveries delivery ON delivery.event_id = k.event_id
+                            AND delivery.handler_id = :handler
+                        WHERE d.deleted_at IS NOT NULL
+                        """)
+                .withQueryTimeout(5)
+                .param("now", Timestamp.from(now))
+                .param("handler", DocumentDeletionHandler.ID)
+                .query(
+                        (row, index) ->
+                                new CleanupBacklog(
+                                        row.getLong("pending"),
+                                        row.getLong("failed"),
+                                        row.getDouble("age")))
+                .single();
+    }
+
+    record CleanupBacklog(long pending, long failed, double age) {}
 }

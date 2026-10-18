@@ -1,5 +1,6 @@
 package dev.secondbrain.web;
 
+import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.UUID;
@@ -28,9 +30,12 @@ import java.util.UUID;
         matchIfMissing = true)
 class DocumentDetailController {
     private final DocumentInspectionService documents;
+    private final DocumentDeletionService deletion;
 
-    DocumentDetailController(DocumentInspectionService documents) {
+    DocumentDetailController(
+            DocumentInspectionService documents, DocumentDeletionService deletion) {
         this.documents = documents;
+        this.deletion = deletion;
     }
 
     @GetMapping("/documents/{id}")
@@ -41,6 +46,32 @@ class DocumentDetailController {
                         .find(id)
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND)));
         return "document";
+    }
+
+    @GetMapping("/documents/{id}/delete")
+    String confirmDeletion(@PathVariable UUID id, Model model) {
+        model.addAttribute(
+                "document",
+                documents
+                        .summary(id)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND)));
+        return "document-delete";
+    }
+
+    @PostMapping("/documents/{id}/delete")
+    RedirectView delete(
+            @PathVariable UUID id,
+            @RequestAttribute(RequestCorrelationFilter.ATTRIBUTE) UUID correlationId,
+            RedirectAttributes feedback) {
+        boolean requested = deletion.request(id, correlationId);
+        feedback.addFlashAttribute(
+                "deletionMessage",
+                requested
+                        ? "Document removed from the library. Saved content will be cleaned up in the background."
+                        : "That document is already absent from the library.");
+        var redirect = new RedirectView("/", true);
+        redirect.setStatusCode(HttpStatus.SEE_OTHER);
+        return redirect;
     }
 
     @PostMapping("/documents/{id}/retry")

@@ -19,6 +19,10 @@
       <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
       <p><a th:href="@{/documents/{id}(id=${uploadReceipt.documentId})}">Open document</a></p>
     </section>
+    <section class="notice notice-success" role="status" th:if="${deletionMessage != null}">
+      <h2>Library updated</h2>
+      <p th:text="${deletionMessage}">Document removed.</p>
+    </section>
     <section class="notice notice-error" role="alert" th:if="${uploadError != null}">
       <h2>Upload could not be completed</h2>
       <p th:text="${uploadError}">Choose a supported file and try again.</p>
@@ -52,7 +56,11 @@
             <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}">Document name</a>
             <time th:datetime="${document.createdAt}" th:text="${document.createdAt}">Upload time</time>
           </div>
-          <span class="document-state" th:text="${document.state}">QUEUED</span>
+          <div class="document-actions">
+            <span class="document-state" th:text="${document.state}">QUEUED</span>
+            <a class="library-delete" th:href="@{/documents/{id}/delete(id=${document.documentId})}"
+               th:aria-label="|Delete ${document.name}|">Delete</a>
+          </div>
         </li>
       </ul>
       <nav class="library-pages" aria-label="Document pages" th:if="${library.page > 0 or library.hasNext}">

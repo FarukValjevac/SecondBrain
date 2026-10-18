@@ -84,6 +84,7 @@ class TelemetryConfiguration {
                                                                 "/documents/upload",
                                                                 "/documents/{id}",
                                                                 "/documents/{id}/retry",
+                                                                "/documents/{id}/delete",
                                                                 "NOT_FOUND",
                                                                 "UNKNOWN",
                                                                 "REDIRECTION",

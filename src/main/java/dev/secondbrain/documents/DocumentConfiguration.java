@@ -107,6 +107,12 @@ class DocumentConfiguration {
     }
 
     @Bean
+    DocumentCleanupBacklogMetrics documentCleanupBacklogMetrics(
+            JdbcDocumentRepository documents, MeterRegistry meters, Clock clock) {
+        return new DocumentCleanupBacklogMetrics(documents, meters, clock);
+    }
+
+    @Bean
     @ConditionalOnProperty(
             name = "secondbrain.documents.cleanup.enabled",
             havingValue = "true",
