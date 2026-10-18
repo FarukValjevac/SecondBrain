@@ -77,7 +77,7 @@ Start PostgreSQL as described in the README, then run:
 ./mvnw -Pdev spring-boot:run
 ```
 
-The Maven `dev` profile adds Boot-managed DevTools 4.1.1, activates the Spring `dev` settings, and serves resources directly from `src/main/resources`. The Spring settings disable template/static-resource caches while preserving the application's usual error and logging configuration. Normal startup uses `./mvnw spring-boot:run`; DevTools is absent from the default dependency set and excluded from executable JARs by Spring Boot's packaging defaults.
+The Maven `dev` profile adds Boot-managed DevTools 4.1.1 and activates the Spring `dev` settings. Those settings read templates and static files directly from `src/main/resources` using filesystem locations, with their caches disabled. Application configuration and migrations remain on the normal compiled classpath. Normal startup uses `./mvnw spring-boot:run`; DevTools is absent from the default dependency set and excluded from executable JARs by Spring Boot's packaging defaults.
 
 - **HTML/CSS:** save the template or stylesheet and refresh the browser. No compilation or application restart is required. Browser refresh is manual; the LiveReload server is disabled.
 - **Java:** save the code, then run the following in another terminal from the project root:
@@ -92,19 +92,21 @@ The Maven `dev` profile adds Boot-managed DevTools 4.1.1, activates the Spring `
 
 To check the setup, make a temporary text change in `src/main/resources/templates/library.html`, refresh and confirm it appears, then revert it. For Java, temporarily append `" (reload check)"` to the `maximumUploadSize` model value in `LibraryController.java`, compile, and confirm a new startup log and the marker next to the form's size limit; revert and compile again. Stop the existing normal-mode process before starting development mode on the same port. Do not edit applied Flyway migrations to test reloads.
 
-The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devtools.html) explains restart behavior; the [Maven plugin reference](https://docs.spring.io/spring-boot/maven-plugin/run.html) covers direct source resources.
+If tests report missing application settings, missing templates, or missing tables after finding zero Flyway migrations, stop any development process started with the older build configuration. Run `./mvnw clean verify` to restore and check the compiled resources, then relaunch development mode. The previous Maven `addResources` setting removed resource copies from `target/classes`; the current configuration preserves them for tests. Relaunching the old process once is necessary because it keeps its original Maven configuration.
+
+The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devtools.html) explains restart behavior; the [Maven plugin reference](https://docs.spring.io/spring-boot/maven-plugin/run.html) documents how `addResources` removes duplicate output resources.
 
 ## Uploading documents in the browser
 
-Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT or Markdown file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT, Markdown, or PDF file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
 
-The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. The page provides upload controls and feedback, while stored-document listing is not available. When durable events are disabled, the form is hidden and the page reports that uploads are unavailable.
+The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. **Your documents** lists stored uploads with their processing states and detail links, newest first, with 50 per page. Use **Previous** and **Next** for other pages; refresh to update processing states. When durable events are disabled, the form is hidden and the library reports that it is unavailable.
 
 Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
 
 ### Browser and restart walkthrough
 
-Use small, non-sensitive UTF-8 fixtures. Stored-document listing is not available yet; save the document URL if you want to return to it.
+Use small, non-sensitive UTF-8 fixtures. Return to document details through **Your documents** on the library page.
 
 1. Start the database and application using the README. Open the library in a fresh browser session with cookies enabled. Check the form at desktop and narrow window widths.
 2. Upload one non-empty TXT file and one Markdown file. Each should return to `/` with **Saved and queued** and **QUEUED**, including the first upload in the fresh session. Follow **Open document** and wait for **EXTRACTED**; verify Unicode, blank lines, and numbered source anchors.
@@ -114,6 +116,31 @@ Use small, non-sensitive UTF-8 fixtures. Stored-document listing is not availabl
 6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and extracted text should remain available at the saved document URLs. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
 
 Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
+
+## PDF support and limits
+
+PDFs need selectable text. Encrypted PDFs (including those that open with an empty password), corrupt/unsupported files, and PDFs without selectable text fail with a fixed message; OCR is not available. **Saved and queued** or HTTP `202` confirms that the original was stored and processing was queued. **EXTRACTED** confirms successful extraction.
+
+Source links show physical PDF pages, counted from the first page including covers and blank pages; printed page numbers may differ. Each **Page N** link targets a stable numbered source line. A blank page retains a labeled empty line. Filenames and extracted text remain literal, escaped content.
+
+| Limit | Current policy |
+|---|---|
+| Input bytes | Configured upload limit (10MB by default), capped at 32 MiB for PDF extraction |
+| Physical pages | 200 |
+| Glyph text and output text | 1,000,000 UTF-16 code units each |
+| Content operators | 1,000,000 |
+| Parsing time | Cooperative 15-second budget |
+| Stored lines | 100,000 across all pages, including empty and trailing lines |
+
+The upload limit is configured through `secondbrain.documents.max-upload-size`; the other PDF budgets are fixed application policy. The time/work limits are cooperative application checks, not hard process or heap isolation. Invalid input and exceeded PDF budgets stop automatic delivery after one attempt. Source I/O failures use bounded retries; manual retry starts a new processing version without repairing the original file. The existing retry and deletion controls apply.
+
+### PDF browser check
+
+1. Choose a small selectable-text PDF using **Choose a file**, then select **Upload document** and **Open document**. Wait for **EXTRACTED** and check that the text and **Page N** labels match its physical pages, including any blank pages. Select a page label and confirm the URL targets that numbered source line.
+2. Return to **Your documents** and reopen it. Restart the application using the README commands, then confirm its content and page references remain available.
+3. Select **Delete**, then **Cancel**, and confirm the PDF remains available. Repeat deletion and confirm it; the entry should disappear and its old detail URL should remain unavailable after restart. Your source file stays unchanged.
+
+Run `./mvnw verify` with Docker available as the full automated gate. Generated fixtures in `DocumentExtractionIT` cover permanent PDF failures, retry/restart recovery, stored page identity, and cleanup without using the real library. Parser budget/failure cases are in `PdfTextExtractorTest`. The browser check supplements these tests.
 
 ## Text extraction and retry
 
@@ -125,15 +152,32 @@ Existing accepted uploads are reconciled in batches of 100 every second. `second
 
 Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.duration`, and backlog metrics for processing diagnostics. `event.delivery` observations and safe structured logs carry document/version/event/delivery/correlation IDs across restart; fixed outcomes/codes distinguish completion, skipped stale work, retries, and failure. No document text, names, or exception messages enter this telemetry. Failure state and attempt/retry bookkeeping commit together under the same lease fence as successful completion.
 
+## Deleted-document cleanup
+
+Select **Delete** beside a document’s status in **Your documents**, or open its detail page and select **Delete document**, then review the confirmation page. **Cancel** returns without changes. Confirming submits a POST request, hides the document immediately, commits a durable cleanup request, and redirects to the library with one-time feedback. Refreshing the library does not resubmit deletion; repeated submissions safely report that the document is already absent. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `secondbrain.documents.deletion.enabled` | `true` | Register the durable cleanup handler |
+| `secondbrain.documents.deletion.reconcile-enabled` | `true` | Schedule retained requests that predate the handler |
+
+Reconciliation runs every second in batches of up to 100. It does not duplicate deliveries or reset failed attempts. Disabling the handler still permits deletion requests and preserves their events. `secondbrain.events.polling-enabled=false` pauses execution; `secondbrain.documents.cleanup.enabled` controls the separate abandoned-file scanner. GET `/documents/{id}/delete` displays confirmation without changing state; POST to that URL requests deletion and returns `303 See Other` to `/`. Malformed IDs return 400, unavailable confirmation targets return 404, and database/transaction failures return fixed 503 text without a success message.
+
+Restarting the application with normal settings processes existing deletion requests automatically. Use the document UUID with the [database inspection](#database-inspection) connection: successful cleanup leaves no matching row in `documents` or `document_extractions`, and its `documents.delete.v1` delivery is `COMPLETED` (or `SKIPPED` for already absent work). The generated `.original` file is removed; source files selected for upload remain untouched. Generic event-delivery logs, attempt metrics, and backlog metrics cover cleanup using persisted correlation IDs. The `secondbrain.document.cleanup.deleted` counter belongs to the abandoned-file scanner and does not count this durable handler.
+
+Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for isolated PostgreSQL cleanup, missing-file recovery, retry, and deletion-request checks, including competing delivery claims, lease expiry during cleanup, and old extraction work after deletion. The full gate remains `./mvnw verify`.
+
 ## Uploading documents over HTTP
 
-With the application running, submit one existing TXT or Markdown file using the `file` field:
+With the application running, submit one existing TXT, Markdown, or PDF file using the `file` field:
 
 ```sh
 curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
 ```
 
-Accepted extensions are `.txt`, `.md`, and `.markdown`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
+Accepted HTTP extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
+
+For a PDF, use an existing file, for example `curl -i -F 'file=@notes.pdf' http://127.0.0.1:8080/documents` from the directory containing `notes.pdf`. Follow the returned document ID to `/documents/{documentId}` for extracted text and page references or a safe processing-failure message. See [PDF support and limits](#pdf-support-and-limits) for accepted content, budgets, and recovery behavior.
 
 A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header and JSON shaped as:
 
@@ -145,21 +189,21 @@ The ID above is illustrative; each upload returns its own ID. Metadata and its d
 
 Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
 
-To check unsupported-extension rejection despite the browser's file-picker filter, submit the existing TXT bytes with a PDF filename:
+To check unsupported-extension rejection despite the browser's file-picker filter, submit the existing TXT bytes with an unsupported extension:
 
 ```sh
-curl -i -F 'file=@notes.txt;filename=notes.pdf' http://127.0.0.1:8080/documents
+curl -i -F 'file=@notes.txt;filename=notes.exe' http://127.0.0.1:8080/documents
 ```
 
-Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT and Markdown files are supported.`
+Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT, Markdown, and PDF files are supported.`
 
 To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
-`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
+`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. Its `page_number` is a positive physical page for PDFs and SQL NULL for TXT/Markdown. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 
 Open a database shell using the configured user and database:
 
@@ -259,7 +303,7 @@ Attempt meters update after the database commits and do not count a rejected sta
 
 Reading the filtered request timer does not increase the count for `GET /`. Request the library page again, then inspect the timer to observe the increase.
 
-### Upload and cleanup measurements
+### Upload, deletion request, and cleanup measurements
 
 | Meter | Unit | Labels / meaning |
 |---|---|---|
@@ -268,6 +312,21 @@ Reading the filtered request timer does not increase the count for `GET /`. Requ
 | `secondbrain.document.cleanup.batches` | count | `outcome=completed,failed` |
 | `secondbrain.document.cleanup.duration` | seconds | Cleanup-batch duration; same outcomes, plus fixed `error=none` |
 | `secondbrain.document.cleanup.deleted` | count | Originals actually deleted; no labels |
+| `secondbrain.document.deletions` | count | Deletion requests; `outcome=requested,unchanged,unavailable` |
+| `secondbrain.document.deletion.duration` | seconds | Deletion-request duration through transaction completion; same outcomes, plus fixed `error=none` |
+| `secondbrain.document.deletion.backlog` | documents | `state=pending,failed`; outstanding cleanup requests, split into disjoint states |
+| `secondbrain.document.deletion.backlog.oldest` | seconds | Age since the oldest outstanding deletion request, including failures |
+| `secondbrain.document.deletion.backlog.available` | 0 or 1 | Whether the most recent cleanup backlog query succeeded |
+
+Deletion-request measurements cover calls to the internal deletion service. `requested` means a new deletion marker and event committed; `unchanged` means the document was absent or already marked deleted. Rollback or transaction failure records `unavailable`. These outcomes do not mean original files or text have been physically removed. Logs use `operation=document_deletion` and a UUID correlation ID. The isolated PostgreSQL checks run with `./mvnw -Dit.test=DocumentDeletionIT verify`; the browser confirmation action uses the same measured service.
+
+Cleanup backlog gauges share one five-second-cached query with a five-second SQL timeout. Pending includes hidden documents waiting for a delivery, execution, or retry, including requests made while the handler was disabled; failed includes current terminal cleanup failures. Active documents and obsolete delivery versions are excluded. Physical cleanup removes the document row and clears its contribution. Counts are zero and age is zero when nothing remains. A failed database read yields `NaN` counts/age and availability 0; it never invents an empty backlog. No document IDs, names, or paths are metric labels.
+
+```sh
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.deletion.backlog?tag=state:pending'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.document.deletion.backlog?tag=state:failed'
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.document.deletion.backlog.oldest
+```
 
 Upload measurements cover attempts that reach DocumentAcceptanceService, including domain validation, original storage, transaction completion, and failure compensation. `accepted` increments after the metadata/event transaction returns successfully. `rejected` means application upload validation rejected the input; `unavailable` covers storage, database/transaction, and unexpected acceptance failures. Multipart parsing, missing/repeated file parts, and failures opening the HTTP input stream can occur before the service and are excluded from these application counters; the existing HTTP metrics still measure their requests. Both browser and JSON uploads use the same acceptance measurements.
 
@@ -407,6 +466,10 @@ For upload failure recovery checks:
 ```
 
 The first command checks private original storage, including cancellation after a partial write, preserved interruption, and subsequent upload/cleanup. The second also runs the fast suite and requires Docker: an isolated PostgreSQL fixture rejects event insertion or final commit, then checks rollback, file compensation, failure counters, and a successful retry. It uses temporary storage and a container database. Run the full `./mvnw verify` before considering the issue complete.
+
+The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads now use the same durable worker; check them with `./mvnw -Dit.test=DocumentExtractionIT,DocumentRepositoryIT,DatabaseMigrationIT verify`. The browser picker also accepts PDFs; document pages display escaped text with physical page labels linked to the numbered source lines.
+
+Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker).
 
 Apply Java formatting before committing:
 

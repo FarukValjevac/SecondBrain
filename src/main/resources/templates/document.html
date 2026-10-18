@@ -14,6 +14,7 @@
     <h1 th:text="${document.name}">Document</h1>
     <p role="status">Status: <strong th:text="${document.state}">QUEUED</strong>
       · Version <span th:text="${document.processingVersion}">1</span></p>
+    <p><a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a></p>
     <p th:if="${document.state.name() == 'QUEUED' or document.state.name() == 'PROCESSING'}">Processing your document. This page refreshes automatically.</p>
     <section class="notice notice-error" role="alert" th:if="${!document.message.isEmpty()}">
       <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>
@@ -25,7 +26,11 @@
       <h2 id="text-title">Extracted text</h2>
       <p>Text is extracted. Search indexing is not available yet.</p>
       <ol class="source-lines">
-        <li th:each="line : ${document.lines}" th:id="${'line-' + line.number}"><a th:href="${'#line-' + line.number}" th:aria-label="${'Line ' + line.number}">#</a><pre th:text="${line.text}">Text</pre></li>
+        <li th:each="line : ${document.lines}" th:id="${'line-' + line.number}">
+          <a th:href="${'#line-' + line.number}"
+             th:aria-label="${line.pageNumber.isPresent() ? 'Page ' + line.pageNumber.getAsInt() + ', line ' + line.number : 'Line ' + line.number}"
+             th:text="${line.pageNumber.isPresent() ? 'Page ' + line.pageNumber.getAsInt() : '#'}">#</a><pre th:text="${line.text}">Text</pre>
+        </li>
       </ol>
     </section>
   </main>

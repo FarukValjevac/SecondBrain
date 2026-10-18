@@ -53,7 +53,7 @@ h1 {
   letter-spacing: -0.04em;
 }
 
-.upload-card {
+.upload-card, .library-card {
   padding: clamp(1.25rem, 4vw, 2.5rem);
   background: #fff;
   border: 1px solid #dce4df;
@@ -70,7 +70,7 @@ h1 {
   stroke-linejoin: round;
 }
 
-.upload-card h2, .notice h2 {
+.upload-card h2, .library-card h2, .notice h2 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
@@ -159,4 +159,43 @@ button:hover {
 .source-lines { padding-left: 3rem; }
 .source-lines li { padding: .25rem .5rem; border-bottom: 1px solid #ddd; }
 .source-lines pre { display: inline; white-space: pre-wrap; overflow-wrap: anywhere; }
-.source-lines a { margin-right: .75rem; }
+.source-lines a { margin-right: .75rem; white-space: nowrap; }
+
+.library-card { margin-top: 1.5rem; }
+.document-list { list-style: none; padding: 0; margin: 1rem 0; }
+.document-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid #dce4df;
+}
+.document-summary { min-width: 0; overflow-wrap: anywhere; }
+.document-summary a { color: #205c48; font-weight: 600; }
+.document-summary time { display: block; color: #52665d; font-size: .875rem; }
+.document-state { padding: .25rem .5rem; border-radius: .375rem; background: #e6f3eb; font-size: .875rem; }
+.document-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.library-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: .375rem .75rem;
+  border: 1px solid #87342c;
+  border-radius: .5rem;
+  color: #87342c;
+  background: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.library-delete:hover { background: #fff1f0; }
+.library-pages { display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap; }
+.library-pages a { color: #205c48; }
+
+.delete-link { color: #87342c; }
+.deletion-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1.5rem; }
+.deletion-actions a { color: #205c48; }
+.danger-button { background: #87342c; border-color: #87342c; }
+.danger-button:hover { background: #68271f; }

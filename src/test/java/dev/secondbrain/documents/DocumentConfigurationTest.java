@@ -32,15 +32,21 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
                             assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
+                            assertThat(context).hasSingleBean(JdbcIndexingRepository.class);
                             assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
                             assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
                             assertThat(context).hasSingleBean(DocumentExtractionHandler.class);
                             assertThat(context).hasSingleBean(DocumentInspectionService.class);
+                            assertThat(context).hasSingleBean(DocumentDeletionService.class);
+                            assertThat(context).hasSingleBean(DocumentCleanupBacklogMetrics.class);
+                            assertThat(context).hasSingleBean(DocumentDeletionHandler.class);
                             assertThat(context).hasSingleBean(OriginalFileReconciler.class);
                             assertThat(context).hasSingleBean(DocumentTelemetry.class);
                             assertThat(context.getBeansOfType(EventEnvelope.Type.class).values())
                                     .containsExactlyInAnyOrder(
-                                            DocumentAcceptedEvent.TYPE, TextExtractedEvent.TYPE);
+                                            DocumentAcceptedEvent.TYPE,
+                                            TextExtractedEvent.TYPE,
+                                            DocumentDeletionRequestedEvent.TYPE);
                         });
     }
 
@@ -53,6 +59,10 @@ class DocumentConfigurationTest {
                 .run(
                         context -> {
                             assertThat(context).doesNotHaveBean(DocumentAcceptanceService.class);
+                            assertThat(context).doesNotHaveBean(DocumentDeletionService.class);
+                            assertThat(context)
+                                    .doesNotHaveBean(DocumentCleanupBacklogMetrics.class);
+                            assertThat(context).doesNotHaveBean(DocumentDeletionHandler.class);
                             assertThat(context).doesNotHaveBean(JdbcDocumentRepository.class);
                             assertThat(context).doesNotHaveBean(JdbcExtractedTextRepository.class);
                             assertThat(context)
@@ -75,6 +85,20 @@ class DocumentConfigurationTest {
     }
 
     @Test
+    void canDisableDeletionCleanupWhileKeepingRequestsAndUploadsAvailable() {
+        configuredContext()
+                .withPropertyValues("secondbrain.documents.deletion.enabled=false")
+                .run(
+                        context -> {
+                            assertThat(context).hasSingleBean(DocumentDeletionService.class);
+                            assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
+                            assertThat(context).doesNotHaveBean(DocumentDeletionHandler.class);
+                            assertThat(context)
+                                    .doesNotHaveBean(DocumentDeletionReconciliation.class);
+                        });
+    }
+
+    @Test
     void rejectsUnboundedOrUnsafeCleanupSettings() {
         for (var value :
                 new String[] {
@@ -91,6 +115,7 @@ class DocumentConfigurationTest {
         return new ApplicationContextRunner()
                 .withUserConfiguration(DocumentConfiguration.class)
                 .withPropertyValues("secondbrain.documents.extraction.reconcile-enabled=false")
+                .withPropertyValues("secondbrain.documents.deletion.reconcile-enabled=false")
                 .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(EventPublisher.class, () -> mock(EventPublisher.class))

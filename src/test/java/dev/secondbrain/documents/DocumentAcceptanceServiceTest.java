@@ -140,7 +140,7 @@ class DocumentAcceptanceServiceTest {
         assertThatThrownBy(
                         () ->
                                 service.accept(
-                                        "meeting.pdf",
+                                        "meeting.exe",
                                         CONTENT.length,
                                         new ByteArrayInputStream(CONTENT),
                                         CORRELATION_ID))

@@ -7,9 +7,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 final class JdbcExtractedTextRepository {
@@ -46,8 +48,8 @@ final class JdbcExtractedTextRepository {
                     jdbc.batchUpdate(
                             """
                     INSERT INTO document_text_lines
-                        (document_id, processing_version, line_number, line_text)
-                    VALUES (?, ?, ?, ?)
+                        (document_id, processing_version, line_number, line_text, page_number)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                             text.lines(),
                             LINE_BATCH_SIZE,
@@ -56,6 +58,11 @@ final class JdbcExtractedTextRepository {
                                 statement.setLong(2, text.processingVersion());
                                 statement.setInt(3, line.number());
                                 statement.setString(4, line.text());
+                                if (line.pageNumber().isPresent()) {
+                                    statement.setInt(5, line.pageNumber().getAsInt());
+                                } else {
+                                    statement.setNull(5, Types.INTEGER);
+                                }
                             });
                 });
     }
@@ -70,7 +77,7 @@ final class JdbcExtractedTextRepository {
                         status ->
                                 jdbc.query(
                                         """
-                        SELECT extraction.extracted_at, line.line_number, line.line_text
+                        SELECT extraction.extracted_at, line.line_number, line.line_text, line.page_number
                         FROM document_extractions extraction
                         LEFT JOIN document_text_lines line
                             ON line.document_id = extraction.document_id
@@ -99,7 +106,9 @@ final class JdbcExtractedTextRepository {
             if (rows.wasNull()) {
                 throw new IllegalStateException("Stored extraction has no text lines");
             }
-            lines.add(new ExtractedText.Line(number, rows.getString("line_text")));
+            var pageNumber = rows.getInt("page_number");
+            var page = rows.wasNull() ? OptionalInt.empty() : OptionalInt.of(pageNumber);
+            lines.add(new ExtractedText.Line(number, rows.getString("line_text"), page));
         } while (rows.next());
         return Optional.of(new ExtractedText(documentId, processingVersion, extractedAt, lines));
     }

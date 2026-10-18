@@ -6,6 +6,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.events.EventEnvelope;
+import dev.secondbrain.events.EventHandler;
 import dev.secondbrain.events.EventPublisher;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -36,6 +39,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -157,11 +164,24 @@ class DocumentExtractionIT {
         }
     }
 
-    @Test
-    void boundsMissingOriginalRetriesAndShowsATerminalStorageFailure() throws Exception {
+    @ParameterizedTest
+    @EnumSource(
+            value = DocumentType.class,
+            names = {"TXT", "PDF"})
+    void boundsMissingOriginalRetriesAndShowsATerminalStorageFailure(DocumentType type)
+            throws Exception {
         UUID id;
+        var content =
+                type == DocumentType.PDF
+                        ? PdfFixtures.text("Note")
+                        : "Note".getBytes(StandardCharsets.UTF_8);
         try (var context = start(true, false, false)) {
-            id = upload(context, "Note".getBytes(StandardCharsets.UTF_8));
+            id =
+                    upload(
+                            context,
+                            type == DocumentType.PDF ? "study.pdf" : "study.txt",
+                            content,
+                            UUID.randomUUID());
             var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
             Files.delete(storage.resolve(metadata.storageId() + ".original"));
         }
@@ -185,9 +205,7 @@ class DocumentExtractionIT {
             assertThat(view.retryAllowed()).isTrue();
             assertNoText(context, id);
             var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
-            Files.write(
-                    storage.resolve(metadata.storageId() + ".original"),
-                    "Note".getBytes(StandardCharsets.UTF_8));
+            Files.write(storage.resolve(metadata.storageId() + ".original"), content);
             assertThat(
                             context.getBean(DocumentInspectionService.class)
                                     .retry(id, UUID.randomUUID()))
@@ -197,7 +215,22 @@ class DocumentExtractionIT {
             assertThat(recovered.processingVersion()).isEqualTo(2);
             assertThat(recovered.state()).isEqualTo(ExtractionState.EXTRACTED);
             assertThat(recovered.lines())
-                    .containsExactly(new DocumentInspectionService.Line(1, "Note"));
+                    .filteredOn(line -> !line.text().isEmpty())
+                    .containsExactly(
+                            new DocumentInspectionService.Line(
+                                    1,
+                                    "Note",
+                                    type == DocumentType.PDF
+                                            ? OptionalInt.of(1)
+                                            : OptionalInt.empty()));
+            if (type == DocumentType.PDF) {
+                assertThat(
+                                context.getBean(JdbcExtractedTextRepository.class)
+                                        .findByDocumentVersion(id, 2)
+                                        .orElseThrow()
+                                        .lines())
+                        .allSatisfy(line -> assertThat(line.pageNumber()).hasValue(1));
+            }
         }
     }
 
@@ -268,11 +301,174 @@ class DocumentExtractionIT {
         }
     }
 
+    @Test
+    void extractsPdfPagesOnceAcrossRestartAndDeletesTheirContent() throws Exception {
+        var bytes = PdfFixtures.text("Café study notes", "", "Final page");
+        var correlation = UUID.randomUUID();
+        UUID id;
+        UUID original;
+        UUID extractedEvent;
+        List<ExtractedText.Line> savedLines;
+        try (var context = start(true, false, false)) {
+            id = upload(context, "study.PDF", bytes, correlation);
+            var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
+            original = metadata.storageId();
+            assertThat(metadata.documentType()).isEqualTo(DocumentType.PDF);
+            assertThat(metadata.extractionState()).isEqualTo(ExtractionState.QUEUED);
+            assertNoText(context, id);
+        }
+        try (var context = start(true, true, true)) {
+            awaitState(context, id, "COMPLETED");
+            savedLines =
+                    context.getBean(JdbcExtractedTextRepository.class)
+                            .findByDocumentVersion(id, 1)
+                            .orElseThrow()
+                            .lines();
+            assertThat(savedLines)
+                    .filteredOn(line -> !line.text().isBlank())
+                    .extracting(line -> line.pageNumber().orElseThrow())
+                    .containsExactly(1, 3);
+            assertThat(savedLines)
+                    .anySatisfy(
+                            line -> {
+                                assertThat(line.pageNumber()).hasValue(2);
+                                assertThat(line.text()).isEmpty();
+                            });
+            extractedEvent = eventId(context, id, "TextExtracted");
+            var acceptedEvent = eventId(context, id, "DocumentAccepted");
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT correlation_id FROM domain_events WHERE event_id = :id")
+                                    .param("id", extractedEvent)
+                                    .query(UUID.class)
+                                    .single())
+                    .isEqualTo(correlation);
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT causation_id FROM domain_events WHERE event_id = :id")
+                                    .param("id", extractedEvent)
+                                    .query(UUID.class)
+                                    .single())
+                    .isEqualTo(acceptedEvent);
+            var duplicate =
+                    new EventEnvelope(
+                            acceptedEvent,
+                            DocumentAcceptedEvent.TYPE,
+                            id,
+                            1,
+                            Instant.EPOCH,
+                            correlation,
+                            null,
+                            null,
+                            Map.of());
+            assertThat(context.getBean(DocumentExtractionHandler.class).prepare(duplicate).apply())
+                    .isEqualTo(EventHandler.Outcome.SKIPPED);
+            assertThat(eventId(context, id, "TextExtracted")).isEqualTo(extractedEvent);
+            assertThat(
+                            context.getBean(EventPublisher.class)
+                                    .scheduleMissing(
+                                            DocumentAcceptedEvent.TYPE,
+                                            DocumentExtractionHandler.ID,
+                                            100))
+                    .isZero();
+        }
+        try (var context = start(true, true, true)) {
+            assertThat(
+                            context.getBean(JdbcExtractedTextRepository.class)
+                                    .findByDocumentVersion(id, 1)
+                                    .orElseThrow()
+                                    .lines())
+                    .isEqualTo(savedLines);
+            assertThat(eventId(context, id, "TextExtracted")).isEqualTo(extractedEvent);
+            assertThat(Files.readAllBytes(storage.resolve(original + ".original")))
+                    .containsExactly(bytes);
+            assertThat(
+                            context.getBean(DocumentDeletionService.class)
+                                    .request(id, UUID.randomUUID()))
+                    .isTrue();
+            assertThat(context.getBean(DocumentInspectionService.class).find(id)).isEmpty();
+            Awaitility.await()
+                    .atMost(Duration.ofSeconds(15))
+                    .untilAsserted(
+                            () -> {
+                                assertThat(
+                                                jdbc(context)
+                                                        .sql(
+                                                                "SELECT count(*) FROM documents WHERE document_id = :id")
+                                                        .param("id", id)
+                                                        .query(Integer.class)
+                                                        .single())
+                                        .isZero();
+                                assertThat(
+                                                context.getBean(JdbcExtractedTextRepository.class)
+                                                        .findByDocumentVersion(id, 1))
+                                        .isEmpty();
+                                assertThat(Files.exists(storage.resolve(original + ".original")))
+                                        .isFalse();
+                            });
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = TextExtractionException.Reason.class,
+            names = {"PDF_UNREADABLE", "PDF_ENCRYPTED", "PDF_NO_TEXT"})
+    void pdfFailuresStopAfterOneAttemptAndRetryAsANewVersion(TextExtractionException.Reason reason)
+            throws Exception {
+        var bytes =
+                switch (reason) {
+                    case PDF_UNREADABLE ->
+                            "%PDF-1.7\nPrivate truncated data".getBytes(StandardCharsets.UTF_8);
+                    case PDF_ENCRYPTED -> PdfFixtures.encrypted();
+                    case PDF_NO_TEXT -> PdfFixtures.text("");
+                    default -> throw new IllegalArgumentException("Unsupported test fixture");
+                };
+        try (var context = start(true, true, true)) {
+            var id = upload(context, "study.pdf", bytes, UUID.randomUUID());
+            var inspection = context.getBean(DocumentInspectionService.class);
+            for (var version = 1; version <= 2; version++) {
+                awaitState(context, id, "FAILED");
+                var view = inspection.find(id).orElseThrow();
+                assertThat(view.processingVersion()).isEqualTo(version);
+                assertThat(view.message()).isEqualTo(reason.message());
+                assertThat(view.retryAllowed()).isTrue();
+                assertThat(view.lines()).isEmpty();
+                assertThat(
+                                jdbc(context)
+                                        .sql(
+                                                """
+                        SELECT delivery.attempts FROM event_deliveries delivery
+                        JOIN event_keys k USING (event_id)
+                        WHERE k.document_id = :id AND k.processing_version = :version
+                            AND k.event_type = 'DocumentAccepted'
+                        """)
+                                        .param("id", id)
+                                        .param("version", version)
+                                        .query(Integer.class)
+                                        .single())
+                        .isEqualTo(1);
+                assertNoText(context, id);
+                if (version == 1) assertThat(inspection.retry(id, UUID.randomUUID())).isTrue();
+            }
+            var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
+            assertThat(Files.readAllBytes(storage.resolve(metadata.storageId() + ".original")))
+                    .containsExactly(bytes);
+        }
+    }
+
     private static UUID upload(ConfigurableApplicationContext context, byte[] bytes)
+            throws Exception {
+        return upload(context, "study.md", bytes, UUID.randomUUID());
+    }
+
+    private static UUID upload(
+            ConfigurableApplicationContext context, String filename, byte[] bytes, UUID correlation)
             throws Exception {
         try (var input = new ByteArrayInputStream(bytes)) {
             return context.getBean(DocumentAcceptanceService.class)
-                    .accept("study.md", bytes.length, input, UUID.randomUUID())
+                    .accept(filename, bytes.length, input, correlation)
                     .documentId();
         }
     }
@@ -387,6 +583,7 @@ class DocumentExtractionIT {
                             new DocumentTextExtractionService(
                                     originals,
                                     new Utf8TextExtractor(policy.maximumUploadBytes()),
+                                    new PdfTextExtractor(policy.maximumUploadBytes(), clock),
                                     clock));
             doAnswer(
                             invocation -> {

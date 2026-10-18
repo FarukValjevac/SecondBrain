@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delete document | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="/">SecondBrain</a></header>
+  <main>
+    <h1>Delete document?</h1>
+    <p>Remove <strong th:text="${document.name}">this document</strong> and its saved content from SecondBrain?</p>
+    <p>It will disappear from the library immediately. Saved content is cleaned up in the background.
+      Your source file is unchanged. This cannot be undone.</p>
+    <form method="post" th:action="@{/documents/{id}/delete(id=${document.documentId})}" class="deletion-actions">
+      <button type="submit" class="danger-button">Delete document</button>
+      <a th:href="@{/documents/{id}(id=${document.documentId})}">Cancel</a>
+    </form>
+  </main>
+</body>
+</html>

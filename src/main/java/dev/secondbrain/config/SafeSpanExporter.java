@@ -34,9 +34,11 @@ final class SafeSpanExporter implements SpanExporter {
                     "rejected",
                     "unavailable",
                     "completed",
-                    "failed");
+                    "failed",
+                    "requested",
+                    "unchanged");
     private static final Set<String> NAMES =
-            Set.of("event.delivery", "document.upload", "document.cleanup");
+            Set.of("event.delivery", "document.upload", "document.cleanup", "document.deletion");
     private final SpanExporter delegate;
     private final java.util.concurrent.atomic.AtomicBoolean closed =
             new java.util.concurrent.atomic.AtomicBoolean();

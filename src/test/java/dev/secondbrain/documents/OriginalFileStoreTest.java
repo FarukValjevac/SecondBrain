@@ -67,6 +67,30 @@ class OriginalFileStoreTest {
     }
 
     @Test
+    void deletesOnlyTheRequestedGeneratedKeyAndToleratesRepeatedDeletion() throws IOException {
+        var store = store(temporaryDirectory, CONTENT.length);
+        var first = storeAndRelease(store, CONTENT);
+        var second = storeAndRelease(store, CONTENT);
+        store.delete(first.storageId());
+        store.delete(first.storageId());
+        assertThat(Files.exists(temporaryDirectory.resolve(first.storageKey()))).isFalse();
+        assertThat(Files.readAllBytes(temporaryDirectory.resolve(second.storageKey())))
+                .containsExactly(CONTENT);
+    }
+
+    @Test
+    void deletionOfAReplacedKeyRemovesTheLinkAndPreservesItsTarget() throws IOException {
+        var store = store(temporaryDirectory, CONTENT.length);
+        var id = UUID.randomUUID();
+        var target = Files.write(temporaryDirectory.resolve("source.md"), CONTENT);
+        var link = temporaryDirectory.resolve(id + ".original");
+        Files.createSymbolicLink(link, target);
+        store.delete(id);
+        assertThat(Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS)).isFalse();
+        assertThat(Files.readAllBytes(target)).containsExactly(CONTENT);
+    }
+
+    @Test
     void rejectsMissingAndNonRegularOriginalsWithoutCreatingFiles() throws IOException {
         var store = store(temporaryDirectory, CONTENT.length);
         var missingId = UUID.randomUUID();

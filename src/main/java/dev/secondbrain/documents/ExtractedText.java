@@ -3,6 +3,7 @@ package dev.secondbrain.documents;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 /** Private text belonging to one document processing version. Do not log this record. */
@@ -30,12 +31,21 @@ record ExtractedText(
         }
     }
 
-    record Line(int number, String text) {
+    /** Page numbers are physical, one-based PDF pages; unpaged text has no page number. */
+    record Line(int number, String text, OptionalInt pageNumber) {
+        Line(int number, String text) {
+            this(number, text, OptionalInt.empty());
+        }
+
         Line {
             if (number < 1) {
                 throw new IllegalArgumentException("Line number must be positive");
             }
             Objects.requireNonNull(text, "text");
+            Objects.requireNonNull(pageNumber, "pageNumber");
+            if (pageNumber.isPresent() && pageNumber.getAsInt() < 1) {
+                throw new IllegalArgumentException("Page number must be positive when present");
+            }
             if (text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0 || text.indexOf('\0') >= 0) {
                 throw new IllegalArgumentException(
                         "Line text cannot contain line breaks or null characters");

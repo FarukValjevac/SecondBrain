@@ -10,6 +10,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 class ExtractedTextTest {
@@ -53,6 +54,29 @@ class ExtractedTextTest {
     }
 
     @Test
+    void distinguishesUnpagedTextFromPhysicalPagesIncludingBlankPages() {
+        assertThat(new ExtractedText.Line(1, "Plain text").pageNumber()).isEmpty();
+        var lines =
+                List.of(
+                        new ExtractedText.Line(1, "First page", OptionalInt.of(1)),
+                        new ExtractedText.Line(2, "More first-page text", OptionalInt.of(1)),
+                        new ExtractedText.Line(3, "", OptionalInt.of(2)),
+                        new ExtractedText.Line(4, "Third page", OptionalInt.of(3)));
+
+        var extracted = new ExtractedText(DOCUMENT_ID, 1, EXTRACTED_AT, lines);
+
+        assertThat(extracted.lines()).containsExactlyElementsOf(lines);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    void rejectsNonPositivePageNumbers(int pageNumber) {
+        assertThatThrownBy(() -> new ExtractedText.Line(1, "Text", OptionalInt.of(pageNumber)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Page number must be positive when present");
+    }
+
+    @Test
     void requiresDocumentVersionTimestampAndLineValues() {
         var lines = List.of(new ExtractedText.Line(1, "Text"));
         assertThatThrownBy(() -> new ExtractedText(null, 1, EXTRACTED_AT, lines))
@@ -70,6 +94,8 @@ class ExtractedTextTest {
         assertThatThrownBy(() -> new ExtractedText.Line(0, "Text"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ExtractedText.Line(1, null))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new ExtractedText.Line(1, "Text", null))
                 .isInstanceOf(NullPointerException.class);
     }
 

@@ -19,6 +19,10 @@
       <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
       <p><a th:href="@{/documents/{id}(id=${uploadReceipt.documentId})}">Open document</a></p>
     </section>
+    <section class="notice notice-success" role="status" th:if="${deletionMessage != null}">
+      <h2>Library updated</h2>
+      <p th:text="${deletionMessage}">Document removed.</p>
+    </section>
     <section class="notice notice-error" role="alert" th:if="${uploadError != null}">
       <h2>Upload could not be completed</h2>
       <p th:text="${uploadError}">Choose a supported file and try again.</p>
@@ -29,19 +33,46 @@
         <path d="M28 6v10h8M20 24h10M20 31h10"/>
       </svg>
       <h2 id="upload-title">Add a document</h2>
-      <p>Upload a TXT or Markdown file. Your original is stored privately.</p>
+      <p>Upload a TXT, Markdown, or PDF file. Your original is stored privately.</p>
       <form method="post" enctype="multipart/form-data" action="/documents/upload" th:action="@{/documents/upload}">
         <label for="document-file">Choose a file</label>
         <p id="upload-help" class="upload-help">
-          Supported formats: .txt, .md, .markdown. Maximum file size: <span th:text="${maximumUploadSize}">10MB</span>.
+          Supported formats: .txt, .md, .markdown, .pdf. PDFs need selectable text; encrypted and scanned-only PDFs are unsupported.
+          Maximum file size: <span th:text="${maximumUploadSize}">10MB</span>.
         </p>
-        <input type="file" id="document-file" name="file" accept=".txt,.md,.markdown" aria-describedby="upload-help" required>
+        <input type="file" id="document-file" name="file" accept=".txt,.md,.markdown,.pdf" aria-describedby="upload-help" required>
         <button type="submit">Upload document</button>
       </form>
     </section>
     <section class="upload-card" aria-labelledby="uploads-disabled-title" th:unless="${uploadsEnabled}">
       <h2 id="uploads-disabled-title">Uploads unavailable</h2>
       <p>Document uploads are currently disabled.</p>
+    </section>
+    <section class="library-card" aria-labelledby="documents-title" th:if="${libraryAvailable}">
+      <h2 id="documents-title">Your documents</h2>
+      <p th:if="${library.documents.isEmpty()}">No documents on this page.</p>
+      <ul class="document-list" th:unless="${library.documents.isEmpty()}">
+        <li th:each="document : ${library.documents}">
+          <div class="document-summary">
+            <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}">Document name</a>
+            <time th:datetime="${document.createdAt}" th:text="${document.createdAt}">Upload time</time>
+          </div>
+          <div class="document-actions">
+            <span class="document-state" th:text="${document.state}">QUEUED</span>
+            <a class="library-delete" th:href="@{/documents/{id}/delete(id=${document.documentId})}"
+               th:aria-label="|Delete ${document.name}|">Delete</a>
+          </div>
+        </li>
+      </ul>
+      <nav class="library-pages" aria-label="Document pages" th:if="${library.page > 0 or library.hasNext}">
+        <a rel="prev" th:if="${library.page > 0}" th:href="@{/(page=${library.page - 1})}">Previous</a>
+        <span th:text="|Page ${library.page + 1L}|">Page 1</span>
+        <a rel="next" th:if="${library.hasNext}" th:href="@{/(page=${library.page + 1L})}">Next</a>
+      </nav>
+    </section>
+    <section class="library-card" th:unless="${libraryAvailable}">
+      <h2>Library unavailable</h2>
+      <p>The document library is currently disabled.</p>
     </section>
   </main>
 </body>

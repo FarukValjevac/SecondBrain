@@ -14,10 +14,11 @@ class DocumentUploadPolicyTest {
             new DocumentUploadPolicy(DataSize.ofBytes(MAXIMUM_BYTES));
 
     @Test
-    void acceptsSupportedTextExtensionsCaseInsensitivelyWithinLimit() {
+    void acceptsSupportedExtensionsCaseInsensitivelyWithinLimit() {
         assertThat(policy.validate("notes.txt", 1)).isEqualTo(DocumentType.TXT);
         assertThat(policy.validate("notes.MD", MAXIMUM_BYTES)).isEqualTo(DocumentType.MARKDOWN);
         assertThat(policy.validate("notes.markdown", 1)).isEqualTo(DocumentType.MARKDOWN);
+        assertThat(policy.validate("notes.PDF", MAXIMUM_BYTES)).isEqualTo(DocumentType.PDF);
     }
 
     @Test
@@ -25,7 +26,7 @@ class DocumentUploadPolicyTest {
         assertRejected(null, 1, Reason.MISSING_FILENAME);
         assertRejected("notes.txt", 0, Reason.EMPTY_FILE);
         assertRejected("notes.txt", MAXIMUM_BYTES + 1, Reason.FILE_TOO_LARGE);
-        assertRejected("notes.pdf", 1, Reason.UNSUPPORTED_TYPE);
+        assertRejected("notes.exe", 1, Reason.UNSUPPORTED_TYPE);
         assertRejected("notes", 1, Reason.UNSUPPORTED_TYPE);
     }
 

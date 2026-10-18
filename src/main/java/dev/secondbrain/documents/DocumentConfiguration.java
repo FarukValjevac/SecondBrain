@@ -51,6 +51,47 @@ class DocumentConfiguration {
     }
 
     @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.documents.deletion.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentDeletionHandler documentDeletionHandler(
+            JdbcDocumentRepository documents,
+            OriginalFileStore originals,
+            EventPublisher events,
+            PlatformTransactionManager transactions) {
+        return new DocumentDeletionHandler(documents, originals, events, transactions);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = {
+                "secondbrain.documents.deletion.enabled",
+                "secondbrain.documents.deletion.reconcile-enabled"
+            },
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentDeletionReconciliation documentDeletionReconciliation(EventPublisher events) {
+        return new DocumentDeletionReconciliation(events);
+    }
+
+    @Bean
+    DocumentDeletionService documentDeletionService(
+            JdbcDocumentRepository documents,
+            EventPublisher events,
+            PlatformTransactionManager transactions,
+            Clock clock,
+            DocumentTelemetry telemetry) {
+        return new DocumentDeletionService(documents, events, transactions, clock, telemetry);
+    }
+
+    @Bean
+    EventEnvelope.Type documentDeletionRequestedEventType() {
+        // Remains known when cleanup is disabled, preserving requests for later reconciliation.
+        return DocumentDeletionRequestedEvent.TYPE;
+    }
+
+    @Bean
     DocumentInspectionService documentInspectionService(
             JdbcDocumentRepository documents,
             JdbcExtractedTextRepository texts,
@@ -63,6 +104,12 @@ class DocumentConfiguration {
     @Bean
     DocumentTelemetry documentTelemetry(MeterRegistry meters, ObservationRegistry observations) {
         return new DocumentTelemetry(meters, observations);
+    }
+
+    @Bean
+    DocumentCleanupBacklogMetrics documentCleanupBacklogMetrics(
+            JdbcDocumentRepository documents, MeterRegistry meters, Clock clock) {
+        return new DocumentCleanupBacklogMetrics(documents, meters, clock);
     }
 
     @Bean
@@ -91,10 +138,22 @@ class DocumentConfiguration {
     }
 
     @Bean
+    JdbcIndexingRepository jdbcIndexingRepository(JdbcClient jdbc) {
+        return new JdbcIndexingRepository(jdbc);
+    }
+
+    @Bean
     DocumentTextExtractionService documentTextExtractionService(
             OriginalFileStore originals, DocumentUploadPolicy uploadPolicy, Clock clock) {
         return new DocumentTextExtractionService(
-                originals, new Utf8TextExtractor(uploadPolicy.maximumUploadBytes()), clock);
+                originals,
+                new Utf8TextExtractor(uploadPolicy.maximumUploadBytes()),
+                new PdfTextExtractor(
+                        Math.min(
+                                uploadPolicy.maximumUploadBytes(),
+                                PdfTextExtractor.MAXIMUM_INPUT_BYTES),
+                        clock),
+                clock);
     }
 
     @Bean

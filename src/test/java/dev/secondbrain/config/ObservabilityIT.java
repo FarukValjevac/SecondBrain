@@ -263,6 +263,10 @@ class ObservabilityIT {
                         .run(
                                 "--spring.config.import=",
                                 "--secondbrain.documents.cleanup.enabled=false",
+                                // Probe fixtures reset event tables; document schedulers must not
+                                // race them.
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
                                 "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                                 "--spring.datasource.username=" + POSTGRES.getUsername(),
                                 "--spring.datasource.password=" + POSTGRES.getPassword(),

@@ -29,4 +29,12 @@ public final class EventPublisher {
             throw new IllegalArgumentException("Handler is not registered for this event");
         return store.scheduleMissing(type, handler, limit);
     }
+
+    /**
+     * Joins deletion's fenced transaction. Discards older payloads/deliveries while retaining keys
+     * and the current cleanup delivery. Call before locking/removing the document row.
+     */
+    public int discardSuperseded(UUID documentId, long processingVersion) {
+        return store.discardSuperseded(documentId, processingVersion);
+    }
 }

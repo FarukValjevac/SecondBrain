@@ -2,5 +2,6 @@ package dev.secondbrain.documents;
 
 enum DocumentType {
     TXT,
-    MARKDOWN
+    MARKDOWN,
+    PDF
 }

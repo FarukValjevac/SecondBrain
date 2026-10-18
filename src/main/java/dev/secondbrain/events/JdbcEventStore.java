@@ -427,6 +427,25 @@ final class JdbcEventStore {
                 });
     }
 
+    int discardSuperseded(UUID documentId, long processingVersion) {
+        Objects.requireNonNull(documentId, "documentId");
+        if (processingVersion < 1) throw new IllegalArgumentException("Version must be positive");
+        return Objects.requireNonNull(
+                mandatory.execute(
+                        status -> {
+                            applyDatabaseTimeouts();
+                            return jdbc.sql(
+                                            """
+                    DELETE FROM domain_events e USING event_keys k
+                    WHERE e.event_id = k.event_id AND k.document_id = :document
+                        AND k.processing_version < :version
+                    """)
+                                    .param("document", documentId)
+                                    .param("version", processingVersion)
+                                    .update();
+                        }));
+    }
+
     int cleanup() {
         return inTransaction(
                 () -> {

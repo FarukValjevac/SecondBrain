@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import dev.secondbrain.documents.DocumentAcceptanceService;
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.ExtractionState;
 import dev.secondbrain.documents.UploadRejectedException;
 
@@ -39,6 +40,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 /** Uses real servlet multipart parsing; MockMvc's multipart builder bypasses parser limits. */
@@ -253,6 +255,14 @@ class DocumentUploadHttpIT {
         RequestCorrelationFilter.class
     })
     static class HttpApplication {
+        @Bean
+        DocumentInspectionService inspectionService() {
+            var service = mock(DocumentInspectionService.class);
+            when(service.list(0))
+                    .thenReturn(new DocumentInspectionService.LibraryPage(List.of(), 0, false));
+            return service;
+        }
+
         @Bean
         DocumentAcceptanceService acceptanceService() {
             return mock(DocumentAcceptanceService.class);

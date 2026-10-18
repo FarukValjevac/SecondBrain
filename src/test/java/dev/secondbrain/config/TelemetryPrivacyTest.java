@@ -41,7 +41,8 @@ class TelemetryPrivacyTest {
                             Assertions.assertThat(tag.getValue()).isEqualTo("OTHER");
                         });
         request.setMethod("POST");
-        for (String route : new String[] {"/documents", "/documents/upload"}) {
+        for (String route :
+                new String[] {"/documents", "/documents/upload", "/documents/{id}/delete"}) {
             context.setPathPattern(route);
             Assertions.assertThat(convention.getLowCardinalityKeyValues(context))
                     .anySatisfy(
@@ -126,7 +127,8 @@ class TelemetryPrivacyTest {
                     new String[][] {
                         {"document.upload", "accepted"}, {"document.upload", "rejected"},
                         {"document.upload", "unavailable"}, {"document.cleanup", "completed"},
-                        {"document.cleanup", "failed"}
+                        {"document.cleanup", "failed"}, {"document.deletion", "requested"},
+                        {"document.deletion", "unchanged"}, {"document.deletion", "unavailable"}
                     }) {
                 var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
                 span.setAttribute("outcome", operation[1]);

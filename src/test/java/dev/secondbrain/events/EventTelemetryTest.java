@@ -1,18 +1,27 @@
 package dev.secondbrain.events;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@ExtendWith(OutputCaptureExtension.class)
 class EventTelemetryTest {
     @Test
     void pinsNamesUnitsAndBoundedOutcomeLabels() {
@@ -121,9 +130,74 @@ class EventTelemetryTest {
             Assertions.assertThatCode(
                             () -> metrics.record(EventMetrics.Outcome.COMPLETED, Duration.ZERO))
                     .doesNotThrowAnyException();
+            Assertions.assertThat(
+                            registry.get("secondbrain.event.delivery.duration")
+                                    .tag("outcome", "completed")
+                                    .timer()
+                                    .count())
+                    .isEqualTo(1);
         } finally {
             delegate.close();
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = Meter.Type.class,
+            names = {"COUNTER", "TIMER", "GAUGE"})
+    void brokenRegistrationDoesNotPreventConstructionOrHealthyMeterRecording(
+            Meter.Type brokenType, CapturedOutput output) {
+        var registry = new SimpleMeterRegistry();
+        try {
+            registry.config()
+                    .meterFilter(
+                            new MeterFilter() {
+                                @Override
+                                public Meter.Id map(Meter.Id id) {
+                                    if (id.getType() == brokenType) {
+                                        throw new IllegalStateException(
+                                                "sentinel-private-registry");
+                                    }
+                                    return id;
+                                }
+                            });
+            if (brokenType == Meter.Type.GAUGE) {
+                var store = Mockito.mock(JdbcEventStore.class);
+                var beans = new StaticListableBeanFactory();
+                Assertions.assertThatCode(
+                                () ->
+                                        new EventBacklogMetrics(
+                                                store,
+                                                registry,
+                                                Clock.systemUTC(),
+                                                beans.getBeanProvider(DurableEventWorker.class)))
+                        .doesNotThrowAnyException();
+                Mockito.verifyNoInteractions(store);
+            } else {
+                var metrics = new EventMetrics(registry);
+                for (var outcome : EventMetrics.Outcome.values()) {
+                    Assertions.assertThatCode(() -> metrics.record(outcome, Duration.ZERO))
+                            .doesNotThrowAnyException();
+                }
+                if (brokenType == Meter.Type.COUNTER) {
+                    Assertions.assertThat(
+                                    registry.find("secondbrain.event.delivery.duration").timers())
+                            .hasSize(4)
+                            .allSatisfy(timer -> Assertions.assertThat(timer.count()).isEqualTo(1));
+                } else {
+                    Assertions.assertThat(
+                                    registry.find("secondbrain.event.delivery.attempts").counters())
+                            .hasSize(4)
+                            .allSatisfy(
+                                    counter -> Assertions.assertThat(counter.count()).isEqualTo(1));
+                }
+            }
+        } finally {
+            registry.close();
+        }
+        Assertions.assertThat(output.getAll())
+                .contains("TELEMETRY_FAILED")
+                .doesNotContain("sentinel-private");
     }
 
     @Test
