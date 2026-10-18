@@ -24,13 +24,18 @@ import java.util.Objects;
 
 /** Per-call PDFBox state; parsing and extraction belong outside database transactions. */
 final class PdfTextExtractor {
+    static final long MAXIMUM_INPUT_BYTES = 32L * 1024 * 1024;
     private final Limits limits;
     private final Clock clock;
 
     PdfTextExtractor(long maximumInputBytes) {
+        this(maximumInputBytes, Clock.systemUTC());
+    }
+
+    PdfTextExtractor(long maximumInputBytes, Clock clock) {
         this(
                 new Limits(maximumInputBytes, 200, 1_000_000, 1_000_000, Duration.ofSeconds(15)),
-                Clock.systemUTC());
+                clock);
     }
 
     PdfTextExtractor(Limits limits, Clock clock) {
@@ -107,7 +112,7 @@ final class PdfTextExtractor {
             Duration maximumDuration) {
         Limits {
             if (maximumInputBytes < 1
-                    || maximumInputBytes > 32L * 1024 * 1024
+                    || maximumInputBytes > MAXIMUM_INPUT_BYTES
                     || maximumPages < 1
                     || maximumPages > 1_000
                     || maximumCharacters < 1

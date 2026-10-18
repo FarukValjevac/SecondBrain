@@ -35,6 +35,7 @@ final class DocumentUploadPolicy {
         return switch (extension) {
             case "txt" -> DocumentType.TXT;
             case "md", "markdown" -> DocumentType.MARKDOWN;
+            case "pdf" -> DocumentType.PDF;
             default -> throw new UploadRejectedException(Reason.UNSUPPORTED_TYPE);
         };
     }

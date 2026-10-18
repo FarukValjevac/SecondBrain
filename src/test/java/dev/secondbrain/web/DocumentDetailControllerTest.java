@@ -31,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 @WebMvcTest({DocumentDetailController.class, LibraryController.class})
@@ -70,6 +71,55 @@ class DocumentDetailControllerTest {
                         "id=\"line-1\"",
                         "id=\"line-2\"")
                 .contains("href=\"/documents/" + id + "/delete\"", "Delete document")
+                .doesNotContain("<script>", "http-equiv=\"refresh\"", "Retry extraction", ">Page ");
+    }
+
+    @Test
+    void rendersPhysicalPdfPagesAsEscapedStableSourceLinksIncludingBlankPages() throws Exception {
+        when(documents.find(id))
+                .thenReturn(
+                        Optional.of(
+                                new DocumentInspectionService.DocumentView(
+                                        id,
+                                        "<script>notes</script>.pdf",
+                                        1,
+                                        ExtractionState.EXTRACTED,
+                                        "",
+                                        false,
+                                        List.of(
+                                                new DocumentInspectionService.Line(
+                                                        1,
+                                                        "Café <script>alert(1)</script>",
+                                                        OptionalInt.of(1)),
+                                                new DocumentInspectionService.Line(
+                                                        2, "", OptionalInt.of(2)),
+                                                new DocumentInspectionService.Line(
+                                                        3, "Last page", OptionalInt.of(3))))));
+
+        var html =
+                mvc.perform(get("/documents/" + id))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(html)
+                .contains(
+                        "&lt;script&gt;notes&lt;/script&gt;.pdf",
+                        "Café &lt;script&gt;",
+                        "id=\"line-1\"",
+                        "id=\"line-2\"",
+                        "id=\"line-3\"",
+                        "href=\"#line-1\"",
+                        "href=\"#line-2\"",
+                        "href=\"#line-3\"",
+                        "aria-label=\"Page 1, line 1\"",
+                        "aria-label=\"Page 2, line 2\"",
+                        "aria-label=\"Page 3, line 3\"",
+                        ">Page 1</a>",
+                        ">Page 2</a>",
+                        ">Page 3</a>",
+                        "Delete document")
                 .doesNotContain("<script>", "http-equiv=\"refresh\"", "Retry extraction");
     }
 

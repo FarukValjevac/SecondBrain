@@ -98,7 +98,7 @@ The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devt
 
 ## Uploading documents in the browser
 
-Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT or Markdown file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT, Markdown, or PDF file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
 
 The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. **Your documents** lists stored uploads with their processing states and detail links, newest first, with 50 per page. Use **Previous** and **Next** for other pages; refresh to update processing states. When durable events are disabled, the form is hidden and the library reports that it is unavailable.
 
@@ -116,6 +116,12 @@ Use small, non-sensitive UTF-8 fixtures. Return to document details through **Yo
 6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and extracted text should remain available at the saved document URLs. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
 
 Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
+
+## PDF browser check
+
+Choose a small PDF containing selectable text using **Choose a file**, then **Upload document**. Follow **Open document**, wait for **EXTRACTED**, and check that the visible **Page N** labels match the PDF's physical pages. Selecting a page label links to that numbered source line; blank pages retain a labeled empty line. Text and filenames are displayed literally.
+
+Refresh the library, reopen the PDF, and check its content again after restarting the application. The existing **Delete** and confirmation/Cancel controls apply to PDFs too. Encrypted, corrupt, and text-free/scanned PDF outcomes are covered by generated fixtures in `DocumentExtractionIT`; no OCR is performed. Browser checks supplement the full `./mvnw verify` gate.
 
 ## Text extraction and retry
 
@@ -144,13 +150,17 @@ Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for 
 
 ## Uploading documents over HTTP
 
-With the application running, submit one existing TXT or Markdown file using the `file` field:
+With the application running, submit one existing TXT, Markdown, or PDF file using the `file` field:
 
 ```sh
 curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
 ```
 
-Accepted extensions are `.txt`, `.md`, and `.markdown`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
+Accepted HTTP extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
+
+For a PDF, use an existing file, for example `curl -i -F 'file=@notes.pdf' http://127.0.0.1:8080/documents` from the directory containing `notes.pdf`. Follow the returned document ID to `/documents/{documentId}` for numbered text or a fixed failure message. PDF source links display the physical page number and point to the stable numbered line, including blank pages. TXT/Markdown retain their unpaged line links. PDF acceptance queues work before validating its content. Corrupt, encrypted, and scanned/text-free PDFs therefore become failed documents rather than upload-validation errors; OCR is unsupported.
+
+PDF extraction allows up to 200 physical pages, 1,000,000 UTF-16 glyph/output units, 1,000,000 content operators, and a cooperative 15-second parsing budget. The input cap is the smaller of the configured upload limit and 32 MiB; conversion to stored lines is capped at 100,000 lines across all pages, including empty and trailing lines. These limits do not promise hard process/heap isolation. Permanent PDF/limit failures stop automatic delivery after one attempt; source I/O failures retain bounded retries. Existing retry and deletion controls apply.
 
 A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header and JSON shaped as:
 
@@ -162,13 +172,13 @@ The ID above is illustrative; each upload returns its own ID. Metadata and its d
 
 Missing, repeated, empty, unsupported, or invalid file input returns HTTP `400` with a fixed `code` and `message`. A file or total request exceeding the configured bounds returns HTTP `413`; malformed multipart requests return `400`, and a non-multipart content type returns `415`. Storage/database failures return `503` with a fixed message. Error responses omit filenames, contents, and internal exception details.
 
-To check unsupported-extension rejection despite the browser's file-picker filter, submit the existing TXT bytes with a PDF filename:
+To check unsupported-extension rejection despite the browser's file-picker filter, submit the existing TXT bytes with an unsupported extension:
 
 ```sh
-curl -i -F 'file=@notes.txt;filename=notes.pdf' http://127.0.0.1:8080/documents
+curl -i -F 'file=@notes.txt;filename=notes.exe' http://127.0.0.1:8080/documents
 ```
 
-Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT and Markdown files are supported.`
+Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT, Markdown, and PDF files are supported.`
 
 To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
 
@@ -440,7 +450,7 @@ For upload failure recovery checks:
 
 The first command checks private original storage, including cancellation after a partial write, preserved interruption, and subsequent upload/cleanup. The second also runs the fast suite and requires Docker: an isolated PostgreSQL fixture rejects event insertion or final commit, then checks rollback, file compensation, failure counters, and a successful retry. It uses temporary storage and a container database. Run the full `./mvnw verify` before considering the issue complete.
 
-The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads are not connected yet; the application still accepts TXT and Markdown only.
+The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads now use the same durable worker; check them with `./mvnw -Dit.test=DocumentExtractionIT,DocumentRepositoryIT,DatabaseMigrationIT verify`. The browser picker also accepts PDFs; document pages display escaped text with physical page labels linked to the numbered source lines.
 
 Apply Java formatting before committing:
 

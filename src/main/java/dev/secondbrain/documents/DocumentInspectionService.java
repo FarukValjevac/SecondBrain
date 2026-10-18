@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 /** Public document-reading use cases; persistence types stay inside the documents feature. */
@@ -97,7 +98,12 @@ public final class DocumentInspectionService {
                                                         "Completed extraction is missing"))
                                 .lines()
                                 .stream()
-                                .map(line -> new Line(line.number(), line.text()))
+                                .map(
+                                        line ->
+                                                new Line(
+                                                        line.number(),
+                                                        line.text(),
+                                                        line.pageNumber()))
                                 .toList()
                         : List.<Line>of();
         String message = progress.failure().map(TextExtractionException.Reason::message).orElse("");
@@ -158,7 +164,19 @@ public final class DocumentInspectionService {
         }
     }
 
-    public record Line(int number, String text) {}
+    public record Line(int number, String text, OptionalInt pageNumber) {
+        public Line(int number, String text) {
+            this(number, text, OptionalInt.empty());
+        }
+
+        public Line {
+            Objects.requireNonNull(text, "text");
+            Objects.requireNonNull(pageNumber, "pageNumber");
+            if (number < 1 || (pageNumber.isPresent() && pageNumber.getAsInt() < 1)) {
+                throw new IllegalArgumentException("Source line and page numbers must be positive");
+            }
+        }
+    }
 
     public record DocumentView(
             UUID documentId,

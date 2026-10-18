@@ -188,7 +188,7 @@ class DocumentTelemetryTest {
         assertThatThrownBy(
                         () ->
                                 service.accept(
-                                        "sentinel-private-name.pdf",
+                                        "sentinel-private-name.exe",
                                         CONTENT.length,
                                         new ByteArrayInputStream(CONTENT),
                                         CORRELATION))
@@ -356,7 +356,7 @@ class DocumentTelemetryTest {
             assertThatThrownBy(
                             () ->
                                     service.accept(
-                                            "note.pdf",
+                                            "note.exe",
                                             CONTENT.length,
                                             new ByteArrayInputStream(CONTENT),
                                             CORRELATION))

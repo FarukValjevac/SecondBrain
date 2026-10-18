@@ -159,7 +159,7 @@ button:hover {
 .source-lines { padding-left: 3rem; }
 .source-lines li { padding: .25rem .5rem; border-bottom: 1px solid #ddd; }
 .source-lines pre { display: inline; white-space: pre-wrap; overflow-wrap: anywhere; }
-.source-lines a { margin-right: .75rem; }
+.source-lines a { margin-right: .75rem; white-space: nowrap; }
 
 .library-card { margin-top: 1.5rem; }
 .document-list { list-style: none; padding: 0; margin: 1rem 0; }

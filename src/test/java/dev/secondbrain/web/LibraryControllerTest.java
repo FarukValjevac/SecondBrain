@@ -24,6 +24,8 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -192,7 +194,9 @@ class LibraryControllerTest {
                         "enctype=\"multipart/form-data\"",
                         "method=\"post\"",
                         "name=\"file\"",
-                        "accept=\".txt,.md,.markdown\"",
+                        "accept=\".txt,.md,.markdown,.pdf\"",
+                        "PDFs need selectable text",
+                        "encrypted and scanned-only PDFs are unsupported",
                         "aria-describedby=\"upload-help\"",
                         "2KB",
                         "Upload document")
@@ -204,15 +208,17 @@ class LibraryControllerTest {
                 .andExpect(MockMvcResultMatchers.content().contentTypeCompatibleWith("text/css"));
     }
 
-    @Test
-    void redirectsAcceptedMarkdownAndShowsOneTimeQueuedFeedback(CapturedOutput output)
-            throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"md", "pdf"})
+    void redirectsAcceptedDocumentsAndShowsOneTimeQueuedFeedback(
+            String extension, CapturedOutput output) throws Exception {
+        var filename = "sentinel-private-name." + extension;
         var correlationId = UUID.randomUUID();
         var receipt =
                 new DocumentAcceptanceService.Receipt(UUID.randomUUID(), ExtractionState.QUEUED);
         var bytes = "sentinel-private-content".getBytes(StandardCharsets.UTF_8);
         when(acceptanceService.accept(
-                        eq("sentinel-private-name.md"),
+                        eq(filename),
                         eq((long) bytes.length),
                         any(InputStream.class),
                         eq(correlationId)))
@@ -230,8 +236,10 @@ class LibraryControllerTest {
                                         .file(
                                                 new MockMultipartFile(
                                                         "file",
-                                                        "sentinel-private-name.md",
-                                                        "text/markdown",
+                                                        filename,
+                                                        extension.equals("pdf")
+                                                                ? "application/pdf"
+                                                                : "text/markdown",
                                                         bytes))
                                         .header("X-Correlation-ID", correlationId))
                         .andExpect(status().isSeeOther())
@@ -256,7 +264,7 @@ class LibraryControllerTest {
         Assertions.assertThat(refreshedPage).doesNotContain("Saved and queued");
         verify(acceptanceService)
                 .accept(
-                        eq("sentinel-private-name.md"),
+                        eq(filename),
                         eq((long) bytes.length),
                         any(InputStream.class),
                         eq(correlationId));

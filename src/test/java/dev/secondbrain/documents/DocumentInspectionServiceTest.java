@@ -12,6 +12,8 @@ import dev.secondbrain.events.EventPublisher;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
@@ -20,6 +22,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 class DocumentInspectionServiceTest {
@@ -60,6 +63,56 @@ class DocumentInspectionServiceTest {
         assertThat(summary.name()).isEqualTo("Notes.md");
         assertThat(summary.state()).isEqualTo(ExtractionState.EXTRACTED);
         verifyNoInteractions(texts, events);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void exposesStoredPageReferencesWithoutInventingPagesForTextFiles(boolean paged) {
+        var id = UUID.randomUUID();
+        when(documents.findById(id))
+                .thenReturn(
+                        Optional.of(
+                                new DocumentMetadata(
+                                        id,
+                                        paged ? "notes.pdf" : "notes.md",
+                                        paged ? DocumentType.PDF : DocumentType.MARKDOWN,
+                                        UUID.randomUUID(),
+                                        "a".repeat(64),
+                                        10,
+                                        1,
+                                        ExtractionState.EXTRACTED,
+                                        Instant.EPOCH,
+                                        Instant.EPOCH)));
+        when(documents.progress(id, 1))
+                .thenReturn(new JdbcDocumentRepository.Progress(Optional.empty(), "COMPLETED"));
+        var firstPage = paged ? OptionalInt.of(1) : OptionalInt.empty();
+        var blankPage = paged ? OptionalInt.of(2) : OptionalInt.empty();
+        var lastPage = paged ? OptionalInt.of(3) : OptionalInt.empty();
+        when(texts.findByDocumentVersion(id, 1))
+                .thenReturn(
+                        Optional.of(
+                                new ExtractedText(
+                                        id,
+                                        1,
+                                        Instant.EPOCH,
+                                        List.of(
+                                                new ExtractedText.Line(
+                                                        1,
+                                                        "Café <script>reference</script>",
+                                                        firstPage),
+                                                new ExtractedText.Line(2, "", blankPage),
+                                                new ExtractedText.Line(
+                                                        3, "Last page", lastPage)))));
+
+        var view = service.find(id).orElseThrow();
+
+        assertThat(view.lines())
+                .containsExactly(
+                        new DocumentInspectionService.Line(
+                                1, "Café <script>reference</script>", firstPage),
+                        new DocumentInspectionService.Line(2, "", blankPage),
+                        new DocumentInspectionService.Line(3, "Last page", lastPage));
+        verifyNoInteractions(events);
     }
 
     @Test

@@ -1,5 +1,8 @@
 package dev.secondbrain.documents;
 
+import static dev.secondbrain.documents.PdfFixtures.save;
+import static dev.secondbrain.documents.PdfFixtures.text;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -19,7 +22,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
@@ -36,7 +38,7 @@ class PdfTextExtractorTest {
 
     @Test
     void preservesPhysicalPageNumbersBlankPagesAndLiteralUnicodeText() throws Exception {
-        var bytes = pdf("Café study notes", "", "<script>Reference text</script>");
+        var bytes = text("Café study notes", "", "<script>Reference text</script>");
         var pages = new PdfTextExtractor(INPUT_LIMIT).extract(new ByteArrayInputStream(bytes));
         assertThat(pages).extracting(PdfTextExtractor.Page::number).containsExactly(1, 2, 3);
         assertThat(pages.get(0).text()).contains("Café study notes");
@@ -69,7 +71,7 @@ class PdfTextExtractorTest {
 
     @Test
     void rejectsBlankDocumentsAndImageOnlyPagesWithoutAttemptingOcr() throws Exception {
-        assertFailure(new PdfTextExtractor(INPUT_LIMIT), pdf("", ""), Reason.NO_TEXT);
+        assertFailure(new PdfTextExtractor(INPUT_LIMIT), text("", ""), Reason.NO_TEXT);
         try (var document = new PDDocument()) {
             var page = new PDPage();
             document.addPage(page);
@@ -85,7 +87,7 @@ class PdfTextExtractorTest {
 
     @Test
     void acceptsTheExactInputLimitAndReadsOnlyOneOverflowByte() throws Exception {
-        var bytes = pdf("Size boundary");
+        var bytes = text("Size boundary");
         assertThat(new PdfTextExtractor(bytes.length).extract(new ByteArrayInputStream(bytes)))
                 .hasSize(1);
         var input = new ByteArrayInputStream(bytes);
@@ -98,9 +100,10 @@ class PdfTextExtractorTest {
 
     @Test
     void boundsPagesOutputAcrossPagesAndBufferedGlyphs() throws Exception {
-        assertFailure(extractor(1, 100, 100), pdf("one", "two"), Reason.PAGE_LIMIT);
-        assertFailure(extractor(3, 1, 100), pdf("a", "b"), Reason.TEXT_LIMIT);
-        assertFailure(extractor(3, 5, 100), pdf("longer than the glyph budget"), Reason.TEXT_LIMIT);
+        assertFailure(extractor(1, 100, 100), text("one", "two"), Reason.PAGE_LIMIT);
+        assertFailure(extractor(3, 1, 100), text("a", "b"), Reason.TEXT_LIMIT);
+        assertFailure(
+                extractor(3, 5, 100), text("longer than the glyph budget"), Reason.TEXT_LIMIT);
         // Positioned glyphs can generate a space that was not present in the source strings.
         try (var document = new PDDocument()) {
             var page = new PDPage();
@@ -151,7 +154,7 @@ class PdfTextExtractorTest {
                         return now.get();
                     }
                 };
-        var bytes = pdf("Deadline");
+        var bytes = text("Deadline");
         var extractor = new PdfTextExtractor(limits(3, 100, 100), clock);
         var input =
                 new ByteArrayInputStream(bytes) {
@@ -197,7 +200,7 @@ class PdfTextExtractorTest {
     void leavesTheCallerOwnedStreamOpenOnSuccessAndFailure(boolean valid) throws Exception {
         var closed = new AtomicBoolean();
         var input =
-                new ByteArrayInputStream(valid ? pdf("Resource ownership") : new byte[0]) {
+                new ByteArrayInputStream(valid ? text("Resource ownership") : new byte[0]) {
                     @Override
                     public void close() throws IOException {
                         closed.set(true);
@@ -262,30 +265,5 @@ class PdfTextExtractorTest {
                         PdfExtractionException.class,
                         failure -> assertThat(failure.reason()).isEqualTo(reason))
                 .hasMessageNotContaining("sentinel-private");
-    }
-
-    private static byte[] pdf(String... pages) throws IOException {
-        try (var document = new PDDocument()) {
-            for (var text : pages) {
-                var page = new PDPage();
-                document.addPage(page);
-                if (!text.isEmpty()) {
-                    try (var content = new PDPageContentStream(document, page)) {
-                        content.beginText();
-                        content.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
-                        content.newLineAtOffset(30, 700);
-                        content.showText(text);
-                        content.endText();
-                    }
-                }
-            }
-            return save(document);
-        }
-    }
-
-    private static byte[] save(PDDocument document) throws IOException {
-        var bytes = new ByteArrayOutputStream();
-        document.save(bytes);
-        return bytes.toByteArray();
     }
 }

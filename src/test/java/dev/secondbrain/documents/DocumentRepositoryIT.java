@@ -269,6 +269,15 @@ class DocumentRepositoryIT {
     }
 
     @Test
+    void persistsEverySupportedFailureCodeIncludingPdfReasons() {
+        for (var reason : TextExtractionException.Reason.values()) {
+            var id = insertDocument();
+            assertThat(repository.markFailed(id, 1, reason, EXTRACTED_AT)).isTrue();
+            assertThat(repository.progress(id, 1).failure()).contains(reason);
+        }
+    }
+
+    @Test
     void doesNotOverwriteAnAlreadyStoredProcessingVersion() {
         var original = text(insertDocument(), 1, "Original text");
         extractedTextRepository.insert(original);

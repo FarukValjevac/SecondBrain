@@ -28,6 +28,13 @@ final class TextExtractionException extends RuntimeException {
         INVALID_CONTENT("The document contains a null character."),
         INPUT_TOO_LARGE("The document exceeds the extraction size limit."),
         TOO_MANY_LINES("The document exceeds the extraction line limit."),
+        PDF_UNREADABLE("The PDF is corrupt or unsupported."),
+        PDF_ENCRYPTED("Encrypted PDFs are not supported."),
+        PDF_NO_TEXT("The PDF contains no selectable text. OCR is not supported."),
+        PDF_PAGE_LIMIT("The PDF exceeds the page limit."),
+        PDF_TEXT_LIMIT("The PDF exceeds the extracted text limit."),
+        PDF_WORK_LIMIT("The PDF exceeds the processing work limit."),
+        PDF_TIME_LIMIT("PDF extraction exceeded its time budget."),
         SOURCE_UNAVAILABLE("The original document could not be read."),
         CANCELLED("Text extraction was interrupted.");
 

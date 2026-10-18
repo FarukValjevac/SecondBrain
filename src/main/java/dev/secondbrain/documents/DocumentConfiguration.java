@@ -141,7 +141,14 @@ class DocumentConfiguration {
     DocumentTextExtractionService documentTextExtractionService(
             OriginalFileStore originals, DocumentUploadPolicy uploadPolicy, Clock clock) {
         return new DocumentTextExtractionService(
-                originals, new Utf8TextExtractor(uploadPolicy.maximumUploadBytes()), clock);
+                originals,
+                new Utf8TextExtractor(uploadPolicy.maximumUploadBytes()),
+                new PdfTextExtractor(
+                        Math.min(
+                                uploadPolicy.maximumUploadBytes(),
+                                PdfTextExtractor.MAXIMUM_INPUT_BYTES),
+                        clock),
+                clock);
     }
 
     @Bean
