@@ -43,6 +43,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -794,6 +795,13 @@ class DocumentDeletionIT {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class CleanupConfiguration {
+        @Bean
+        @Primary
+        Clock databasePrecisionClock() {
+            // PostgreSQL stores microseconds; keep fixture equality exact on nanosecond clocks.
+            return Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000));
+        }
+
         @Bean
         CleanupGate cleanupGate() {
             return new CleanupGate();

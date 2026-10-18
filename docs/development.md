@@ -140,7 +140,7 @@ Reconciliation runs every second in batches of up to 100. It does not duplicate 
 
 Restarting the application with normal settings processes existing deletion requests automatically. Use the document UUID with the [database inspection](#database-inspection) connection: successful cleanup leaves no matching row in `documents` or `document_extractions`, and its `documents.delete.v1` delivery is `COMPLETED` (or `SKIPPED` for already absent work). The generated `.original` file is removed; source files selected for upload remain untouched. Generic event-delivery logs, attempt metrics, and backlog metrics cover cleanup using persisted correlation IDs. The `secondbrain.document.cleanup.deleted` counter belongs to the abandoned-file scanner and does not count this durable handler.
 
-Run `./mvnw -Dit.test=DocumentDeletionIT verify` for isolated PostgreSQL cleanup, missing-file recovery, retry, and deletion-request checks. The full gate remains `./mvnw verify`.
+Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for isolated PostgreSQL cleanup, missing-file recovery, retry, and deletion-request checks, including competing delivery claims, lease expiry during cleanup, and old extraction work after deletion. The full gate remains `./mvnw verify`.
 
 ## Uploading documents over HTTP
 
