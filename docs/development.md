@@ -117,11 +117,30 @@ Use small, non-sensitive UTF-8 fixtures. Return to document details through **Yo
 
 Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
 
-## PDF browser check
+## PDF support and limits
 
-Choose a small PDF containing selectable text using **Choose a file**, then **Upload document**. Follow **Open document**, wait for **EXTRACTED**, and check that the visible **Page N** labels match the PDF's physical pages. Selecting a page label links to that numbered source line; blank pages retain a labeled empty line. Text and filenames are displayed literally.
+PDFs need selectable text. Encrypted PDFs (including those that open with an empty password), corrupt/unsupported files, and PDFs without selectable text fail with a fixed message; OCR is not available. **Saved and queued** or HTTP `202` confirms that the original was stored and processing was queued. **EXTRACTED** confirms successful extraction.
 
-Refresh the library, reopen the PDF, and check its content again after restarting the application. The existing **Delete** and confirmation/Cancel controls apply to PDFs too. Encrypted, corrupt, and text-free/scanned PDF outcomes are covered by generated fixtures in `DocumentExtractionIT`; no OCR is performed. Browser checks supplement the full `./mvnw verify` gate.
+Source links show physical PDF pages, counted from the first page including covers and blank pages; printed page numbers may differ. Each **Page N** link targets a stable numbered source line. A blank page retains a labeled empty line. Filenames and extracted text remain literal, escaped content.
+
+| Limit | Current policy |
+|---|---|
+| Input bytes | Configured upload limit (10MB by default), capped at 32 MiB for PDF extraction |
+| Physical pages | 200 |
+| Glyph text and output text | 1,000,000 UTF-16 code units each |
+| Content operators | 1,000,000 |
+| Parsing time | Cooperative 15-second budget |
+| Stored lines | 100,000 across all pages, including empty and trailing lines |
+
+The upload limit is configured through `secondbrain.documents.max-upload-size`; the other PDF budgets are fixed application policy. The time/work limits are cooperative application checks, not hard process or heap isolation. Invalid input and exceeded PDF budgets stop automatic delivery after one attempt. Source I/O failures use bounded retries; manual retry starts a new processing version without repairing the original file. The existing retry and deletion controls apply.
+
+### PDF browser check
+
+1. Choose a small selectable-text PDF using **Choose a file**, then select **Upload document** and **Open document**. Wait for **EXTRACTED** and check that the text and **Page N** labels match its physical pages, including any blank pages. Select a page label and confirm the URL targets that numbered source line.
+2. Return to **Your documents** and reopen it. Restart the application using the README commands, then confirm its content and page references remain available.
+3. Select **Delete**, then **Cancel**, and confirm the PDF remains available. Repeat deletion and confirm it; the entry should disappear and its old detail URL should remain unavailable after restart. Your source file stays unchanged.
+
+Run `./mvnw verify` with Docker available as the full automated gate. Generated fixtures in `DocumentExtractionIT` cover permanent PDF failures, retry/restart recovery, stored page identity, and cleanup without using the real library. Parser budget/failure cases are in `PdfTextExtractorTest`. The browser check supplements these tests.
 
 ## Text extraction and retry
 
@@ -158,9 +177,7 @@ curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
 
 Accepted HTTP extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, case-insensitively. Filename metadata is limited to 1024 UTF-8 bytes and cannot contain null characters. The file's bytes are stored unchanged; acceptance does not decode text. Each accepted upload gets a generated document ID and private storage key, even when its contents match an earlier upload.
 
-For a PDF, use an existing file, for example `curl -i -F 'file=@notes.pdf' http://127.0.0.1:8080/documents` from the directory containing `notes.pdf`. Follow the returned document ID to `/documents/{documentId}` for numbered text or a fixed failure message. PDF source links display the physical page number and point to the stable numbered line, including blank pages. TXT/Markdown retain their unpaged line links. PDF acceptance queues work before validating its content. Corrupt, encrypted, and scanned/text-free PDFs therefore become failed documents rather than upload-validation errors; OCR is unsupported.
-
-PDF extraction allows up to 200 physical pages, 1,000,000 UTF-16 glyph/output units, 1,000,000 content operators, and a cooperative 15-second parsing budget. The input cap is the smaller of the configured upload limit and 32 MiB; conversion to stored lines is capped at 100,000 lines across all pages, including empty and trailing lines. These limits do not promise hard process/heap isolation. Permanent PDF/limit failures stop automatic delivery after one attempt; source I/O failures retain bounded retries. Existing retry and deletion controls apply.
+For a PDF, use an existing file, for example `curl -i -F 'file=@notes.pdf' http://127.0.0.1:8080/documents` from the directory containing `notes.pdf`. Follow the returned document ID to `/documents/{documentId}` for extracted text and page references or a safe processing-failure message. See [PDF support and limits](#pdf-support-and-limits) for accepted content, budgets, and recovery behavior.
 
 A successful response is HTTP `202 Accepted`, with an `X-Correlation-ID` header and JSON shaped as:
 
@@ -184,9 +201,9 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
-`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
+`document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. Its `page_number` is a positive physical page for PDFs and SQL NULL for TXT/Markdown. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 
 Open a database shell using the configured user and database:
 

@@ -50,7 +50,7 @@ Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT, Markdown, o
 
 To remove a saved document, select **Delete** beside its status in **Your documents**, or **Delete document** on its detail page, and confirm. It disappears from the library immediately; saved content is cleaned up in the background. Your source file is unchanged.
 
-Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, with a default limit of 10 MB per file. TXT/Markdown extraction requires valid UTF-8. PDFs require selectable text; encrypted files and scanned documents without text are unsupported. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
+Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, with a default limit of 10 MB per file. TXT/Markdown extraction requires valid UTF-8. PDFs require selectable text and support up to 200 physical pages; encrypted files and scanned documents without text are unsupported. See [PDF support and limits](docs/development.md#pdf-support-and-limits) for extraction budgets and failure behavior. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
 
 On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw`.
 
