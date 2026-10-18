@@ -31,10 +31,12 @@ public final class EventPublisher {
     }
 
     /**
-     * Joins deletion's fenced transaction. Discards older payloads/deliveries while retaining keys
-     * and the current cleanup delivery. Call before locking/removing the document row.
+     * Joins deletion's fenced transaction. Discards other document payloads/deliveries while
+     * retaining keys and the current cleanup event. Version sequences may belong to different
+     * processing stages, so their numeric values cannot determine deletion eligibility. Call before
+     * locking/removing the document row.
      */
-    public int discardSuperseded(UUID documentId, long processingVersion) {
-        return store.discardSuperseded(documentId, processingVersion);
+    public int discardOtherDocumentEvents(UUID documentId, UUID retainedEventId) {
+        return store.discardOtherDocumentEvents(documentId, retainedEventId);
     }
 }

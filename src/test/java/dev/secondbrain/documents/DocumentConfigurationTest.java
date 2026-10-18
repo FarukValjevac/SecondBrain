@@ -33,6 +33,9 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(JdbcDocumentRepository.class);
                             assertThat(context).hasSingleBean(JdbcExtractedTextRepository.class);
                             assertThat(context).hasSingleBean(JdbcIndexingRepository.class);
+                            assertThat(context).hasSingleBean(DocumentIndexingService.class);
+                            assertThat(context).hasSingleBean(DocumentIndexingHandler.class);
+                            assertThat(context).doesNotHaveBean(DocumentPassageHandler.class);
                             assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
                             assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
                             assertThat(context).hasSingleBean(DocumentExtractionHandler.class);
@@ -46,7 +49,8 @@ class DocumentConfigurationTest {
                                     .containsExactlyInAnyOrder(
                                             DocumentAcceptedEvent.TYPE,
                                             TextExtractedEvent.TYPE,
-                                            DocumentDeletionRequestedEvent.TYPE);
+                                            DocumentDeletionRequestedEvent.TYPE,
+                                            ReindexRequestedEvent.TYPE);
                         });
     }
 
@@ -110,12 +114,38 @@ class DocumentConfigurationTest {
         }
     }
 
+    @Test
+    void enablesThePassageConsumerOnlyWithAnActualStage() {
+        configuredContext()
+                .withBean(
+                        DocumentPassageHandler.Stage.class,
+                        () ->
+                                (version, event) ->
+                                        () -> dev.secondbrain.events.EventHandler.Outcome.COMPLETED)
+                .run(context -> assertThat(context).hasSingleBean(DocumentPassageHandler.class));
+    }
+
+    @Test
+    void canPauseIndexingWithoutDisablingExplicitRequestsOrUploads() {
+        configuredContext()
+                .withPropertyValues("secondbrain.documents.indexing.enabled=false")
+                .run(
+                        context -> {
+                            assertThat(context).hasSingleBean(DocumentIndexingService.class);
+                            assertThat(context).hasSingleBean(DocumentAcceptanceService.class);
+                            assertThat(context).doesNotHaveBean(DocumentIndexingHandler.class);
+                            assertThat(context)
+                                    .doesNotHaveBean(DocumentIndexingReconciliation.class);
+                        });
+    }
+
     private ApplicationContextRunner configuredContext() {
         var policy = new DocumentUploadPolicy(DataSize.ofMegabytes(10));
         return new ApplicationContextRunner()
                 .withUserConfiguration(DocumentConfiguration.class)
                 .withPropertyValues("secondbrain.documents.extraction.reconcile-enabled=false")
                 .withPropertyValues("secondbrain.documents.deletion.reconcile-enabled=false")
+                .withPropertyValues("secondbrain.documents.indexing.reconcile-enabled=false")
                 .withBean(JdbcClient.class, () -> mock(JdbcClient.class))
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(EventPublisher.class, () -> mock(EventPublisher.class))

@@ -772,6 +772,7 @@ class DocumentDeletionIT {
                 .run(
                         "--spring.config.import=",
                         "--secondbrain.documents.cleanup.enabled=false",
+                        "--secondbrain.documents.indexing.enabled=false",
                         "--secondbrain.events.polling-enabled=" + polling,
                         "--secondbrain.events.poll-interval=50ms",
                         "--secondbrain.events.initial-backoff=1s",

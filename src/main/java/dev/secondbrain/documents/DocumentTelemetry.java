@@ -54,6 +54,14 @@ final class DocumentTelemetry {
                 "deletion", "secondbrain.document.deletions", Outcome.UNAVAILABLE, correlationId);
     }
 
+    Operation indexingRequest(UUID correlationId) {
+        return start(
+                "indexing.request",
+                "secondbrain.document.indexing.requests",
+                Outcome.UNAVAILABLE,
+                correlationId);
+    }
+
     void deletedOriginal() {
         // Record after each actual deletion, even if a later entry fails in the same batch.
         safely(() -> meters.counter("secondbrain.document.cleanup.deleted").increment());
@@ -186,7 +194,9 @@ final class DocumentTelemetry {
                                         .log(
                                                 name.equals("upload")
                                                         ? "Document acceptance finished"
-                                                        : "Document deletion request finished"));
+                                                        : name.equals("deletion")
+                                                                ? "Document deletion request finished"
+                                                                : "Document indexing request finished"));
             }
         }
     }

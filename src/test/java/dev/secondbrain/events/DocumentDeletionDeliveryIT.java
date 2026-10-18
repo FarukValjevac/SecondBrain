@@ -351,6 +351,7 @@ class DocumentDeletionDeliveryIT {
                         "--spring.config.import=",
                         "--secondbrain.events.polling-enabled=false",
                         "--secondbrain.documents.cleanup.enabled=false",
+                        "--secondbrain.documents.indexing.enabled=false",
                         "--secondbrain.documents.extraction.reconcile-enabled=false",
                         "--secondbrain.documents.deletion.reconcile-enabled=false",
                         "--secondbrain.events.initial-backoff=1s",

@@ -548,6 +548,7 @@ class DocumentExtractionIT {
                 .run(
                         "--spring.config.import=",
                         "--secondbrain.documents.cleanup.enabled=false",
+                        "--secondbrain.documents.indexing.enabled=false",
                         "--secondbrain.documents.extraction.enabled=" + enabled,
                         "--secondbrain.documents.extraction.reconcile-enabled=" + reconcile,
                         "--secondbrain.events.polling-enabled=" + polling,

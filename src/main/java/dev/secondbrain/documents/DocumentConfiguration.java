@@ -6,6 +6,8 @@ import dev.secondbrain.events.EventPublisher;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -26,6 +28,60 @@ import java.time.Clock;
         havingValue = "true",
         matchIfMissing = true)
 class DocumentConfiguration {
+    @Bean
+    DocumentIndexingService documentIndexingService(
+            JdbcIndexingRepository indexes,
+            EventPublisher events,
+            PlatformTransactionManager transactions,
+            Clock clock,
+            DocumentTelemetry telemetry) {
+        return new DocumentIndexingService(indexes, events, transactions, clock, telemetry);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.documents.indexing.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentIndexingHandler documentIndexingHandler(DocumentIndexingService indexing) {
+        return new DocumentIndexingHandler(indexing);
+    }
+
+    @Bean
+    @ConditionalOnBean(DocumentPassageHandler.Stage.class)
+    @ConditionalOnProperty(
+            name = "secondbrain.documents.indexing.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentPassageHandler documentPassageHandler(
+            JdbcIndexingRepository indexes,
+            DocumentPassageHandler.Stage stage,
+            PlatformTransactionManager transactions) {
+        return new DocumentPassageHandler(indexes, stage, transactions);
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = {
+                "secondbrain.documents.indexing.enabled",
+                "secondbrain.documents.indexing.reconcile-enabled"
+            },
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentIndexingReconciliation documentIndexingReconciliation(
+            JdbcIndexingRepository indexes,
+            DocumentIndexingService indexing,
+            EventPublisher events,
+            ObjectProvider<DocumentPassageHandler> passages) {
+        return new DocumentIndexingReconciliation(indexes, indexing, events, passages);
+    }
+
+    @Bean
+    EventEnvelope.Type reindexRequestedEventType() {
+        // Keep requests durable and unconsumed until real passage preparation is installed.
+        return ReindexRequestedEvent.TYPE;
+    }
+
     @Bean
     @ConditionalOnProperty(
             name = "secondbrain.documents.extraction.enabled",

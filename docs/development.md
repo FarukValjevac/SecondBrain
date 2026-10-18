@@ -152,6 +152,33 @@ Existing accepted uploads are reconciled in batches of 100 every second. `second
 
 Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.duration`, and backlog metrics for processing diagnostics. `event.delivery` observations and safe structured logs carry document/version/event/delivery/correlation IDs across restart; fixed outcomes/codes distinguish completion, skipped stale work, retries, and failure. No document text, names, or exception messages enter this telemetry. Failure state and attempt/retry bookkeeping commit together under the same lease fence as successful completion.
 
+## Indexing requests
+
+Once text extraction completes, a durable `TextExtracted` delivery selects an independent index generation and publishes `ReindexRequested` in the same transaction as its acknowledgment. A bounded reconciliation pass also enrolls existing extracted documents after startup, without needing their historical extraction events. Repeated enrollment reuses the selected generation; extraction retries and document deletion prevent old work from applying.
+
+Passage preparation is not installed yet. Index requests remain stored without a passage delivery until that consumer exists; they are not marked completed or searchable. The library still shows extraction status. No model call or credential is needed for this step.
+
+The Java application operation is `DocumentIndexingService.requestNext(documentId, correlationId)` for a deliberate new generation. `request(documentId, indexingVersion, correlationId)` repeats one specified generation idempotently; obsolete versions and missing, hidden, or unextracted documents return an empty result. These operations do not yet have a browser or HTTP reindex control.
+
+To inspect enrollment, start the app normally, wait a few seconds, then run this read-only query in the database shell described below:
+
+```sql
+SELECT d.document_id, d.processing_version AS extraction_version,
+       d.desired_indexing_version, k.event_id, delivery.state AS passage_delivery_state
+FROM documents d
+LEFT JOIN event_keys k ON k.document_id = d.document_id
+    AND k.processing_version = d.desired_indexing_version
+    AND k.event_type = 'ReindexRequested'
+LEFT JOIN event_deliveries delivery ON delivery.event_id = k.event_id
+    AND delivery.handler_id = 'documents.prepare-passages.v1'
+WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
+ORDER BY d.document_id;
+```
+
+Expect a positive desired version and event ID for each eligible document, with a NULL passage-delivery state while the consumer is absent. Restarting the app should retain those version/event IDs. Source and index version numbers may differ. `secondbrain.documents.indexing.enabled=false` pauses automatic extraction handoffs/enrollment; `secondbrain.documents.indexing.reconcile-enabled=false` disables only reconciliation. Explicit Java requests remain available.
+
+Safe request measurements are `secondbrain.document.indexing.requests` and `secondbrain.document.indexing.request.duration`, with fixed requested/unchanged/unavailable outcomes. Success is recorded only after commit. Request counts include repeated calls; they are not unique index counts. Existing event metrics and correlated logs describe durable handoffs. No filenames, text, or credentials become metric labels.
+
 ## Deleted-document cleanup
 
 Select **Delete** beside a document’s status in **Your documents**, or open its detail page and select **Delete document**, then review the confirmation page. **Cancel** returns without changes. Confirming submits a POST request, hides the document immediately, commits a durable cleanup request, and redirects to the library with one-time feedback. Refreshing the library does not resubmit deletion; repeated submissions safely report that the document is already absent. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
@@ -469,7 +496,7 @@ The first command checks private original storage, including cancellation after 
 
 The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads now use the same durable worker; check them with `./mvnw -Dit.test=DocumentExtractionIT,DocumentRepositoryIT,DatabaseMigrationIT verify`. The browser picker also accepts PDFs; document pages display escaped text with physical page labels linked to the numbered source lines.
 
-Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker).
+Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker). Atomic requests, concurrent allocation, enrollment/restart, controlled passage routing, stale-work guards, and acknowledgment rollback are covered by `./mvnw -Dit.test=DocumentIndexingIT,DurableEventsIT verify`. The stage in this test is a controlled probe; it does not establish real passage splitting, embeddings, or search readiness.
 
 Apply Java formatting before committing:
 

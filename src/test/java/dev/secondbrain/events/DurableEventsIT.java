@@ -82,6 +82,49 @@ class DurableEventsIT {
     }
 
     @Test
+    void deletionDiscardsIndependentVersionSequencesAndRetainsOnlyItsOwnEvent() {
+        var retained = event();
+        var unrelated = event();
+        var higherVersion =
+                new EventEnvelope(
+                        UUID.randomUUID(),
+                        ACCEPTED,
+                        retained.documentId(),
+                        400,
+                        clock.instant(),
+                        retained.correlationId(),
+                        null,
+                        null,
+                        Map.of());
+        publish(retained);
+        publish(higherVersion);
+        publish(unrelated);
+
+        transaction.executeWithoutResult(
+                status -> {
+                    Assertions.assertThat(
+                                    publisher.discardOtherDocumentEvents(
+                                            retained.documentId(), retained.eventId()))
+                            .isEqualTo(1);
+                    status.setRollbackOnly();
+                });
+        Assertions.assertThat(count("domain_events")).isEqualTo(3);
+        transaction.executeWithoutResult(
+                status ->
+                        Assertions.assertThat(
+                                        publisher.discardOtherDocumentEvents(
+                                                retained.documentId(), retained.eventId()))
+                                .isEqualTo(1));
+        Assertions.assertThat(count("domain_events")).isEqualTo(2);
+        Assertions.assertThat(
+                        jdbc.sql("SELECT event_id FROM domain_events").query(UUID.class).list())
+                .containsExactlyInAnyOrder(retained.eventId(), unrelated.eventId());
+        Assertions.assertThat(count("event_keys")).isEqualTo(3);
+        Assertions.assertThat(publish(higherVersion)).isEqualTo(higherVersion.eventId());
+        Assertions.assertThat(count("domain_events")).isEqualTo(2);
+    }
+
+    @Test
     void publicationRequiresTheDomainTransactionAndRollsBackWithIt() {
         var event = event();
         Assertions.assertThatThrownBy(() -> publisher.publish(event))
@@ -657,6 +700,7 @@ class DurableEventsIT {
                         .run(
                                 "--spring.config.import=",
                                 "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.enabled=false",
                                 // Probe fixtures reset event tables; document schedulers must not
                                 // race them.
                                 "--secondbrain.documents.extraction.reconcile-enabled=false",

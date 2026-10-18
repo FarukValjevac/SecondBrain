@@ -70,8 +70,8 @@ final class DocumentDeletionHandler implements EventHandler {
                                             .isEmpty()) return Outcome.SKIPPED;
                                     // Lock old delivery records before the document row, matching
                                     // extraction's lock order.
-                                    events.discardSuperseded(
-                                            event.documentId(), event.processingVersion());
+                                    events.discardOtherDocumentEvents(
+                                            event.documentId(), event.eventId());
                                     return documents.finishDeletion(
                                                     event.documentId(),
                                                     event.processingVersion(),
