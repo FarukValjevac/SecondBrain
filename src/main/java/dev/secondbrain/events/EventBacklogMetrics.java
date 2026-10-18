@@ -3,6 +3,7 @@ package dev.secondbrain.events;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Clock;
@@ -23,31 +24,42 @@ final class EventBacklogMetrics {
             ObjectProvider<DurableEventWorker> worker) {
         this.store = store;
         this.clock = clock;
-        register(registry, "ready", JdbcEventStore.Backlog::ready);
-        register(registry, "delayed", JdbcEventStore.Backlog::delayed);
-        register(registry, "retrying", JdbcEventStore.Backlog::retrying);
-        register(registry, "running", JdbcEventStore.Backlog::running);
-        register(registry, "failed", JdbcEventStore.Backlog::failed);
-        Gauge.builder(
-                        "secondbrain.event.backlog.oldest",
-                        this,
-                        value -> value.value(JdbcEventStore.Backlog::age))
-                .baseUnit("seconds")
-                .register(registry);
-        Gauge.builder(
-                        "secondbrain.event.backlog.available",
-                        this,
-                        value -> value.snapshot() == null ? 0 : 1)
-                .register(registry);
-        Gauge.builder(
-                        "secondbrain.event.workers.active",
-                        worker,
-                        provider -> {
-                            var current = provider.getIfAvailable();
-                            return current == null ? 0 : current.activeCount();
-                        })
-                .strongReference(true)
-                .register(registry);
+        try {
+            register(registry, "ready", JdbcEventStore.Backlog::ready);
+            register(registry, "delayed", JdbcEventStore.Backlog::delayed);
+            register(registry, "retrying", JdbcEventStore.Backlog::retrying);
+            register(registry, "running", JdbcEventStore.Backlog::running);
+            register(registry, "failed", JdbcEventStore.Backlog::failed);
+            Gauge.builder(
+                            "secondbrain.event.backlog.oldest",
+                            this,
+                            value -> value.value(JdbcEventStore.Backlog::age))
+                    .baseUnit("seconds")
+                    .register(registry);
+            Gauge.builder(
+                            "secondbrain.event.backlog.available",
+                            this,
+                            value -> value.snapshot() == null ? 0 : 1)
+                    .register(registry);
+            Gauge.builder(
+                            "secondbrain.event.workers.active",
+                            worker,
+                            provider -> {
+                                var current = provider.getIfAvailable();
+                                return current == null ? 0 : current.activeCount();
+                            })
+                    .strongReference(true)
+                    .register(registry);
+        } catch (RuntimeException unavailable) {
+            try {
+                LoggerFactory.getLogger(EventBacklogMetrics.class)
+                        .atWarn()
+                        .addKeyValue("code", "TELEMETRY_FAILED")
+                        .log("Event backlog telemetry unavailable");
+            } catch (RuntimeException loggingUnavailable) {
+                // Optional metrics and logging cannot prevent the worker from starting.
+            }
+        }
     }
 
     private void register(
