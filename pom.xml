@@ -26,6 +26,7 @@
         <spotless-maven-plugin.version>3.10.4</spotless-maven-plugin.version>
         <!-- Spotless 3.10.4 requires the Style enum API changed in formatter 1.37.0. -->
         <google-java-format.version>1.36.1</google-java-format.version>
+        <pdfbox.version>3.0.8</pdfbox.version>
         <!-- Preserve late additions such as coverage agents while loading Mockito at JVM startup. -->
         <argLine/>
     </properties>
@@ -82,6 +83,11 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
