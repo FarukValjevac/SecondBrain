@@ -11,6 +11,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -32,17 +33,32 @@ class DatabaseMigrationIT {
                             .asCompatibleSubstituteFor("postgres"));
 
     @Test
-    void migratesAnEmptyDatabaseAndPreservesDataOnApplicationRestart() {
+    void upgradesExistingTextAndPreservesDataOnApplicationRestart() {
         MigrationInfo firstMigration;
         UUID storageKey = UUID.randomUUID();
         UUID documentId = UUID.randomUUID();
+        var legacyDataSource =
+                new DriverManagerDataSource(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        // Populate the previous schema before application startup applies the page migration.
+        Flyway.configure().dataSource(legacyDataSource).target("6").load().migrate();
+        var legacyJdbc = JdbcClient.create(legacyDataSource);
+        insertDocument(
+                legacyJdbc, documentId, storageKey, "notes.md", "MARKDOWN", "a".repeat(64), 42);
+        insertExtraction(legacyJdbc, documentId, 1);
+        insertTextLine(legacyJdbc, documentId, 1, 3, "Café ☕");
+        insertTextLine(legacyJdbc, documentId, 1, 1, "# Étude");
+        insertTextLine(legacyJdbc, documentId, 1, 2, "");
+        insertExtraction(legacyJdbc, documentId, 2);
+        insertTextLine(legacyJdbc, documentId, 2, 1, "Another version");
+
         try (var context = startApplication()) {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(6);
+            Assertions.assertThat(flyway.info().applied()).hasSize(7);
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("6");
+            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("7");
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -54,8 +70,6 @@ class DatabaseMigrationIT {
                                     .single())
                     .isEqualTo(1.0);
 
-            insertDocument(
-                    jdbc, documentId, storageKey, "notes.md", "MARKDOWN", "a".repeat(64), 42);
             Assertions.assertThat(
                             jdbc.sql(
                                             "SELECT extraction_state FROM documents WHERE document_id = :id")
@@ -64,12 +78,6 @@ class DatabaseMigrationIT {
                                     .single())
                     .isEqualTo("QUEUED");
 
-            insertExtraction(jdbc, documentId, 1);
-            insertTextLine(jdbc, documentId, 1, 3, "Café ☕");
-            insertTextLine(jdbc, documentId, 1, 1, "# Étude");
-            insertTextLine(jdbc, documentId, 1, 2, "");
-            insertExtraction(jdbc, documentId, 2);
-            insertTextLine(jdbc, documentId, 2, 1, "Another version");
             assertExtractedLines(jdbc, documentId);
             assertExtractionConstraints(jdbc, documentId);
 
@@ -134,7 +142,7 @@ class DatabaseMigrationIT {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(6);
+            Assertions.assertThat(flyway.info().applied()).hasSize(7);
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(
@@ -147,7 +155,7 @@ class DatabaseMigrationIT {
                             jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE success")
                                     .query(Integer.class)
                                     .single())
-                    .isEqualTo(6);
+                    .isEqualTo(7);
             assertExtractedLines(jdbc, documentId);
             Assertions.assertThat(
                             jdbc.sql(
@@ -224,6 +232,16 @@ class DatabaseMigrationIT {
                 .containsExactly(Map.entry(1, "# Étude"), Map.entry(2, ""), Map.entry(3, "Café ☕"));
         Assertions.assertThat(readTextLines(jdbc, documentId, 2))
                 .containsExactly(Map.entry(1, "Another version"));
+        Assertions.assertThat(
+                        jdbc.sql(
+                                        """
+                                SELECT count(*) FROM document_text_lines
+                                WHERE document_id = :id AND page_number IS NULL
+                                """)
+                                .param("id", documentId)
+                                .query(Integer.class)
+                                .single())
+                .isEqualTo(4);
     }
 
     private static void assertExtractionConstraints(JdbcClient jdbc, UUID documentId) {

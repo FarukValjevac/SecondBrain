@@ -440,7 +440,7 @@ For upload failure recovery checks:
 
 The first command checks private original storage, including cancellation after a partial write, preserved interruption, and subsequent upload/cleanup. The second also runs the fast suite and requires Docker: an isolated PostgreSQL fixture rejects event insertion or final commit, then checks rollback, file compensation, failure counters, and a successful retry. It uses temporary storage and a container database. Run the full `./mvnw verify` before considering the issue complete.
 
-The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. PDF uploads and persisted page references are not connected yet; the application still accepts TXT and Markdown only.
+The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads are not connected yet; the application still accepts TXT and Markdown only.
 
 Apply Java formatting before committing:
 

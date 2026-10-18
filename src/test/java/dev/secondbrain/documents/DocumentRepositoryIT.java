@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,6 +25,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 @Testcontainers
@@ -206,12 +209,19 @@ class DocumentRepositoryIT {
         assertThat(repository.findById(UUID.randomUUID())).isEmpty();
     }
 
-    @Test
-    void roundTripsBatchedUnicodeAndEmptyLinesWithDocumentAndVersionIsolation() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void roundTripsBatchedUnicodeAndEmptyLinesWithDocumentAndVersionIsolation(boolean paged) {
         var documentId = insertDocument();
         var lines = new ArrayList<ExtractedText.Line>();
         for (var number = 1; number <= 205; number++) {
-            lines.add(new ExtractedText.Line(number, number == 2 ? "" : "Café 📚 " + number));
+            // Page two is blank; lines 4 onward share page three, across JDBC batches.
+            var page =
+                    paged
+                            ? OptionalInt.of(number <= 2 ? 1 : number == 3 ? 2 : 3)
+                            : OptionalInt.empty();
+            var content = number == 2 || number == 3 ? "" : "Café 📚 " + number;
+            lines.add(new ExtractedText.Line(number, content, page));
         }
         var first = new ExtractedText(documentId, 1, EXTRACTED_AT, lines);
         var second = text(documentId, 2, "Another version");
@@ -229,6 +239,33 @@ class DocumentRepositoryIT {
         assertThat(extractedTextRepository.findByDocumentVersion(UUID.randomUUID(), 1)).isEmpty();
         assertThat(repository.findById(documentId).orElseThrow().extractionState())
                 .isEqualTo(ExtractionState.QUEUED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    void databaseRejectsNonPositivePageNumbers(int pageNumber) {
+        var original =
+                new ExtractedText(
+                        insertDocument(),
+                        1,
+                        EXTRACTED_AT,
+                        List.of(new ExtractedText.Line(1, "Paged text", OptionalInt.of(2))));
+        extractedTextRepository.insert(original);
+
+        assertThatThrownBy(
+                        () ->
+                                jdbc.sql(
+                                                """
+                UPDATE document_text_lines SET page_number = :page
+                WHERE document_id = :id AND processing_version = 1 AND line_number = 1
+                """)
+                                        .param("page", pageNumber)
+                                        .param("id", original.documentId())
+                                        .update())
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(extractedTextRepository.findByDocumentVersion(original.documentId(), 1))
+                .contains(original);
     }
 
     @Test
