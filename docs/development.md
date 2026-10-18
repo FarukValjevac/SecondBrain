@@ -201,7 +201,7 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
 `document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. Its `page_number` is a positive physical page for PDFs and SQL NULL for TXT/Markdown. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 
@@ -468,6 +468,8 @@ For upload failure recovery checks:
 The first command checks private original storage, including cancellation after a partial write, preserved interruption, and subsequent upload/cleanup. The second also runs the fast suite and requires Docker: an isolated PostgreSQL fixture rejects event insertion or final commit, then checks rollback, file compensation, failure counters, and a successful retry. It uses temporary storage and a container database. Run the full `./mvnw verify` before considering the issue complete.
 
 The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads now use the same durable worker; check them with `./mvnw -Dit.test=DocumentExtractionIT,DocumentRepositoryIT,DatabaseMigrationIT verify`. The browser picker also accepts PDFs; document pages display escaped text with physical page labels linked to the numbered source lines.
+
+Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker).
 
 Apply Java formatting before committing:
 

@@ -138,6 +138,11 @@ class DocumentConfiguration {
     }
 
     @Bean
+    JdbcIndexingRepository jdbcIndexingRepository(JdbcClient jdbc) {
+        return new JdbcIndexingRepository(jdbc);
+    }
+
+    @Bean
     DocumentTextExtractionService documentTextExtractionService(
             OriginalFileStore originals, DocumentUploadPolicy uploadPolicy, Clock clock) {
         return new DocumentTextExtractionService(
