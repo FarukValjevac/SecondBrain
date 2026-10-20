@@ -19,6 +19,7 @@ final class JdbcEmbeddingRepository {
     private final JdbcClient jdbc;
     private final JdbcIndexingRepository indexes;
     private final TransactionTemplate mandatory;
+    private final TransactionTemplate read;
 
     JdbcEmbeddingRepository(
             JdbcClient jdbc,
@@ -28,6 +29,99 @@ final class JdbcEmbeddingRepository {
         this.indexes = Objects.requireNonNull(indexes, "indexes");
         mandatory = new TransactionTemplate(Objects.requireNonNull(transactions, "transactions"));
         mandatory.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
+        read = new TransactionTemplate(transactions);
+        read.setReadOnly(true);
+        read.setTimeout(5);
+    }
+
+    /** Reads only missing vectors in stable passage order; closes the transaction before HTTP. */
+    List<Input> findPendingBatch(IndexingVersion version, EmbeddingModel model, int limit) {
+        if (limit < 1 || limit > MAXIMUM_BATCH_SIZE)
+            throw new IllegalArgumentException("Invalid embedding batch size");
+        return Objects.requireNonNull(
+                read.execute(
+                        status -> {
+                            requirePrepared(version, model);
+                            return jdbc.sql(
+                                            """
+                SELECT p.passage_id, p.passage_text FROM document_passages p
+                LEFT JOIN document_embeddings e ON e.passage_id = p.passage_id
+                WHERE p.document_id = :id AND p.indexing_version = :version AND e.passage_id IS NULL
+                ORDER BY p.sequence_number LIMIT :limit
+                """)
+                                    .withQueryTimeout(5)
+                                    .param("id", version.documentId())
+                                    .param("version", version.number())
+                                    .param("limit", limit)
+                                    .query(
+                                            (row, index) ->
+                                                    new Input(
+                                                            row.getObject("passage_id", UUID.class),
+                                                            row.getString("passage_text")))
+                                    .list();
+                        }));
+    }
+
+    /** Called only inside the final lease/document-fenced transaction; does not activate search. */
+    void requireComplete(IndexingVersion version, EmbeddingModel model) {
+        mandatory.executeWithoutResult(
+                status -> {
+                    int expected = requirePrepared(version, model);
+                    long completed =
+                            jdbc.sql(
+                                            """
+                SELECT count(*) FROM document_passages p JOIN document_embeddings e USING (passage_id)
+                WHERE p.document_id = :id AND p.indexing_version = :version
+                  AND e.model_id = :model AND e.dimensions = :dimensions
+                """)
+                                    .withQueryTimeout(5)
+                                    .param("id", version.documentId())
+                                    .param("version", version.number())
+                                    .param("model", model.id())
+                                    .param("dimensions", model.dimensions())
+                                    .query(Long.class)
+                                    .single();
+                    if (completed != expected)
+                        throw new IllegalStateException("Embedding generation is incomplete");
+                });
+    }
+
+    private int requirePrepared(IndexingVersion version, EmbeddingModel model) {
+        return jdbc.sql(
+                        """
+                SELECT passage_count, embedding_model_id, embedding_dimensions
+                FROM document_index_versions WHERE document_id = :id AND indexing_version = :version
+                  AND extraction_version = :source
+                """)
+                .withQueryTimeout(5)
+                .param("id", version.documentId())
+                .param("version", version.number())
+                .param("source", version.extractionVersion())
+                .query(
+                        (row, index) -> {
+                            var count = row.getObject("passage_count", Integer.class);
+                            var boundModel = row.getString("embedding_model_id");
+                            var dimensions = row.getObject("embedding_dimensions", Integer.class);
+                            if (count == null
+                                    || count < 0
+                                    || count > PassageSplitter.MAXIMUM_PASSAGES
+                                    || ((boundModel == null) != (dimensions == null))
+                                    || (boundModel != null
+                                            && (!model.id().equals(boundModel)
+                                                    || model.dimensions() != dimensions)))
+                                throw new IllegalStateException(
+                                        "Prepared passages with a compatible embedding model are required");
+                            return count;
+                        })
+                .optional()
+                .orElseThrow(() -> new IllegalStateException("Embedding generation is missing"));
+    }
+
+    record Input(UUID passageId, String text) {
+        Input {
+            Objects.requireNonNull(passageId, "passageId");
+            Objects.requireNonNull(text, "text");
+        }
     }
 
     /** Returns the number of new rows. Identical retries keep the original stored values. */

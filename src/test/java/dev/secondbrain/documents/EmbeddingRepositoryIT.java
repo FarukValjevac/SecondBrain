@@ -79,8 +79,21 @@ class EmbeddingRepositoryIT {
         var prepared = fixture(40000);
         var values = vectors(prepared);
         assertThat(values).hasSizeGreaterThan(32);
+        assertThat(embeddings.findPendingBatch(prepared.version(), MODEL, 2))
+                .extracting(JdbcEmbeddingRepository.Input::passageId)
+                .containsExactly(values.get(0).passageId(), values.get(1).passageId());
         var first = values.subList(0, 32);
         assertThat(insert(prepared, first)).isEqualTo(32);
+        assertThat(embeddings.findPendingBatch(prepared.version(), MODEL, 2))
+                .extracting(JdbcEmbeddingRepository.Input::passageId)
+                .containsExactly(values.get(32).passageId(), values.get(33).passageId());
+        assertThatThrownBy(
+                        () ->
+                                transaction.executeWithoutResult(
+                                        status ->
+                                                embeddings.requireComplete(
+                                                        prepared.version(), MODEL)))
+                .isInstanceOf(IllegalStateException.class);
 
         // New JDBC collaborators have no process-local knowledge of the earlier batch.
         var restartedSource = source();
@@ -105,6 +118,9 @@ class EmbeddingRepositoryIT {
                                         values.subList(32, values.size())));
         assertThat(remaining).isEqualTo(values.size() - 32);
         assertThat(count()).isEqualTo(values.size());
+        assertThat(restarted.findPendingBatch(prepared.version(), MODEL, 2)).isEmpty();
+        restartedTransaction.executeWithoutResult(
+                status -> restarted.requireComplete(prepared.version(), MODEL));
         for (var value : values) assertRoundTrip(value);
         assertThat(
                         jdbc.sql(

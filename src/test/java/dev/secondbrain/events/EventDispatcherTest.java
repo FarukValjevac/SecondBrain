@@ -62,7 +62,11 @@ class EventDispatcherTest {
     void logsAcknowledgmentOnlyWhenTheStoreAcceptsIt(boolean committed) throws Exception {
         var lease = lease();
         EventHandler.Effect effect = () -> EventHandler.Outcome.COMPLETED;
-        Mockito.when(handler.prepare(lease.event())).thenReturn(effect);
+        Mockito.when(
+                        handler.prepare(
+                                Mockito.eq(lease.event()),
+                                Mockito.any(EventHandler.Checkpoint.class)))
+                .thenReturn(effect);
         Mockito.when(store.complete(lease, effect)).thenReturn(committed);
 
         dispatch(lease, List.of(handler));
@@ -88,7 +92,11 @@ class EventDispatcherTest {
     void tracingFailureDoesNotPreventDeliveryCompletion() throws Exception {
         var lease = lease();
         EventHandler.Effect effect = () -> EventHandler.Outcome.COMPLETED;
-        Mockito.when(handler.prepare(lease.event())).thenReturn(effect);
+        Mockito.when(
+                        handler.prepare(
+                                Mockito.eq(lease.event()),
+                                Mockito.any(EventHandler.Checkpoint.class)))
+                .thenReturn(effect);
         Mockito.when(store.complete(lease, effect)).thenReturn(true);
         var tracer = Mockito.mock(io.micrometer.tracing.Tracer.class);
         Mockito.when(tracer.spanBuilder()).thenThrow(new IllegalStateException("sentinel-private"));
@@ -123,15 +131,24 @@ class EventDispatcherTest {
                     Mockito.when(handler.eventType())
                             .thenReturn(new EventEnvelope.Type("Probe", 2));
             case HANDLER_PERMANENT ->
-                    Mockito.when(handler.prepare(lease.event()))
+                    Mockito.when(
+                                    handler.prepare(
+                                            Mockito.eq(lease.event()),
+                                            Mockito.any(EventHandler.Checkpoint.class)))
                             .thenThrow(
                                     new DeliveryFailure(
                                             new IllegalStateException("sentinel-private")));
             case HANDLER_TRANSIENT ->
-                    Mockito.when(handler.prepare(lease.event()))
+                    Mockito.when(
+                                    handler.prepare(
+                                            Mockito.eq(lease.event()),
+                                            Mockito.any(EventHandler.Checkpoint.class)))
                             .thenThrow(new IllegalStateException("sentinel-private"));
             case TIMED_OUT ->
-                    Mockito.when(handler.prepare(lease.event()))
+                    Mockito.when(
+                                    handler.prepare(
+                                            Mockito.eq(lease.event()),
+                                            Mockito.any(EventHandler.Checkpoint.class)))
                             .thenThrow(new InterruptedException("sentinel-private"));
             default -> {}
         }
@@ -161,7 +178,10 @@ class EventDispatcherTest {
                 retryable
                         ? DeliveryFailure.Code.HANDLER_TRANSIENT
                         : DeliveryFailure.Code.HANDLER_PERMANENT;
-        Mockito.when(handler.prepare(lease.event()))
+        Mockito.when(
+                        handler.prepare(
+                                Mockito.eq(lease.event()),
+                                Mockito.any(EventHandler.Checkpoint.class)))
                 .thenThrow(
                         new DeliveryFailure(
                                 new IllegalStateException("private-document-source"),
@@ -175,6 +195,54 @@ class EventDispatcherTest {
                 .containsEntry("outcome", "failure_recorded");
         Assertions.assertThat(logs.list.getFirst().getFormattedMessage())
                 .doesNotContain("private-document-source");
+    }
+
+    @Test
+    void suppliesAnOwnershipBoundCheckpointWithoutAcknowledgingProgress() throws Exception {
+        var lease = lease();
+        EventHandler.Effect progress = () -> EventHandler.Outcome.COMPLETED;
+        EventHandler.Effect finish = () -> EventHandler.Outcome.COMPLETED;
+        Mockito.when(store.checkpoint(lease, progress))
+                .thenReturn(java.util.Optional.of(EventHandler.Outcome.COMPLETED));
+        Mockito.when(
+                        handler.prepare(
+                                Mockito.eq(lease.event()),
+                                Mockito.any(EventHandler.Checkpoint.class)))
+                .thenAnswer(
+                        call -> {
+                            EventHandler.Checkpoint checkpoint = call.getArgument(1);
+                            Assertions.assertThat(checkpoint.save(progress))
+                                    .contains(EventHandler.Outcome.COMPLETED);
+                            Mockito.verify(store, Mockito.never())
+                                    .complete(Mockito.any(), Mockito.any());
+                            return finish;
+                        });
+        dispatch(lease, List.of(handler));
+        Mockito.verify(store).checkpoint(lease, progress);
+        Mockito.verify(store).complete(lease, finish);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void passesRetryHintsOnlyForRetryableFailures(boolean retryable) throws Exception {
+        var lease = lease();
+        var retryAt = Instant.parse("2030-01-02T00:00:00Z");
+        Mockito.when(
+                        handler.prepare(
+                                Mockito.eq(lease.event()),
+                                Mockito.any(EventHandler.Checkpoint.class)))
+                .thenThrow(
+                        new DeliveryFailure(
+                                new IllegalStateException("private-provider-detail"),
+                                retryable,
+                                retryAt));
+        dispatch(lease, List.of(handler));
+        if (retryable)
+            Mockito.verify(store)
+                    .fail(lease, DeliveryFailure.Code.HANDLER_TRANSIENT, true, retryAt);
+        else Mockito.verify(store).fail(lease, DeliveryFailure.Code.HANDLER_PERMANENT, false);
+        Assertions.assertThat(logs.list.getFirst().getFormattedMessage())
+                .doesNotContain("private-provider-detail");
     }
 
     private void dispatch(DeliveryLease lease, List<EventHandler> handlers) {

@@ -43,7 +43,8 @@ final class EventDispatcher {
             return;
         }
         try {
-            var effect = handler.prepare(lease.event());
+            var effect =
+                    handler.prepare(lease.event(), progress -> store.checkpoint(lease, progress));
             boolean committed = store.complete(lease, effect);
             attempt.outcome(
                     committed
@@ -65,7 +66,13 @@ final class EventDispatcher {
                                     code,
                                     permanent.retryable(),
                                     permanent.effect().orElseThrow())
-                            : store.fail(lease, code, permanent.retryable());
+                            : permanent.retryAt().isPresent()
+                                    ? store.fail(
+                                            lease,
+                                            code,
+                                            permanent.retryable(),
+                                            permanent.retryAt().orElseThrow())
+                                    : store.fail(lease, code, permanent.retryable());
             reportFailure(recorded, code, attempt);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();

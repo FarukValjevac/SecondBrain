@@ -293,6 +293,21 @@ final class JdbcEventStore {
                 });
     }
 
+    /** Saves progress without acknowledging or resetting the attempt/deadline. */
+    Optional<EventHandler.Outcome> checkpoint(DeliveryLease lease, EventHandler.Effect effect) {
+        try {
+            return inTransaction(
+                    () -> {
+                        if (!lockToken(lease, true, clock.instant())) return Optional.empty();
+                        var outcome = Objects.requireNonNull(effect.apply(), "Checkpoint outcome");
+                        if (!lockToken(lease, true, clock.instant())) throw new LostLease();
+                        return Optional.of(outcome);
+                    });
+        } catch (LostLease lost) {
+            return Optional.empty();
+        }
+    }
+
     boolean complete(DeliveryLease lease, EventHandler.Effect effect) {
         try {
             return inTransaction(
@@ -338,6 +353,11 @@ final class JdbcEventStore {
     }
 
     boolean fail(DeliveryLease lease, DeliveryFailure.Code code, boolean retryable) {
+        return fail(lease, code, retryable, (Instant) null);
+    }
+
+    boolean fail(
+            DeliveryLease lease, DeliveryFailure.Code code, boolean retryable, Instant retryAt) {
         return inTransaction(
                 () -> {
                     Instant now = clock.instant();
@@ -353,7 +373,7 @@ final class JdbcEventStore {
                             retryable && lease.attempt() < settings.maxAttempts()
                                     ? EventMetrics.Outcome.RETRY
                                     : EventMetrics.Outcome.FAILED);
-                    reschedule(lease.deliveryId(), lease.attempt(), retryable, code, now);
+                    reschedule(lease.deliveryId(), lease.attempt(), retryable, code, now, retryAt);
                     return true;
                 });
     }
@@ -492,8 +512,20 @@ final class JdbcEventStore {
 
     private void reschedule(
             UUID id, int attempts, boolean retryable, DeliveryFailure.Code code, Instant now) {
+        reschedule(id, attempts, retryable, code, now, null);
+    }
+
+    private void reschedule(
+            UUID id,
+            int attempts,
+            boolean retryable,
+            DeliveryFailure.Code code,
+            Instant now,
+            Instant retryAt) {
         boolean exhausted = attempts >= settings.maxAttempts();
         boolean retrying = retryable && !exhausted;
+        Instant eligible = retrying ? retry.nextAttemptAt(attempts) : now;
+        if (retrying && retryAt != null && retryAt.isAfter(eligible)) eligible = retryAt;
         jdbc.sql(
                         """
                 UPDATE event_deliveries SET state = :state, eligible_at = :eligible, failure_code = :code,
@@ -501,7 +533,7 @@ final class JdbcEventStore {
                     updated_at = :now WHERE delivery_id = :id
                 """)
                 .param("state", retrying ? "PENDING" : "FAILED")
-                .param("eligible", timestamp(retrying ? retry.nextAttemptAt(attempts) : now))
+                .param("eligible", timestamp(eligible))
                 .param(
                         "code",
                         exhausted && retryable

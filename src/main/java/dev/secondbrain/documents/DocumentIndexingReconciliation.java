@@ -14,16 +14,19 @@ final class DocumentIndexingReconciliation {
     private final DocumentIndexingService indexing;
     private final EventPublisher events;
     private final ObjectProvider<DocumentPassageHandler> passages;
+    private final ObjectProvider<DocumentEmbeddingHandler> embeddings;
 
     DocumentIndexingReconciliation(
             JdbcIndexingRepository indexes,
             DocumentIndexingService indexing,
             EventPublisher events,
-            ObjectProvider<DocumentPassageHandler> passages) {
+            ObjectProvider<DocumentPassageHandler> passages,
+            ObjectProvider<DocumentEmbeddingHandler> embeddings) {
         this.indexes = indexes;
         this.indexing = indexing;
         this.events = events;
         this.passages = passages;
+        this.embeddings = embeddings;
     }
 
     @Scheduled(fixedDelay = 1000, initialDelay = 1000)
@@ -34,6 +37,10 @@ final class DocumentIndexingReconciliation {
             }
             if (passages.getIfAvailable() != null) {
                 events.scheduleMissing(ReindexRequestedEvent.TYPE, DocumentPassageHandler.ID, 100);
+            }
+            if (embeddings.getIfAvailable() != null) {
+                events.scheduleMissing(
+                        PassagesPreparedEvent.TYPE, DocumentEmbeddingHandler.ID, 100);
             }
         } catch (RuntimeException unavailable) {
             LoggerFactory.getLogger(getClass())

@@ -2,7 +2,7 @@
 
 This guide explains how the current embedding code works: its Java types, Spring configuration, PostgreSQL storage, and Cloudflare HTTP adapter. Read it alongside the linked source files.
 
-The model rules, storage adapter, and HTTP adapter exist independently. **The current upload workflow prepares passages but does not call Cloudflare or generate/store embeddings automatically.** The guide distinguishes these current capabilities from the missing integration.
+The model rules, storage adapter, and HTTP adapter are joined by a durable document embedding handler. **Background embeddings are disabled by default. When explicitly enabled, prepared passages are sent to Cloudflare and their vectors are staged locally.** Index activation, semantic search, and chat are absent from the current code.
 
 The diagrams use Mermaid. Open this file in a Markdown viewer with Mermaid support to render them. The tables and text examples explain the same ideas if your viewer displays the diagram source.
 
@@ -28,15 +28,17 @@ flowchart TD
     Extract --> Split[Split text into located passages]
     Split --> PassageStore[Store passages locally]
     PassageStore --> Fact[PassagesPrepared durable fact]
-    Fact --> Boundary[No embedding consumer registered]
-
-    Explicit[Explicit provider call] --> Embed[Cloudflare HTTP adapter]
-    Embed --> Vectors[Validated vectors returned to caller]
-    Supplied[Caller-supplied passage vectors] --> Repository[Guarded SQL repository]
-    Repository --> VectorStore[Staged vectors in PostgreSQL]
+    Fact --> Enabled{Embedding handler enabled?}
+    Enabled -->|No| Retain[Retain fact for later processing]
+    Enabled -->|Yes| Worker[Claim durable delivery]
+    Worker --> Read[Read missing passage batch]
+    Read --> Embed[Call Cloudflare outside the read transaction]
+    Embed --> Checkpoint[Check lease and document state; save batch]
+    Checkpoint --> Read
+    Read -->|No missing passages| Finish[Verify completeness and acknowledge delivery]
 ```
 
-The top flow is connected to document uploads. The HTTP adapter and SQL repository are separate capabilities: no application worker currently joins them to that flow. A normal upload therefore prepares passages without sending them to Cloudflare.
+The handler is opt-in through `secondbrain.embeddings.enabled`. Startup constructs the client without a test request; background workers may then process new and retained document facts. Enabling with polling active permits real passage text to leave the computer. Keeping the default disabled requires no Cloudflare credentials and makes no inference calls.
 
 For semantic search, passage embeddings represent stored text and a query embedding represents the search text. Comparing those vectors would identify related passages. Writing a cited answer would require a separate chat operation. Search, index activation, and chat are absent from the current implementation.
 
@@ -266,18 +268,37 @@ The endpoint method constructs one account-scoped HTTPS destination on `api.clou
 
 ## 9. How this connects to our durable events
 
-Passage processing stores the passages and `PassagesPrepared` fact atomically with its delivery acknowledgment. There is no embedding consumer registered for that fact yet.
+Passage processing stores the passages and `PassagesPrepared` fact atomically with its delivery acknowledgment. [DocumentEmbeddingHandler](../src/main/java/dev/secondbrain/documents/DocumentEmbeddingHandler.java) consumes that fact when enabled. The event's processing version identifies the index generation, which separately records its source extraction version.
 
-That missing consumer is the boundary between the connected upload pipeline and the independent embedding adapters. The HTTP adapter returns validated vectors but cannot save them. The SQL repository saves supplied vectors but cannot request them or acknowledge an event.
+The handler reads one bounded batch of **missing** vectors, closes its read transaction, asks the provider for those passage texts, and associates the ordered results with stable passage IDs. It then asks the dispatcher to save a checkpoint. This is a short write transaction; the next HTTP call begins only after it ends.
 
-The current guards explain what integration must respect:
+```mermaid
+sequenceDiagram
+    participant H as DocumentEmbeddingHandler
+    participant D as Dispatcher checkpoint
+    participant DB as PostgreSQL
+    participant C as Cloudflare
+    H->>DB: Read missing batch; end read transaction
+    H->>C: embed(texts)
+    C-->>H: Validated ordered vectors
+    H->>D: save(batch effect)
+    D->>DB: Begin; lock and validate delivery lease
+    D->>DB: Lock and recheck desired document/source generation
+    D->>DB: Insert immutable vectors
+    D->>DB: Recheck unexpired lease; finish write transaction
+    D-->>H: Saved outcome, or empty if lease was lost
+    Note over H,DB: Delivery stays RUNNING; attempt and deadline are unchanged
+```
 
-- Provider I/O is refused inside a database transaction, so a slow network service cannot hold document locks.
-- The SQL repository requires a caller-owned transaction and rechecks document visibility, desired index generation, and source version.
-- Document/version checks do not prove delivery-lease ownership; that additional fence is absent until there is an embedding consumer.
-- Staged vectors do not make an index searchable. Activation requires a complete eligible generation.
+The checkpoint is supplied by the dispatcher as an [EventHandler.Checkpoint](../src/main/java/dev/secondbrain/events/EventHandler.java). In Java, a nested functional interface describes a value with one operation; here a lambda binds `save` to this specific delivery lease. Existing handlers use the default two-argument `prepare` method, which delegates to their ordinary `prepare(event)`. The embedding handler overrides the two-argument method because its preparation saves bounded progress.
 
-A crash between a provider response and saving its results can require repeating the request. Idempotent database writes prevent duplicate stored results; they cannot guarantee exactly-once external processing or allowance consumption.
+`save` returns `Optional<Outcome>`. Empty means ownership was lost; the handler stops. `SKIPPED` means the document or generation became ineligible; it also stops. A saved `COMPLETED` outcome describes **that batch**, not the whole delivery. The delivery remains running until the final completeness check and acknowledgment succeed together.
+
+If ownership expires during a checkpoint, its writes roll back. Earlier successful checkpoints remain stored. On a retry or restart, the missing-batch query excludes those saved passages, so only unfinished work needs provider calls. The existing attempt limit and overall execution deadline still apply; saving progress does not reset either one.
+
+When no vectors are missing, the final effect locks/rechecks document eligibility and verifies the expected passage/vector count and model. The dispatcher then acknowledges the delivery in the same transaction. This does **not** activate a searchable index. If acknowledgment fails, the staged vectors remain; a retry can check completeness without repeating completed HTTP work.
+
+A crash between a provider response and its checkpoint can require repeating the request. Idempotent database writes prevent duplicate stored results; they cannot guarantee exactly-once external processing or allowance consumption.
 
 ## 10. Current capabilities and boundaries
 
@@ -287,9 +308,9 @@ A crash between a provider response and saving its results can require repeating
 | Validated vectors with defensive copies | Implemented |
 | Shared provider interface | Implemented with an opt-in Cloudflare adapter |
 | Opt-in configuration and safe validation | Implemented |
-| HTTP calls and provider response validation | Implemented; tested through synthetic protocol fixtures, with real loopback checks required |
-| Vector storage in PostgreSQL/pgvector | Schema and guarded adapter implemented; no embedding consumer calls it yet |
-| Durable embedding consumer and batch recovery | Not implemented |
+| HTTP calls and provider response validation | Implemented with bounded inputs, responses, and deadlines |
+| Vector storage in PostgreSQL/pgvector | Implemented with resumable bounded checkpoints |
+| Durable embedding consumer and batch recovery | Implemented; disabled by default |
 | Complete-index activation and semantic search | Not implemented |
 | Live model/account/quality/free-allowance verification | Not performed |
 
@@ -297,7 +318,7 @@ The model, data, and configuration rules give callers a consistent contract. Tha
 
 The HTTP adapter uses Java's built-in HTTP client and the existing Jackson JSON library. We have not added Spring AI or a paid OpenAI account. Cloudflare's “OpenAI-compatible” endpoint describes a request/response protocol; Cloudflare is still the service receiving the request.
 
-Our free-only requirement also depends on staying on the correct Cloudflare account plan. Java configuration cannot guarantee an account's billing settings. The provider allowance is finite, and later code must handle its exhaustion safely.
+Our free-only requirement also depends on staying on the correct Cloudflare account plan. Java configuration cannot guarantee an account's billing settings. The provider allowance is finite. Retryable failures delay the existing delivery without holding its worker, and the configured attempt limit remains enforced.
 
 ## 11. Understanding and checking the model and configuration
 
@@ -331,7 +352,7 @@ Questions to answer after reading:
 
 ## 12. How vector storage is organized
 
-The repository stores supplied vectors in PostgreSQL. Both the storage adapter and HTTP provider exist, but no document embedding worker connects them yet.
+The repository stores supplied vectors in PostgreSQL. The document handler supplies results from the HTTP provider to the storage adapter through delivery checkpoints.
 
 ### Storage classes and migration
 
@@ -465,7 +486,7 @@ BEGIN
 ROLLBACK
 ```
 
-The vector rows and any newly established model binding roll back too. A durable worker needs this property to coordinate database effects with its lease-checked completion. No embedding worker or event acknowledgment is connected to this repository.
+The vector rows and any newly established model binding roll back too. The dispatcher uses this property to fence checkpoint writes and final acknowledgment by delivery ownership. The repository itself has no knowledge of lease tokens.
 
 Our adapter uses separate parameterized statements for the rows, grouped in one transaction. Each statement has a five-second query timeout; the caller still owns the overall transaction timeout. It does not send a single bulk SQL statement and does not finalize each vector separately. This is bounded by at most 32 vectors per call.
 
@@ -473,7 +494,7 @@ Our adapter uses separate parameterized statements for the rows, grouped in one 
 
 Before inserting, the adapter locks the document and checks that the requested index is still desired, its source extraction still matches, and the document is still visible/extracted. Starting a newer index, changing the source, marking deletion, or removing the document makes old work ineligible.
 
-That lock coordinates current database state. The later event worker must additionally fence writes by its delivery lease. A document-version check does not establish lease ownership by itself.
+That lock coordinates current database state. The dispatcher additionally checks its delivery lease before and after the checkpoint effect. Both fences are required: a document-version check does not establish lease ownership by itself.
 
 ### Step D: bind the model
 
@@ -528,7 +549,7 @@ The storage suite covers multi-batch continuation through fresh JDBC collaborato
 
 These are integration tests because locking, foreign keys, the pgvector type, and transaction rollback need real PostgreSQL behavior. Fast tests alone cannot establish those properties. The existing complete gate remains `./mvnw verify`.
 
-Run these tests with Docker available: compilation and fast checks cannot establish database correctness. Verification results belong in the implementation plan, separately from this learning guide.
+Verification results belong in the implementation plan, separately from this learning guide.
 
 For a read-only look at staging in your normal database after applying V11:
 
@@ -545,11 +566,11 @@ GROUP BY i.document_id, i.indexing_version, i.passage_count,
 ORDER BY i.document_id, i.indexing_version;
 ```
 
-In the current upload workflow, `stored_vectors = 0` and empty model fields are expected in the ordinary upload workflow. That workflow has no embedding consumer invoking the repository. Passing storage tests populates the test container, not your normal library database.
+With embeddings disabled, ordinary uploads have zero stored vectors and empty model fields. With the handler enabled, vectors appear as batches finish; incomplete generations remain staging data. Storage tests populate isolated containers, not your normal library database.
 
 ## 15. How the HTTP adapter works
 
-The Cloudflare implementation of `EmbeddingProvider` can send a batch to Cloudflare. It remains opt-in, and no upload/event consumer invokes it yet. The regular application therefore still stops at prepared passages.
+The Cloudflare implementation of `EmbeddingProvider` sends a bounded batch when called. The opt-in document handler invokes it outside transactions; disabled embeddings leave uploads at prepared passages.
 
 | File | Job |
 |---|---|
@@ -557,7 +578,7 @@ The Cloudflare implementation of `EmbeddingProvider` can send a batch to Cloudfl
 | [CloudflareEmbeddingProtocol.java](../src/main/java/dev/secondbrain/embeddings/CloudflareEmbeddingProtocol.java) | Encode/decode bounded JSON and translate HTTP/provider errors |
 | [EmbeddingFailure.java](../src/main/java/dev/secondbrain/embeddings/EmbeddingFailure.java) | Expose a fixed error reason, retryable flag, and optional retry timestamp safely |
 
-These are separate from the SQL repository. The HTTP adapter cannot insert vectors or complete an event delivery. The repository cannot make an HTTP request. A later application operation will coordinate them.
+These are separate from the SQL repository. The HTTP adapter cannot insert vectors or complete an event delivery. The repository cannot make an HTTP request. The document handler coordinates them through the dispatcher's checkpoint boundary.
 
 ### What one call does
 
@@ -584,7 +605,7 @@ The production destination is fixed to the Cloudflare HTTPS endpoint derived fro
 
 With the default batch size of eight, calling `embed` with eight texts produces one application request that asks for eight vectors. Calling it with nine texts is rejected; this adapter does not silently split a larger collection into more requests.
 
-The caller will own batching across a document. It will also own retries. There is no sleep/retry loop inside this adapter and no second provider/model fallback. Ordinary TCP connection handling is not an exactly-once remote-execution guarantee: an interrupted or crashed process may still be unsure whether the remote service processed a request.
+The document handler owns batching across a document. Durable delivery owns retries. There is no sleep/retry loop inside this adapter and no second provider/model fallback. Ordinary TCP connection handling is not an exactly-once remote-execution guarantee: an interrupted or crashed process may still be unsure whether the remote service processed a request.
 
 The request body has this shape:
 
@@ -627,7 +648,7 @@ Response entries carry input indexes. If a response presents index 1 before inde
 
 During shutdown, a caller may interrupt a thread that is waiting on HTTP. The adapter cancels its pending future, restores the thread's interruption flag, and throws `InterruptedException` to the caller. It does not quietly turn shutdown into a successful embedding.
 
-The adapter also refuses to start inside an active database transaction. The later worker must read a batch, end its read transaction, call the provider, then open a short fenced write transaction. Waiting for a network service while holding document locks would unnecessarily block deletion/reindexing.
+The adapter also refuses to start inside an active database transaction. The document handler reads a batch, ends its read transaction, calls the provider, then requests a short fenced write checkpoint. Waiting for a network service while holding document locks would unnecessarily block deletion/reindexing.
 
 ### Errors become a small, safe vocabulary
 
@@ -642,7 +663,7 @@ The adapter also refuses to start inside an active database transaction. The lat
 | `UNAVAILABLE` | Yes | Provider/transport failure, including an incomplete or oversized stream |
 | `TIMED_OUT` | Yes | The operation did not finish within its deadline |
 
-“Retryable” does not mean “repeat immediately or forever.” The adapter classifies the failure and returns a safe hint. A later durable policy must respect remaining attempts, release worker capacity, preserve staging, and schedule eligibility safely.
+“Retryable” does not mean “repeat immediately or forever.” The adapter classifies the failure and returns a safe hint. The document handler translates that classification into a delivery failure. The dispatcher releases the attempt and persists retry eligibility using the later of normal backoff and the provider hint. Already saved vectors remain staged. Exhausted attempts stay failed even after the hinted time passes.
 
 Cloudflare documents quota code `3036`. We recognize that numeric code in a 429 response and suggest the next UTC daily reset. We do not search human-readable error messages for words such as “quota.” Valid `Retry-After` seconds or HTTP dates become optional timestamps; a quota hint never precedes its suggested reset. The adapter never waits until that timestamp.
 
@@ -669,7 +690,20 @@ The tests print failure stack traces and capture output with synthetic private m
 
 The first command needs neither Docker nor a socket listener. The second needs local socket permission but no Docker or Cloudflare account. The full project gate remains `./mvnw verify`.
 
-An HTTP stub proves how our client handles controlled responses. It does not prove that a real token works, that Cloudflare's hosted output matches the fixture, that account usage is free, or that retrieval quality is good. A separately invoked bounded live smoke check is still pending. Upload-to-embedding processing and durable retry scheduling are absent from the current code; the HTTP adapter alone does not provide them.
+An HTTP stub proves how our client handles controlled responses. It does not prove that a real token works, that Cloudflare's hosted output matches the fixture, that account usage is free, or that retrieval quality is good. A separately invoked bounded live smoke check is still pending. The document handler and PostgreSQL delivery tests cover orchestration separately from the HTTP protocol.
+
+## 17. Checking durable batching and recovery
+
+[DocumentEmbeddingHandlerTest](../src/test/java/dev/secondbrain/documents/DocumentEmbeddingHandlerTest.java) uses controlled collaborators to check batch ordering, transaction boundaries, missing-result handling, interruption, stale documents, and final completeness. [DocumentEmbeddingConfigurationTest](../src/test/java/dev/secondbrain/documents/DocumentEmbeddingConfigurationTest.java) checks the opt-in boundary without real credentials.
+
+[DocumentEmbeddingDeliveryIT](../src/test/java/dev/secondbrain/events/DocumentEmbeddingDeliveryIT.java) runs the real application/dispatcher against isolated PostgreSQL with a deterministic provider. It exercises multi-batch completion, partial progress across restart, response-after-expiry recovery, source/reindex/deletion changes during inference, acknowledgment rollback, and retained-event scheduling. [DurableEventsIT](../src/test/java/dev/secondbrain/events/DurableEventsIT.java) additionally checks checkpoint rollback, stale tokens, persisted retry hints, and attempt exhaustion.
+
+```sh
+./mvnw -Dtest=DocumentEmbeddingHandlerTest,DocumentEmbeddingConfigurationTest test
+./mvnw -Dit.test=DocumentEmbeddingDeliveryIT,DurableEventsIT,EmbeddingRepositoryIT verify
+```
+
+The second command requires Docker. Both use synthetic data and no live inference. The overall gate is `./mvnw verify`. Test definitions describe what should be checked; current run results are recorded in the implementation plan.
 
 ## References and related notes
 
