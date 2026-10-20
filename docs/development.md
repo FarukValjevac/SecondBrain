@@ -501,7 +501,11 @@ The PDF extraction component can be checked independently with `./mvnw -Dtest=Pd
 
 Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker). Atomic requests, concurrent allocation, enrollment/restart, controlled passage routing, stale-work guards, and acknowledgment rollback are covered by `./mvnw -Dit.test=DocumentIndexingIT,DurableEventsIT verify`. The stage in this test is a controlled probe; it does not establish real passage splitting, embeddings, or search readiness.
 
-The standalone passage splitter can be checked with `./mvnw -Dtest=PassageSplitterTest test` without Docker. Its fixtures verify bounded overlapping text, Unicode, exact line references, and physical PDF page boundaries. Staged passage storage can be checked with `./mvnw -Dit.test=PassageRepositoryIT,DatabaseMigrationIT verify` (requires Docker). These fixtures verify stable IDs on retries, immutable configuration, rollback, version isolation, and cascade cleanup. The real passage worker is covered by `./mvnw -Dit.test=DocumentPassageDeliveryIT verify`: TXT/Markdown/PDF uploads, atomic passage/event/acknowledgment rollback, lease expiry, stale-source/deletion guards, and permanent source failures. Full `./mvnw verify` remains the completion gate. Restart the application after this change, then upload a file and inspect the counts/status using the query under [indexing requests](#indexing-requests).
+Check the standalone splitter with `./mvnw -Dtest=PassageSplitterTest test` without Docker. Its fixtures cover bounded overlap, Unicode, line references, and physical PDF page boundaries.
+
+With Docker running, use `./mvnw -Dit.test=DocumentPassageDeliveryIT,PassageRepositoryIT,DatabaseMigrationIT verify` for passage processing. These tests cover stable IDs/source locations, immutable configuration, atomic passage/event/acknowledgment rollback, stale/deleted work, restart recovery, repeated effects, event ordering, and migration compatibility. They use isolated containers and temporary originals.
+
+Full `./mvnw verify` remains the completion gate. For manual inspection of prepared passages, use the query under [indexing requests](#indexing-requests).
 
 Apply Java formatting before committing:
 

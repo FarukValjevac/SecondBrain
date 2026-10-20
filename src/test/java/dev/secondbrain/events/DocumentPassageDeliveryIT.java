@@ -2,6 +2,7 @@ package dev.secondbrain.events;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.documents.DocumentAcceptanceService;
@@ -20,6 +21,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -28,8 +31,10 @@ import org.testcontainers.utility.DockerImageName;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** Exercises the real registered stage and acknowledgment boundary against isolated PostgreSQL. */
@@ -170,9 +175,12 @@ class DocumentPassageDeliveryIT {
     }
 
     @Test
-    void leaseExpiryAfterTheEffectRollsBackAllStageEffectsAndANewLeaseCanFinish() throws Exception {
+    void leaseExpiryRollsBackAllStageEffectsAndANewContextCanRecoverTheSameDelivery()
+            throws Exception {
+        DeliveryLease abandoned;
         try (var context = start()) {
             var lease = queuedPassages(context, Format.TXT);
+            abandoned = lease;
             var effect =
                     context.getBean(EventRegistry.class)
                             .handler(HANDLER)
@@ -194,15 +202,168 @@ class DocumentPassageDeliveryIT {
                     .isFalse();
             assertUnprepared(context, lease);
             assertThat(state(context, lease)).isEqualTo("RUNNING");
+        }
+        try (var context = start()) {
+            assertUnprepared(context, abandoned);
+            var store = context.getBean(JdbcEventStore.class);
             assertThat(store.claim(UUID.randomUUID())).isEmpty();
             clock.advance(
                     context.getBean(EventDeliveryProperties.class).maxBackoff().plusSeconds(1));
             var fresh = store.claim(UUID.randomUUID()).orElseThrow();
-            assertThat(fresh.deliveryId()).isEqualTo(lease.deliveryId());
-            assertThat(fresh.token()).isNotEqualTo(lease.token());
-            assertThat(store.complete(lease, effect)).isFalse();
+            assertThat(fresh.deliveryId()).isEqualTo(abandoned.deliveryId());
+            assertThat(fresh.event()).isEqualTo(abandoned.event());
+            assertThat(fresh.token()).isNotEqualTo(abandoned.token());
+            assertThat(
+                            store.complete(
+                                    abandoned,
+                                    () -> {
+                                        throw new AssertionError(
+                                                "An expired owner must not run its effect");
+                                    }))
+                    .isFalse();
             context.getBean(EventDispatcher.class).dispatch(fresh);
             assertCompleted(context, fresh);
+        }
+    }
+
+    @Test
+    void aPausedConsumerResumesRetainedRequestsAutomaticallyAfterRestart() throws Exception {
+        UUID id;
+        UUID requestId;
+        try (var context = start(false, false, false)) {
+            id = uploadThroughIndexRequest(context, Format.PDF);
+            requestId =
+                    context.getBean(DocumentIndexingService.class)
+                            .request(id, 1, UUID.randomUUID())
+                            .orElseThrow()
+                            .eventId();
+            assertThat(passageDeliveryCount(context, id)).isZero();
+        }
+        List<Map<String, Object>> snapshot;
+        UUID factId;
+        try (var context = start(true, true, true)) {
+            await().atMost(Duration.ofSeconds(10))
+                    .untilAsserted(
+                            () ->
+                                    assertThat(
+                                                    jdbc(context)
+                                                            .sql(
+                                                                    """
+                        SELECT count(*) FROM event_deliveries
+                        WHERE event_id = :id AND handler_id = :handler AND state = 'COMPLETED'
+                        """)
+                                                            .param("id", requestId)
+                                                            .param("handler", HANDLER)
+                                                            .query(Long.class)
+                                                            .single())
+                                            .isEqualTo(1));
+            snapshot = passageSnapshot(context, id, 1);
+            assertThat(snapshot).hasSize(2);
+            factId = preparedEventId(context, id, 1);
+            assertThat(passageDeliveryCount(context, id)).isEqualTo(1);
+        }
+        try (var context = start()) {
+            var events = context.getBean(EventPublisher.class);
+            assertThat(
+                            events.scheduleMissing(
+                                    new EventEnvelope.Type("ReindexRequested", 1), HANDLER, 100))
+                    .isZero();
+            assertThat(
+                            context.getBean(DocumentIndexingService.class)
+                                    .request(id, 1, UUID.randomUUID())
+                                    .orElseThrow()
+                                    .eventId())
+                    .isEqualTo(requestId);
+            assertThat(passageSnapshot(context, id, 1)).isEqualTo(snapshot);
+            assertThat(preparedEventId(context, id, 1)).isEqualTo(factId);
+            assertThat(passageDeliveryCount(context, id)).isEqualTo(1);
+            assertThat(context.getBean(JdbcEventStore.class).claim(UUID.randomUUID())).isEmpty();
+        }
+    }
+
+    @Test
+    void repeatingTheRealEffectAfterRestartPreservesPassageAndDownstreamIdentity()
+            throws Exception {
+        DeliveryLease original;
+        List<Map<String, Object>> snapshot;
+        UUID factId;
+        try (var context = start()) {
+            original = queuedPassages(context, Format.MARKDOWN);
+            context.getBean(EventDispatcher.class).dispatch(original);
+            assertCompleted(context, original);
+            snapshot = passageSnapshot(context, original.event().documentId(), 1);
+            factId = preparedEventId(context, original.event().documentId(), 1);
+        }
+        try (var context = start()) {
+            var handler = context.getBean(EventRegistry.class).handler(HANDLER).orElseThrow();
+            var transactions =
+                    new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
+            var duplicateEffect = handler.prepare(original.event());
+            // Exercise feature idempotence independently of the delivery acknowledgment guard.
+            for (int repeat = 0; repeat < 2; repeat++) {
+                var outcome = transactions.execute(status -> duplicateEffect.apply());
+                assertThat(outcome).isEqualTo(EventHandler.Outcome.COMPLETED);
+            }
+            assertThat(
+                            context.getBean(DocumentIndexingService.class)
+                                    .request(original.event().documentId(), 1, UUID.randomUUID())
+                                    .orElseThrow()
+                                    .eventId())
+                    .isEqualTo(original.event().eventId());
+            assertThat(passageSnapshot(context, original.event().documentId(), 1))
+                    .isEqualTo(snapshot);
+            assertThat(preparedEventId(context, original.event().documentId(), 1))
+                    .isEqualTo(factId);
+            assertCompleted(context, original);
+            assertThat(passageDeliveryCount(context, original.event().documentId())).isEqualTo(1);
+            assertThat(context.getBean(JdbcEventStore.class).claim(UUID.randomUUID())).isEmpty();
+        }
+    }
+
+    @Test
+    void aNewerCompletedIndexCannotBeChangedByAnOlderPreparedEffectOrLateRequest()
+            throws Exception {
+        DeliveryLease old;
+        DeliveryLease current;
+        List<Map<String, Object>> snapshot;
+        UUID factId;
+        try (var context = start()) {
+            old = queuedPassages(context, Format.TXT);
+            var lateEffect =
+                    context.getBean(EventRegistry.class)
+                            .handler(HANDLER)
+                            .orElseThrow()
+                            .prepare(old.event());
+            var receipt =
+                    context.getBean(DocumentIndexingService.class)
+                            .requestNext(old.event().documentId(), UUID.randomUUID())
+                            .orElseThrow();
+            current = context.getBean(JdbcEventStore.class).claim(UUID.randomUUID()).orElseThrow();
+            assertThat(current.handlerId()).isEqualTo(HANDLER);
+            assertThat(current.event().eventId()).isEqualTo(receipt.eventId());
+            assertThat(current.event().processingVersion()).isEqualTo(2);
+            context.getBean(EventDispatcher.class).dispatch(current);
+            assertCompleted(context, current);
+            snapshot = passageSnapshot(context, current.event().documentId(), 2);
+            factId = preparedEventId(context, current.event().documentId(), 2);
+            assertThat(context.getBean(JdbcEventStore.class).complete(old, lateEffect)).isTrue();
+            assertThat(state(context, old)).isEqualTo("SKIPPED");
+            assertUnprepared(context, old);
+        }
+        try (var context = start()) {
+            assertThat(
+                            context.getBean(DocumentIndexingService.class)
+                                    .request(old.event().documentId(), 1, UUID.randomUUID()))
+                    .isEmpty();
+            context.getBean(EventDispatcher.class).dispatch(old);
+            assertThat(state(context, old)).isEqualTo("SKIPPED");
+            assertUnprepared(context, old);
+            assertCompleted(context, current);
+            assertThat(passageSnapshot(context, current.event().documentId(), 2))
+                    .isEqualTo(snapshot);
+            assertThat(preparedEventId(context, current.event().documentId(), 2)).isEqualTo(factId);
+            assertThat(passageDeliveryCount(context, old.event().documentId())).isEqualTo(2);
+            assertThat(context.getBean(JdbcEventStore.class).claim(UUID.randomUUID())).isEmpty();
         }
     }
 
@@ -264,6 +425,15 @@ class DocumentPassageDeliveryIT {
 
     private DeliveryLease queuedPassages(ConfigurableApplicationContext context, Format format)
             throws Exception {
+        var id = uploadThroughIndexRequest(context, format);
+        var lease = context.getBean(JdbcEventStore.class).claim(UUID.randomUUID()).orElseThrow();
+        assertThat(lease.handlerId()).isEqualTo(HANDLER);
+        assertThat(lease.event().documentId()).isEqualTo(id);
+        return lease;
+    }
+
+    private UUID uploadThroughIndexRequest(ConfigurableApplicationContext context, Format format)
+            throws Exception {
         var bytes =
                 format == Format.PDF
                         ? PdfFixtures.text("First page", "", "Third page")
@@ -284,10 +454,50 @@ class DocumentPassageDeliveryIT {
             context.getBean(EventDispatcher.class).dispatch(lease);
             assertThat(state(context, lease)).isEqualTo("COMPLETED");
         }
-        var lease = store.claim(UUID.randomUUID()).orElseThrow();
-        assertThat(lease.handlerId()).isEqualTo(HANDLER);
-        assertThat(lease.event().documentId()).isEqualTo(id);
-        return lease;
+        return id;
+    }
+
+    private static List<Map<String, Object>> passageSnapshot(
+            ConfigurableApplicationContext context, UUID id, long version) {
+        return jdbc(context)
+                .sql(
+                        """
+                SELECT passage_id, sequence_number, passage_text,
+                       start_line, start_column, end_line, end_column, page_number
+                FROM document_passages WHERE document_id = :id AND indexing_version = :version
+                ORDER BY sequence_number
+                """)
+                .param("id", id)
+                .param("version", version)
+                .query()
+                .listOfRows();
+    }
+
+    private static UUID preparedEventId(
+            ConfigurableApplicationContext context, UUID id, long version) {
+        return jdbc(context)
+                .sql(
+                        """
+                SELECT event_id FROM event_keys WHERE document_id = :id
+                AND processing_version = :version AND event_type = 'PassagesPrepared'
+                """)
+                .param("id", id)
+                .param("version", version)
+                .query(UUID.class)
+                .single();
+    }
+
+    private static long passageDeliveryCount(ConfigurableApplicationContext context, UUID id) {
+        return jdbc(context)
+                .sql(
+                        """
+                SELECT count(*) FROM event_deliveries d JOIN event_keys k USING (event_id)
+                WHERE k.document_id = :id AND d.handler_id = :handler
+                """)
+                .param("id", id)
+                .param("handler", HANDLER)
+                .query(Long.class)
+                .single();
     }
 
     private static void assertCompleted(
@@ -362,6 +572,11 @@ class DocumentPassageDeliveryIT {
     }
 
     private ConfigurableApplicationContext start() {
+        return start(true, false, false);
+    }
+
+    private ConfigurableApplicationContext start(
+            boolean consumer, boolean polling, boolean reconcile) {
         return new SpringApplicationBuilder(SecondBrainApplication.class)
                 .web(WebApplicationType.NONE)
                 .initializers(
@@ -370,9 +585,10 @@ class DocumentPassageDeliveryIT {
                                         .registerSingleton("passageTestClock", clock))
                 .run(
                         "--spring.config.import=",
-                        "--secondbrain.events.polling-enabled=false",
+                        "--secondbrain.events.polling-enabled=" + polling,
                         "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.reconcile-enabled=false",
+                        "--secondbrain.documents.indexing.passages.enabled=" + consumer,
+                        "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
                         "--secondbrain.documents.extraction.reconcile-enabled=false",
                         "--secondbrain.documents.deletion.reconcile-enabled=false",
                         "--secondbrain.events.initial-backoff=1s",
