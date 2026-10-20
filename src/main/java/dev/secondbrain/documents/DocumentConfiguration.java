@@ -225,6 +225,14 @@ class DocumentConfiguration {
     }
 
     @Bean
+    JdbcEmbeddingRepository jdbcEmbeddingRepository(
+            JdbcClient jdbc,
+            JdbcIndexingRepository indexes,
+            PlatformTransactionManager transactions) {
+        return new JdbcEmbeddingRepository(jdbc, indexes, transactions);
+    }
+
+    @Bean
     JdbcPassageRepository jdbcPassageRepository(
             JdbcTemplate jdbc,
             JdbcIndexingRepository indexes,
