@@ -156,7 +156,7 @@ Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.
 
 Once text extraction completes, a durable `TextExtracted` delivery selects an independent index generation and publishes `ReindexRequested` in the same transaction as its acknowledgment. A bounded reconciliation pass also enrolls existing extracted documents after startup, without needing their historical extraction events. Repeated enrollment reuses the selected generation; extraction retries and document deletion prevent old work from applying.
 
-The passage consumer reads the stored extraction, splits it locally, and commits the passages, their configuration/count metadata, and a durable `PassagesPrepared` fact with its delivery acknowledgment. Existing retained requests receive missing passage deliveries during reconciliation. `PassagesPrepared` remains stored for the later embedding consumer. The library still shows extraction status; a prepared passage set is not yet a searchable index. No model call or credential is needed for passage preparation.
+The passage consumer reads the stored extraction, splits it locally, and commits the passages, their configuration/count metadata, and a durable `PassagesPrepared` fact with its delivery acknowledgment. Existing retained requests receive missing passage deliveries during reconciliation. `PassagesPrepared` remains stored while embeddings are disabled; the opt-in embedding consumer processes it when enabled. The library still shows extraction status; a prepared passage set is not yet a searchable index. No model call or credential is needed for passage preparation.
 
 The Java application operation is `DocumentIndexingService.requestNext(documentId, correlationId)` for a deliberate new generation. `request(documentId, indexingVersion, correlationId)` repeats one specified generation idempotently; obsolete versions and missing, hidden, or unextracted documents return an empty result. These operations do not yet have a browser or HTTP reindex control.
 
@@ -181,6 +181,57 @@ ORDER BY d.document_id;
 After processing, expect a positive desired version/event ID, `passage_count` greater than zero, configuration version 1, and a COMPLETED passage delivery. Pending or failed deliveries retain their corresponding state; no partial snapshot is marked complete. Source and index version numbers may differ. `secondbrain.documents.indexing.enabled=false` pauses automatic extraction handoffs/enrollment and passage consumption; `secondbrain.documents.indexing.reconcile-enabled=false` disables only reconciliation. `secondbrain.documents.indexing.passages.enabled=false` pauses just the passage consumer, preserving requests for reconciliation when re-enabled. Explicit Java indexing requests remain available.
 
 Safe request measurements are `secondbrain.document.indexing.requests` and `secondbrain.document.indexing.request.duration`, with fixed requested/unchanged/unavailable outcomes. Success is recorded only after commit. Request counts include repeated calls; they are not unique index counts. Existing event metrics and correlated logs describe durable handoffs. No filenames, text, or credentials become metric labels.
+
+## Embedding configuration
+
+Embedding settings are opt-in. Enabling them constructs the Cloudflare HTTP adapter after validation; client construction and health probes make no inference request. The document embedding consumer is enabled by the same opt-in and can process new and retained passages when background polling runs. This sends bounded passage text to Cloudflare; normal disabled startup needs no AI credentials and makes no model calls. Run `./mvnw -Dtest=CloudflareEmbeddingProviderTest,EmbeddingConfigurationTest,EmbeddingVectorTest test` for configuration/protocol checks without an account.
+
+The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not yet a live-verified default. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
+
+| Setting | Default | Accepted value or purpose |
+|---|---|---|
+| `SECONDBRAIN_EMBEDDINGS_ENABLED` | `false` | Enable the provider and background passage embedding consumer |
+| `CLOUDFLARE_ACCOUNT_ID` | Empty | Required 32-character hexadecimal account ID when enabled |
+| `CLOUDFLARE_API_TOKEN` | Empty | Required API token when enabled; keep private in `.env` or the environment |
+| `CLOUDFLARE_EMBEDDING_MODEL` | Empty | Explicitly select `@cf/baai/bge-m3` |
+| `CLOUDFLARE_EMBEDDING_DIMENSIONS` | `0` | Explicitly select `1024` |
+| `secondbrain.embeddings.batch-size` | `8` | Between 1 and 32 inputs per provider request |
+| `secondbrain.embeddings.connect-timeout` | `2s` | Between 100 ms and 10 seconds |
+| `secondbrain.embeddings.request-timeout` | `30s` | At least the connect timeout and at most 60 seconds |
+
+The uppercase settings work in the imported `.env` file; corresponding application properties use the `secondbrain.embeddings` prefix. The endpoint is fixed to the account-scoped HTTPS API on `api.cloudflare.com`. Credentials are excluded from settings diagnostics and validation messages. Each explicit Java `embed` call enforces those settings. An explicitly supplied `EmbeddingProvider` bean replaces the default adapter without requiring Cloudflare credentials, supporting controlled tests.
+
+Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). No live model quality, quota consumption, or account permissions have been verified.
+
+## Embedding HTTP adapter
+
+`CloudflareEmbeddingProvider` sends one bounded application request to the account-scoped compatible embeddings endpoint and validates one vector per input. It restores input ordering using response indexes. Calls are rejected inside database transactions. Inputs are limited to the configured batch size (default 8, maximum 32), 1200 Unicode code points per nonblank input, valid Unicode without NUL, and a 256 KiB encoded body. Response reading is capped at 1 MiB; JSON depth, strings, numbers, and token counts are bounded. Incorrect model metadata, indexes/counts, dimensions, nonnumeric/nonfinite/zero components, malformed JSON, and unexpected success content types fail safely.
+
+Redirects are disabled, and production has no endpoint override. The configured request deadline includes receiving the complete body; timeout/interruption cancels the pending operation. Owned HTTP resources and their bounded networking executor close with the application. The adapter performs no automatic application retry, fallback, paid upgrade, database write, or event acknowledgment.
+
+Failures expose fixed reasons: access denial, unavailable model, invalid input/response, rate limiting, daily quota exhaustion, provider/transport unavailability, and timeout. Valid `Retry-After` hints are returned as timestamps for retryable rate/quota/service failures. Documented Cloudflare quota code `3036` also suggests the next UTC reset; private message text is not used for classification. Oversized/incomplete response streams are safe transport failures. The adapter never sleeps until a retry time. The document handler passes these hints to durable delivery scheduling, using the later of normal backoff and the hint. The configured attempt limit still applies; no worker waits until the reset. Raw parser/transport causes remain private and outside the default logged/serialized cause chain.
+
+Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub with synthetic credentials/text. It needs local socket permission, but no Docker or Cloudflare account. It covers request/response ordering, bounds, status/quota errors, redirect refusal, slow headers/body, interruption, and connection failure. Full `./mvnw verify` remains the completion gate. No live BGE-M3 response or retrieval quality is established by the stub.
+
+## Staged vector storage
+
+`document_embeddings` stores one vector per stable passage ID, tied to its document, index generation, and model/dimensions. The first batch binds the model on `document_index_versions`. The storage adapter accepts up to 32 vectors in a caller-owned transaction, rechecks current document/source/desired-version eligibility, preserves identical retries, and rejects conflicting values. Foreign keys cascade physical cleanup; partial or old generations remain staged.
+
+The opt-in document handler saves each successful batch through a lease-checked checkpoint. Default disabled uploads produce no vector rows; enabled uploads resume missing batches across retries/restarts. Run `./mvnw -Dit.test=EmbeddingRepositoryIT,DatabaseMigrationIT verify` with Docker to check isolated vector round-trip, migration, rollback, duplicate/concurrent staging, and ownership constraints. The full gate remains `./mvnw verify`; neither requires live AI credentials.
+
+## Durable document embeddings
+
+With `secondbrain.embeddings.enabled=true`, the `documents.embed-passages.v1` handler consumes `PassagesPrepared`. It reads at most the configured batch size of missing passages, closes its read transaction, calls the provider, then saves vectors in a short transaction guarded by the delivery lease and current document/source/index generation. Every successful checkpoint preserves the attempt/deadline and prior progress. Final acknowledgment requires all expected vectors. Search activation is not implemented yet; stored vectors remain staging data.
+
+Existing indexing reconciliation schedules up to 100 missing deliveries for retained passage facts per pass when the handler is present. It never resets existing pending/failed/completed deliveries. Stop event polling before disabling embeddings if outstanding embedding deliveries need to remain paused; removing a handler while polling continues uses the existing missing-handler failure behavior. Terminal embedding failures currently appear in durable-delivery diagnostics; document pages still show extraction status.
+
+Retries request only missing vectors. A crash after an HTTP response and before saving its batch can repeat a provider call and consume allowance again. Quota/reset hints persist as delivery eligibility timestamps; they release worker capacity and cannot bypass the attempt limit. No paid/provider fallback occurs. Model/account compatibility and eligibility still need a separately authorized bounded live check before real use; routine verification uses deterministic inference.
+
+```sh
+./mvnw -Dit.test=DocumentEmbeddingDeliveryIT,DurableEventsIT,EmbeddingRepositoryIT verify
+```
+
+This requires Docker but no Cloudflare account. It checks multi-batch/restart recovery, stale versions/deletion/leases, final-acknowledgment rollback, retained facts, and retry eligibility. Existing event traces/attempt metrics cover the delivery; separate provider latency/usage telemetry is not implemented yet.
 
 ## Deleted-document cleanup
 
@@ -231,7 +282,7 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. V10 adds private staged passages with stable IDs/source ranges and binds their count/splitter configuration to each index generation. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. V10 adds private staged passages with stable IDs/source ranges and binds their count/splitter configuration to each index generation. V11 adds private `vector(1024)` embedding rows, composite passage/model ownership, and per-index model binding; it does not generate vectors or activate indexes. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
 `document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. Its `page_number` is a positive physical page for PDFs and SQL NULL for TXT/Markdown. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 

@@ -29,7 +29,9 @@ class DocumentIndexingReconciliationTest {
                         indexing,
                         events,
                         new StaticListableBeanFactory()
-                                .getBeanProvider(DocumentPassageHandler.class))
+                                .getBeanProvider(DocumentPassageHandler.class),
+                        new StaticListableBeanFactory()
+                                .getBeanProvider(DocumentEmbeddingHandler.class))
                 .reconcile();
         verify(indexing).enroll(eq(id), any(UUID.class));
         verifyNoInteractions(events);
@@ -49,9 +51,31 @@ class DocumentIndexingReconciliationTest {
                         indexing,
                         events,
                         new StaticListableBeanFactory()
-                                .getBeanProvider(DocumentPassageHandler.class));
+                                .getBeanProvider(DocumentPassageHandler.class),
+                        new StaticListableBeanFactory()
+                                .getBeanProvider(DocumentEmbeddingHandler.class));
         assertThatCode(reconciliation::reconcile).doesNotThrowAnyException();
         assertThatCode(reconciliation::reconcile).doesNotThrowAnyException();
         verifyNoInteractions(indexing, events);
+    }
+
+    @Test
+    void schedulesRetainedPassageFactsOnlyWhenTheEmbeddingConsumerExists() {
+        var indexes = mock(JdbcIndexingRepository.class);
+        var indexing = mock(DocumentIndexingService.class);
+        var events = mock(EventPublisher.class);
+        var beans = new StaticListableBeanFactory();
+        beans.addBean("embeddings", mock(DocumentEmbeddingHandler.class));
+        when(indexes.findUnenrolled(100)).thenReturn(List.of());
+        new DocumentIndexingReconciliation(
+                        indexes,
+                        indexing,
+                        events,
+                        beans.getBeanProvider(DocumentPassageHandler.class),
+                        beans.getBeanProvider(DocumentEmbeddingHandler.class))
+                .reconcile();
+        verify(events)
+                .scheduleMissing(PassagesPreparedEvent.TYPE, DocumentEmbeddingHandler.ID, 100);
+        verifyNoInteractions(indexing);
     }
 }

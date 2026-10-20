@@ -572,7 +572,8 @@ class DocumentIndexingIT {
                         context.getBean(JdbcIndexingRepository.class),
                         context.getBean(DocumentIndexingService.class),
                         context.getBean(EventPublisher.class),
-                        context.getBeanProvider(DocumentPassageHandler.class))
+                        context.getBeanProvider(DocumentPassageHandler.class),
+                        context.getBeanProvider(DocumentEmbeddingHandler.class))
                 .reconcile();
     }
 
