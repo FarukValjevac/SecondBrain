@@ -11,7 +11,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Objects;
 
-/** Shared routing/fences; US-03-02 supplies the real passage preparation implementation. */
+/** Guards preparation and commits the stage effect inside the dispatcher's fenced transaction. */
 final class DocumentPassageHandler implements EventHandler {
     static final String ID = "documents.prepare-passages.v1";
     private final JdbcIndexingRepository indexes;

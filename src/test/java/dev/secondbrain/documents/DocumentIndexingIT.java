@@ -226,7 +226,7 @@ class DocumentIndexingIT {
                             status -> {
                                 jdbc(context)
                                         .sql(
-                                                "INSERT INTO document_index_versions VALUES (:id, 7, 1, :at)")
+                                                "INSERT INTO document_index_versions(document_id, indexing_version, extraction_version, created_at) VALUES (:id, 7, 1, :at)")
                                         .param("id", second)
                                         .param("at", Timestamp.from(CREATED))
                                         .update();
@@ -488,6 +488,7 @@ class DocumentIndexingIT {
                                 "--secondbrain.documents.extraction.enabled=false",
                                 "--secondbrain.documents.deletion.enabled=false",
                                 "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
+                                "--secondbrain.documents.indexing.passages.enabled=" + consumer,
                                 "--secondbrain.events.polling-enabled=" + polling,
                                 "--secondbrain.events.poll-interval=50ms",
                                 "--secondbrain.events.initial-backoff=5s",

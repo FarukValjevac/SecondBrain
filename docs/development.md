@@ -156,16 +156,19 @@ Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.
 
 Once text extraction completes, a durable `TextExtracted` delivery selects an independent index generation and publishes `ReindexRequested` in the same transaction as its acknowledgment. A bounded reconciliation pass also enrolls existing extracted documents after startup, without needing their historical extraction events. Repeated enrollment reuses the selected generation; extraction retries and document deletion prevent old work from applying.
 
-Passage preparation is not installed yet. Index requests remain stored without a passage delivery until that consumer exists; they are not marked completed or searchable. The library still shows extraction status. No model call or credential is needed for this step.
+The passage consumer reads the stored extraction, splits it locally, and commits the passages, their configuration/count metadata, and a durable `PassagesPrepared` fact with its delivery acknowledgment. Existing retained requests receive missing passage deliveries during reconciliation. `PassagesPrepared` remains stored for the later embedding consumer. The library still shows extraction status; a prepared passage set is not yet a searchable index. No model call or credential is needed for passage preparation.
 
 The Java application operation is `DocumentIndexingService.requestNext(documentId, correlationId)` for a deliberate new generation. `request(documentId, indexingVersion, correlationId)` repeats one specified generation idempotently; obsolete versions and missing, hidden, or unextracted documents return an empty result. These operations do not yet have a browser or HTTP reindex control.
 
 To inspect enrollment, start the app normally, wait a few seconds, then run this read-only query in the database shell described below:
 
 ```sql
-SELECT d.document_id, d.processing_version AS extraction_version,
-       d.desired_indexing_version, k.event_id, delivery.state AS passage_delivery_state
+SELECT d.document_id, d.original_name, d.processing_version AS extraction_version,
+       d.desired_indexing_version, i.passage_count,
+       i.passage_configuration_version, k.event_id, delivery.state AS passage_delivery_state
 FROM documents d
+LEFT JOIN document_index_versions i ON i.document_id = d.document_id
+    AND i.indexing_version = d.desired_indexing_version
 LEFT JOIN event_keys k ON k.document_id = d.document_id
     AND k.processing_version = d.desired_indexing_version
     AND k.event_type = 'ReindexRequested'
@@ -175,7 +178,7 @@ WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
 ORDER BY d.document_id;
 ```
 
-Expect a positive desired version and event ID for each eligible document, with a NULL passage-delivery state while the consumer is absent. Restarting the app should retain those version/event IDs. Source and index version numbers may differ. `secondbrain.documents.indexing.enabled=false` pauses automatic extraction handoffs/enrollment; `secondbrain.documents.indexing.reconcile-enabled=false` disables only reconciliation. Explicit Java requests remain available.
+After processing, expect a positive desired version/event ID, `passage_count` greater than zero, configuration version 1, and a COMPLETED passage delivery. Pending or failed deliveries retain their corresponding state; no partial snapshot is marked complete. Source and index version numbers may differ. `secondbrain.documents.indexing.enabled=false` pauses automatic extraction handoffs/enrollment and passage consumption; `secondbrain.documents.indexing.reconcile-enabled=false` disables only reconciliation. `secondbrain.documents.indexing.passages.enabled=false` pauses just the passage consumer, preserving requests for reconciliation when re-enabled. Explicit Java indexing requests remain available.
 
 Safe request measurements are `secondbrain.document.indexing.requests` and `secondbrain.document.indexing.request.duration`, with fixed requested/unchanged/unavailable outcomes. Success is recorded only after commit. Request counts include repeated calls; they are not unique index counts. Existing event metrics and correlated logs describe durable handoffs. No filenames, text, or credentials become metric labels.
 
@@ -228,7 +231,7 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. V10 adds private staged passages with stable IDs/source ranges and binds their count/splitter configuration to each index generation. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
 `document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. Its `page_number` is a positive physical page for PDFs and SQL NULL for TXT/Markdown. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 
@@ -497,6 +500,12 @@ The first command checks private original storage, including cancellation after 
 The PDF extraction component can be checked independently with `./mvnw -Dtest=PdfTextExtractorTest test`. Its generated fixtures cover page references, Unicode, encrypted/corrupt/image-only input, resource budgets, and interruption. Optional page-number storage and the upgrade of existing text can be checked with `./mvnw -Dit.test=DocumentRepositoryIT,DatabaseMigrationIT verify` (requires Docker). PDF uploads now use the same durable worker; check them with `./mvnw -Dit.test=DocumentExtractionIT,DocumentRepositoryIT,DatabaseMigrationIT verify`. The browser picker also accepts PDFs; document pages display escaped text with physical page labels linked to the numbered source lines.
 
 Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker). Atomic requests, concurrent allocation, enrollment/restart, controlled passage routing, stale-work guards, and acknowledgment rollback are covered by `./mvnw -Dit.test=DocumentIndexingIT,DurableEventsIT verify`. The stage in this test is a controlled probe; it does not establish real passage splitting, embeddings, or search readiness.
+
+Check the standalone splitter with `./mvnw -Dtest=PassageSplitterTest test` without Docker. Its fixtures cover bounded overlap, Unicode, line references, and physical PDF page boundaries.
+
+With Docker running, use `./mvnw -Dit.test=DocumentPassageDeliveryIT,PassageRepositoryIT,DatabaseMigrationIT verify` for passage processing. These tests cover stable IDs/source locations, immutable configuration, atomic passage/event/acknowledgment rollback, stale/deleted work, restart recovery, repeated effects, event ordering, and migration compatibility. They use isolated containers and temporary originals.
+
+Full `./mvnw verify` remains the completion gate. For manual inspection of prepared passages, use the query under [indexing requests](#indexing-requests).
 
 Apply Java formatting before committing:
 
