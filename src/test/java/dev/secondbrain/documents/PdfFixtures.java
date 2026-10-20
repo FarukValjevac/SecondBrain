@@ -12,10 +12,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
 /** Tiny generated PDFs shared by parser, service, and durable-worker checks. */
-final class PdfFixtures {
+public final class PdfFixtures {
     private PdfFixtures() {}
 
-    static byte[] text(String... pages) throws IOException {
+    public static byte[] text(String... pages) throws IOException {
         try (var document = new PDDocument()) {
             for (var text : pages) {
                 var page = new PDPage();

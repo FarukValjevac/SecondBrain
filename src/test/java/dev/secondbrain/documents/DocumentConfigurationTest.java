@@ -36,7 +36,8 @@ class DocumentConfigurationTest {
                             assertThat(context).hasSingleBean(JdbcPassageRepository.class);
                             assertThat(context).hasSingleBean(DocumentIndexingService.class);
                             assertThat(context).hasSingleBean(DocumentIndexingHandler.class);
-                            assertThat(context).doesNotHaveBean(DocumentPassageHandler.class);
+                            assertThat(context).hasSingleBean(DocumentPassageHandler.class);
+                            assertThat(context).hasSingleBean(DocumentPassagePreparation.class);
                             assertThat(context).hasSingleBean(DocumentTextExtractionService.class);
                             assertThat(context).hasSingleBean(DocumentExtractionCompletion.class);
                             assertThat(context).hasSingleBean(DocumentExtractionHandler.class);
@@ -51,7 +52,8 @@ class DocumentConfigurationTest {
                                             DocumentAcceptedEvent.TYPE,
                                             TextExtractedEvent.TYPE,
                                             DocumentDeletionRequestedEvent.TYPE,
-                                            ReindexRequestedEvent.TYPE);
+                                            ReindexRequestedEvent.TYPE,
+                                            PassagesPreparedEvent.TYPE);
                         });
     }
 
@@ -116,14 +118,18 @@ class DocumentConfigurationTest {
     }
 
     @Test
-    void enablesThePassageConsumerOnlyWithAnActualStage() {
+    void canReplaceThePassageStageWithAControlledImplementation() {
         configuredContext()
                 .withBean(
                         DocumentPassageHandler.Stage.class,
                         () ->
                                 (version, event) ->
                                         () -> dev.secondbrain.events.EventHandler.Outcome.COMPLETED)
-                .run(context -> assertThat(context).hasSingleBean(DocumentPassageHandler.class));
+                .run(
+                        context -> {
+                            assertThat(context).hasSingleBean(DocumentPassageHandler.class);
+                            assertThat(context).doesNotHaveBean(DocumentPassagePreparation.class);
+                        });
     }
 
     @Test
@@ -137,6 +143,19 @@ class DocumentConfigurationTest {
                             assertThat(context).doesNotHaveBean(DocumentIndexingHandler.class);
                             assertThat(context)
                                     .doesNotHaveBean(DocumentIndexingReconciliation.class);
+                        });
+    }
+
+    @Test
+    void canPausePassageConsumptionWithoutLosingIndexingRequests() {
+        configuredContext()
+                .withPropertyValues("secondbrain.documents.indexing.passages.enabled=false")
+                .run(
+                        context -> {
+                            assertThat(context).hasSingleBean(DocumentIndexingService.class);
+                            assertThat(context).hasSingleBean(DocumentIndexingHandler.class);
+                            assertThat(context).doesNotHaveBean(DocumentPassageHandler.class);
+                            assertThat(context).doesNotHaveBean(DocumentPassagePreparation.class);
                         });
     }
 

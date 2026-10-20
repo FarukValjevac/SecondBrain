@@ -7,7 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -48,9 +48,11 @@ class DocumentConfiguration {
     }
 
     @Bean
-    @ConditionalOnBean(DocumentPassageHandler.Stage.class)
     @ConditionalOnProperty(
-            name = "secondbrain.documents.indexing.enabled",
+            name = {
+                "secondbrain.documents.indexing.enabled",
+                "secondbrain.documents.indexing.passages.enabled"
+            },
             havingValue = "true",
             matchIfMissing = true)
     DocumentPassageHandler documentPassageHandler(
@@ -58,6 +60,30 @@ class DocumentConfiguration {
             DocumentPassageHandler.Stage stage,
             PlatformTransactionManager transactions) {
         return new DocumentPassageHandler(indexes, stage, transactions);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(DocumentPassageHandler.Stage.class)
+    @ConditionalOnProperty(
+            name = {
+                "secondbrain.documents.indexing.enabled",
+                "secondbrain.documents.indexing.passages.enabled"
+            },
+            havingValue = "true",
+            matchIfMissing = true)
+    DocumentPassagePreparation documentPassagePreparation(
+            JdbcExtractedTextRepository texts,
+            JdbcPassageRepository passages,
+            EventPublisher events,
+            Clock clock) {
+        return new DocumentPassagePreparation(
+                texts, new PassageSplitter(), passages, events, clock);
+    }
+
+    @Bean
+    EventEnvelope.Type passagesPreparedEventType() {
+        // Retain completed passage facts for the embedding consumer introduced in US-03-03.
+        return PassagesPreparedEvent.TYPE;
     }
 
     @Bean
@@ -78,7 +104,7 @@ class DocumentConfiguration {
 
     @Bean
     EventEnvelope.Type reindexRequestedEventType() {
-        // Keep requests durable and unconsumed until real passage preparation is installed.
+        // Remains known while passage consumption is paused.
         return ReindexRequestedEvent.TYPE;
     }
 

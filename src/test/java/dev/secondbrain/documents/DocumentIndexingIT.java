@@ -488,6 +488,7 @@ class DocumentIndexingIT {
                                 "--secondbrain.documents.extraction.enabled=false",
                                 "--secondbrain.documents.deletion.enabled=false",
                                 "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
+                                "--secondbrain.documents.indexing.passages.enabled=" + consumer,
                                 "--secondbrain.events.polling-enabled=" + polling,
                                 "--secondbrain.events.poll-interval=50ms",
                                 "--secondbrain.events.initial-backoff=5s",

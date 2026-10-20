@@ -156,16 +156,19 @@ Use existing `secondbrain.event.delivery.attempts`, `secondbrain.event.delivery.
 
 Once text extraction completes, a durable `TextExtracted` delivery selects an independent index generation and publishes `ReindexRequested` in the same transaction as its acknowledgment. A bounded reconciliation pass also enrolls existing extracted documents after startup, without needing their historical extraction events. Repeated enrollment reuses the selected generation; extraction retries and document deletion prevent old work from applying.
 
-Passage preparation is not installed yet. Index requests remain stored without a passage delivery until that consumer exists; they are not marked completed or searchable. The library still shows extraction status. No model call or credential is needed for this step.
+The passage consumer reads the stored extraction, splits it locally, and commits the passages, their configuration/count metadata, and a durable `PassagesPrepared` fact with its delivery acknowledgment. Existing retained requests receive missing passage deliveries during reconciliation. `PassagesPrepared` remains stored for the later embedding consumer. The library still shows extraction status; a prepared passage set is not yet a searchable index. No model call or credential is needed for passage preparation.
 
 The Java application operation is `DocumentIndexingService.requestNext(documentId, correlationId)` for a deliberate new generation. `request(documentId, indexingVersion, correlationId)` repeats one specified generation idempotently; obsolete versions and missing, hidden, or unextracted documents return an empty result. These operations do not yet have a browser or HTTP reindex control.
 
 To inspect enrollment, start the app normally, wait a few seconds, then run this read-only query in the database shell described below:
 
 ```sql
-SELECT d.document_id, d.processing_version AS extraction_version,
-       d.desired_indexing_version, k.event_id, delivery.state AS passage_delivery_state
+SELECT d.document_id, d.original_name, d.processing_version AS extraction_version,
+       d.desired_indexing_version, i.passage_count,
+       i.passage_configuration_version, k.event_id, delivery.state AS passage_delivery_state
 FROM documents d
+LEFT JOIN document_index_versions i ON i.document_id = d.document_id
+    AND i.indexing_version = d.desired_indexing_version
 LEFT JOIN event_keys k ON k.document_id = d.document_id
     AND k.processing_version = d.desired_indexing_version
     AND k.event_type = 'ReindexRequested'
@@ -175,7 +178,7 @@ WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
 ORDER BY d.document_id;
 ```
 
-Expect a positive desired version and event ID for each eligible document, with a NULL passage-delivery state while the consumer is absent. Restarting the app should retain those version/event IDs. Source and index version numbers may differ. `secondbrain.documents.indexing.enabled=false` pauses automatic extraction handoffs/enrollment; `secondbrain.documents.indexing.reconcile-enabled=false` disables only reconciliation. Explicit Java requests remain available.
+After processing, expect a positive desired version/event ID, `passage_count` greater than zero, configuration version 1, and a COMPLETED passage delivery. Pending or failed deliveries retain their corresponding state; no partial snapshot is marked complete. Source and index version numbers may differ. `secondbrain.documents.indexing.enabled=false` pauses automatic extraction handoffs/enrollment and passage consumption; `secondbrain.documents.indexing.reconcile-enabled=false` disables only reconciliation. `secondbrain.documents.indexing.passages.enabled=false` pauses just the passage consumer, preserving requests for reconciliation when re-enabled. Explicit Java indexing requests remain available.
 
 Safe request measurements are `secondbrain.document.indexing.requests` and `secondbrain.document.indexing.request.duration`, with fixed requested/unchanged/unavailable outcomes. Success is recorded only after commit. Request counts include repeated calls; they are not unique index counts. Existing event metrics and correlated logs describe durable handoffs. No filenames, text, or credentials become metric labels.
 
@@ -498,7 +501,7 @@ The PDF extraction component can be checked independently with `./mvnw -Dtest=Pd
 
 Index-version metadata, source prerequisites, desired-version ownership, rollback, and cascade cleanup can be checked with `./mvnw -Dit.test=IndexingVersionIT,DatabaseMigrationIT verify` (requires Docker). Atomic requests, concurrent allocation, enrollment/restart, controlled passage routing, stale-work guards, and acknowledgment rollback are covered by `./mvnw -Dit.test=DocumentIndexingIT,DurableEventsIT verify`. The stage in this test is a controlled probe; it does not establish real passage splitting, embeddings, or search readiness.
 
-The standalone passage splitter can be checked with `./mvnw -Dtest=PassageSplitterTest test` without Docker. Its fixtures verify bounded overlapping text, Unicode, exact line references, and physical PDF page boundaries. Staged passage storage can be checked with `./mvnw -Dit.test=PassageRepositoryIT,DatabaseMigrationIT verify` (requires Docker). These fixtures verify stable IDs on retries, immutable configuration, rollback, version isolation, and cascade cleanup. Worker integration is the following step; current uploads retain their indexing requests until that stage is installed.
+The standalone passage splitter can be checked with `./mvnw -Dtest=PassageSplitterTest test` without Docker. Its fixtures verify bounded overlapping text, Unicode, exact line references, and physical PDF page boundaries. Staged passage storage can be checked with `./mvnw -Dit.test=PassageRepositoryIT,DatabaseMigrationIT verify` (requires Docker). These fixtures verify stable IDs on retries, immutable configuration, rollback, version isolation, and cascade cleanup. The real passage worker is covered by `./mvnw -Dit.test=DocumentPassageDeliveryIT verify`: TXT/Markdown/PDF uploads, atomic passage/event/acknowledgment rollback, lease expiry, stale-source/deletion guards, and permanent source failures. Full `./mvnw verify` remains the completion gate. Restart the application after this change, then upload a file and inspect the counts/status using the query under [indexing requests](#indexing-requests).
 
 Apply Java formatting before committing:
 
