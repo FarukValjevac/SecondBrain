@@ -184,13 +184,13 @@ Safe request measurements are `secondbrain.document.indexing.requests` and `seco
 
 ## Embedding configuration
 
-Embedding settings are opt-in and currently validate configuration only. No provider client or embedding consumer is installed, and no text is sent to Cloudflare. Normal startup needs no AI credentials. Run `./mvnw -Dtest=EmbeddingConfigurationTest,EmbeddingVectorTest test` to verify this contract without Docker or an account.
+Embedding settings are opt-in. Enabling them constructs the Cloudflare HTTP adapter after validation; startup and health checks make no inference request. No document embedding consumer is installed yet, so ordinary uploads still make no model calls. Normal disabled startup needs no AI credentials. Run `./mvnw -Dtest=CloudflareEmbeddingProviderTest,EmbeddingConfigurationTest,EmbeddingVectorTest test` for configuration/protocol checks without an account.
 
 The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not yet a live-verified default. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
 
 | Setting | Default | Accepted value or purpose |
 |---|---|---|
-| `SECONDBRAIN_EMBEDDINGS_ENABLED` | `false` | Opt into configuration validation |
+| `SECONDBRAIN_EMBEDDINGS_ENABLED` | `false` | Construct the validated Cloudflare provider; no automatic inference |
 | `CLOUDFLARE_ACCOUNT_ID` | Empty | Required 32-character hexadecimal account ID when enabled |
 | `CLOUDFLARE_API_TOKEN` | Empty | Required API token when enabled; keep private in `.env` or the environment |
 | `CLOUDFLARE_EMBEDDING_MODEL` | Empty | Explicitly select `@cf/baai/bge-m3` |
@@ -199,9 +199,19 @@ The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimens
 | `secondbrain.embeddings.connect-timeout` | `2s` | Between 100 ms and 10 seconds |
 | `secondbrain.embeddings.request-timeout` | `30s` | At least the connect timeout and at most 60 seconds |
 
-The uppercase settings work in the imported `.env` file; corresponding application properties use the `secondbrain.embeddings` prefix. The endpoint is fixed to the account-scoped HTTPS API on `api.cloudflare.com`. Credentials are excluded from settings diagnostics and validation messages. Limits currently constrain settings; transport enforcement belongs to the provider implementation.
+The uppercase settings work in the imported `.env` file; corresponding application properties use the `secondbrain.embeddings` prefix. The endpoint is fixed to the account-scoped HTTPS API on `api.cloudflare.com`. Credentials are excluded from settings diagnostics and validation messages. Each explicit Java `embed` call enforces those settings. An explicitly supplied `EmbeddingProvider` bean replaces the default adapter without requiring Cloudflare credentials, supporting controlled tests.
 
 Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). No live model quality, quota consumption, or account permissions have been verified.
+
+## Embedding HTTP adapter
+
+`CloudflareEmbeddingProvider` sends one bounded application request to the account-scoped compatible embeddings endpoint and validates one vector per input. It restores input ordering using response indexes. Calls are rejected inside database transactions. Inputs are limited to the configured batch size (default 8, maximum 32), 1200 Unicode code points per nonblank input, valid Unicode without NUL, and a 256 KiB encoded body. Response reading is capped at 1 MiB; JSON depth, strings, numbers, and token counts are bounded. Incorrect model metadata, indexes/counts, dimensions, nonnumeric/nonfinite/zero components, malformed JSON, and unexpected success content types fail safely.
+
+Redirects are disabled, and production has no endpoint override. The configured request deadline includes receiving the complete body; timeout/interruption cancels the pending operation. Owned HTTP resources and their bounded networking executor close with the application. The adapter performs no automatic application retry, fallback, paid upgrade, database write, or event acknowledgment.
+
+Failures expose fixed reasons: access denial, unavailable model, invalid input/response, rate limiting, daily quota exhaustion, provider/transport unavailability, and timeout. Valid `Retry-After` hints are returned as timestamps for retryable rate/quota/service failures. Documented Cloudflare quota code `3036` also suggests the next UTC reset; private message text is not used for classification. Oversized/incomplete response streams are safe transport failures. The adapter never sleeps until a retry time. Durable scheduling and effective attempt budgets belong to the later embedding consumer; they are not implemented by returning a hint. Raw parser/transport causes remain private and outside the default logged/serialized cause chain.
+
+Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub with synthetic credentials/text. It needs local socket permission, but no Docker or Cloudflare account. It covers request/response ordering, bounds, status/quota errors, redirect refusal, slow headers/body, interruption, and connection failure. Full `./mvnw verify` remains the completion gate. No live BGE-M3 response or retrieval quality is established by the stub.
 
 ## Staged vector storage
 

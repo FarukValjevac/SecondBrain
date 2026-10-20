@@ -1,6 +1,7 @@
 package dev.secondbrain.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import dev.secondbrain.embeddings.CloudflareEmbeddingSettings;
 import dev.secondbrain.embeddings.EmbeddingModel;
@@ -56,7 +57,7 @@ class EmbeddingConfigurationTest {
     }
 
     @Test
-    void explicitOptInValidatesSettingsWithoutCreatingANetworkClient(CapturedOutput output) {
+    void explicitOptInConstructsTheProviderWithoutMakingRequests(CapturedOutput output) {
         configured()
                 .run(
                         context -> {
@@ -74,7 +75,7 @@ class EmbeddingConfigurationTest {
                             assertThat(settings.batchSize()).isEqualTo(8);
                             assertThat(settings.apiToken()).isEqualTo(TOKEN);
                             assertThat(settings.toString()).doesNotContain(ACCOUNT, TOKEN);
-                            assertThat(context).doesNotHaveBean(EmbeddingProvider.class);
+                            assertThat(context).hasSingleBean(EmbeddingProvider.class);
                         });
         assertThat(output).doesNotContain(ACCOUNT, TOKEN);
     }
@@ -131,6 +132,18 @@ class EmbeddingConfigurationTest {
                                             "Unsupported embedding model or dimensions");
                         });
         assertThat(output).doesNotContain(TOKEN);
+    }
+
+    @Test
+    void controlledProviderCanReplaceCloudflareWithoutCredentialsOrTransport() {
+        runner.withBean(EmbeddingProvider.class, () -> mock(EmbeddingProvider.class))
+                .withPropertyValues("secondbrain.embeddings.enabled=true")
+                .run(
+                        context -> {
+                            assertThat(context).hasNotFailed();
+                            assertThat(context).hasSingleBean(EmbeddingProvider.class);
+                            assertThat(context).doesNotHaveBean(CloudflareEmbeddingSettings.class);
+                        });
     }
 
     private ApplicationContextRunner configured() {

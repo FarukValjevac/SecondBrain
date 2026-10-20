@@ -1,19 +1,31 @@
 package dev.secondbrain.config;
 
+import dev.secondbrain.embeddings.CloudflareEmbeddingProvider;
 import dev.secondbrain.embeddings.CloudflareEmbeddingSettings;
 import dev.secondbrain.embeddings.EmbeddingModel;
+import dev.secondbrain.embeddings.EmbeddingProvider;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
+import java.time.Clock;
 import java.time.Duration;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "secondbrain.embeddings.enabled", havingValue = "true")
+@ConditionalOnMissingBean(EmbeddingProvider.class)
 class EmbeddingConfiguration {
+    @Bean(destroyMethod = "close")
+    CloudflareEmbeddingProvider cloudflareEmbeddingProvider(
+            CloudflareEmbeddingSettings settings, ObjectProvider<Clock> clocks) {
+        return new CloudflareEmbeddingProvider(settings, clocks.getIfAvailable(Clock::systemUTC));
+    }
+
     @Bean
     CloudflareEmbeddingSettings cloudflareEmbeddingSettings(Environment environment) {
         // Read secrets directly rather than putting credential values in binding-error diagnostics.

@@ -1,11 +1,8 @@
-# Understanding embeddings: the contract and local storage
+# Understanding embeddings: contracts, storage, and HTTP
 
-This is a personal learning guide that grows with **US-03-03**. It currently covers:
+This guide explains how the current embedding code works: its Java types, Spring configuration, PostgreSQL storage, and Cloudflare HTTP adapter. Read it alongside the linked source files.
 
-1. `feat(embeddings): configure the embedding model contract`
-2. `feat(embeddings): persist versioned pgvector embeddings`
-
-The first commit defines the rules for requesting and accepting embeddings. The second adds database storage for supplied vectors. **The current upload workflow still does not call Cloudflare or generate/store embeddings automatically.**
+The model rules, storage adapter, and HTTP adapter exist independently. **The current upload workflow prepares passages but does not call Cloudflare or generate/store embeddings automatically.** The guide distinguishes these current capabilities from the missing integration.
 
 The diagrams use Mermaid. Open this file in a Markdown viewer with Mermaid support to render them. The tables and text examples explain the same ideas if your viewer displays the diagram source.
 
@@ -23,41 +20,25 @@ You search for:
 
 The wording differs. Embedding both texts with the same model can put them near each other in its numerical representation. This is useful evidence for retrieval, but it does not establish that a passage answers every part of a question or that a generated answer is true.
 
-### The complete intended workflow
+### Current data flow
 
 ```mermaid
 flowchart TD
     Upload[Upload a document] --> Extract[Extract text locally]
     Extract --> Split[Split text into located passages]
     Split --> PassageStore[Store passages locally]
-    PassageStore --> Embed[Send passage batches to Cloudflare]
-    Embed --> VectorStore[Store returned vectors in PostgreSQL]
-    VectorStore --> Publish[Publish the complete index]
-    Query[Enter a search query] --> QueryEmbed[Send the query for an embedding]
-    QueryEmbed --> Compare[Compare query vector with eligible local vectors]
-    Publish --> Compare
-    Compare --> Results[Return passages and source locations]
-    Results --> Answer[Optional later step: ask a chat model for a cited answer]
+    PassageStore --> Fact[PassagesPrepared durable fact]
+    Fact --> Boundary[No embedding consumer registered]
 
-    classDef implemented fill:#ddf4e4,stroke:#238636,color:#102a16;
-    classDef planned fill:#fff1cc,stroke:#9a6700,color:#382700;
-    classDef storage fill:#ddedff,stroke:#0969da,color:#092b50;
-    class Upload,Extract,Split,PassageStore implemented;
-    class Embed,Publish,Query,QueryEmbed,Compare,Results,Answer planned;
-    class VectorStore storage;
+    Explicit[Explicit provider call] --> Embed[Cloudflare HTTP adapter]
+    Embed --> Vectors[Validated vectors returned to caller]
+    Supplied[Caller-supplied passage vectors] --> Repository[Guarded SQL repository]
+    Repository --> VectorStore[Staged vectors in PostgreSQL]
 ```
 
-Green means implemented through passage preparation. Blue means the vector schema/storage adapter exists, but the workflow does not populate it yet. Yellow means later work. The upload form does not wait for an embedding request. The future durable worker will do that processing in the background.
+The top flow is connected to document uploads. The HTTP adapter and SQL repository are separate capabilities: no application worker currently joins them to that flow. A normal upload therefore prepares passages without sending them to Cloudflare.
 
-The text version is:
-
-```text
-UPLOAD:  file -> text -> passages -> embeddings -> stored vectors -> complete index
-SEARCH:  query ------------------> embedding  -> local similarity search
-ANSWER:  question + retrieved passages -------> chat model -> cited answer
-```
-
-Passage embeddings are normally computed during indexing and then reused. A new search query still needs its own embedding. Asking for a written answer adds a separate chat request.
+For semantic search, passage embeddings represent stored text and a query embedding represents the search text. Comparing those vectors would identify related passages. Writing a cited answer would require a separate chat operation. Search, index activation, and chat are absent from the current implementation.
 
 ## 2. What “1024 dimensions” means
 
@@ -84,7 +65,7 @@ In the application, each row would contain 1024 components. Similarity search wi
 
 **Matching the number of components is necessary but insufficient.** Two different models may both produce 1024 numbers while using different coordinate systems. Indexing and query embedding must use the same compatible model configuration. Changing that configuration requires deliberate reindexing of the stored passages.
 
-## 3. The new files and their separate jobs
+## 3. The source files and their separate jobs
 
 Paths below are relative to `src/main/java/dev/secondbrain/`.
 
@@ -94,7 +75,7 @@ Paths below are relative to `src/main/java/dev/secondbrain/`.
 | [EmbeddingVector.java](../src/main/java/dev/secondbrain/embeddings/EmbeddingVector.java) | Is this returned vector safe to use? | Validate and protect numerical components |
 | [EmbeddingProvider.java](../src/main/java/dev/secondbrain/embeddings/EmbeddingProvider.java) | What must an embedding service be able to do? | Define the shared Java interface |
 | [CloudflareEmbeddingSettings.java](../src/main/java/dev/secondbrain/embeddings/CloudflareEmbeddingSettings.java) | Which account, destination, and limits are configured? | Hold validated settings and protect credentials in diagnostics |
-| [EmbeddingConfiguration.java](../src/main/java/dev/secondbrain/config/EmbeddingConfiguration.java) | When and how does Spring create those settings? | Read external values and construct the settings bean |
+| [EmbeddingConfiguration.java](../src/main/java/dev/secondbrain/config/EmbeddingConfiguration.java) | When and how does Spring create those settings? | Read external values and construct settings and provider beans |
 
 ```mermaid
 flowchart LR
@@ -105,11 +86,11 @@ flowchart LR
     Model --> Vector[EmbeddingVector]
     Provider[EmbeddingProvider interface] --> Model
     Provider --> Vector
-    Future[Future Cloudflare adapter] -. implements .-> Provider
-    Settings -. supplies configuration .-> Future
+    Adapter[CloudflareEmbeddingProvider] -->|implements| Provider
+    Settings -->|supplies configuration| Adapter
 ```
 
-The dotted arrows describe future implementation. There is currently no Cloudflare adapter object to receive those settings.
+The Cloudflare adapter receives those settings when explicitly enabled. Constructing it makes no request; a caller must invoke embed.
 
 This separation lets document indexing and future search use the same embedding interface without putting HTTP code inside document repositories or controllers.
 
@@ -143,11 +124,11 @@ The constants use `public static final`:
 - `static`: they belong to the class, so no object is needed to read them.
 - `final`: the constant reference/value cannot be reassigned.
 
-Defining this pair does not download a model or contact Cloudflare. It defines our compatibility rules. BGE-M3 is the initial supported candidate; a live response and retrieval quality have not been verified by this commit.
+Defining this pair does not download a model or contact Cloudflare. It defines our compatibility rules. BGE-M3 is the initial supported candidate; live compatibility and retrieval quality remain unverified.
 
 ## 5. `EmbeddingVector`: protect the result at the boundary
 
-A future provider response becomes an `EmbeddingVector` only if it satisfies these rules:
+A provider response becomes an `EmbeddingVector` only if it satisfies these rules:
 
 | Check | Why it matters |
 |---|---|
@@ -202,9 +183,9 @@ Read that as:
 
 `List<String>` means a list whose elements are strings. `List<EmbeddingVector>` means a list whose elements are vectors. These are Java generics: the compiler checks the element types.
 
-The method has no implementation body here. A future class will use `implements EmbeddingProvider` and supply the actual HTTP behavior. **Declaring the interface does not execute a request or register a Spring bean.**
+The interface has no implementation body. `CloudflareEmbeddingProvider` uses `implements EmbeddingProvider` and supplies the HTTP behavior. **Declaring the interface does not execute a request or register a Spring bean.**
 
-In NestJS terms, this resembles an application-facing TypeScript interface plus the idea of a provider implementation. One difference is that Java interfaces exist as runtime types; Spring can inject a registered implementation by its Java interface type. We still need to register that implementation as a bean. This commit has not done so.
+In NestJS terms, this resembles an application-facing TypeScript interface plus the idea of a provider implementation. One difference is that Java interfaces exist as runtime types; Spring can inject a registered implementation by its Java interface type. The opt-in configuration registers that implementation as a bean. Merely having an interface on the classpath would not register it.
 
 The interface separates responsibilities; it does not introduce multiple external providers. The selected external service remains Cloudflare.
 
@@ -216,7 +197,7 @@ Spring already imports `.env` as a properties file through:
 spring.config.import=optional:file:.env[.properties]
 ```
 
-The new application properties include:
+The application properties include:
 
 ```properties
 secondbrain.embeddings.enabled=${SECONDBRAIN_EMBEDDINGS_ENABLED:false}
@@ -237,6 +218,7 @@ flowchart TD
     Factory --> Parse[Parse dimensions, durations, and batch size]
     Parse --> Validate[Construct and validate model and settings]
     Validate -->|Valid| Bean[Register CloudflareEmbeddingSettings bean]
+    Bean --> Client[Construct the provider without making a request]
     Validate -->|Invalid| Failure[Fail startup with a safe configuration message]
 ```
 
@@ -249,12 +231,13 @@ Malformed numeric/duration input can fail during parsing, before an object const
 | `@Configuration` | This class declares Spring-managed object factories | A module's provider configuration |
 | `@Bean` | Register the returned object in Spring's application context | A `useFactory` provider |
 | `@ConditionalOnProperty` | Load this configuration only when the property has the required value | Conditional/dynamic module configuration |
+| `@ConditionalOnMissingBean` | Use the default adapter only when no other provider bean is supplied | An explicitly overridable provider registration |
 
 The main application scans its packages during startup. That is how it discovers `config.EmbeddingConfiguration`; we do not call it from a controller.
 
 Spring supplies `Environment` to the factory method. This is dependency injection: Spring provides an existing dependency rather than requiring the method to construct one. `Environment` gives access to resolved application configuration.
 
-The factory explicitly calls `new EmbeddingModel(...)` and `new CloudflareEmbeddingSettings(...)`. **Only the returned settings object is registered by this `@Bean` method.** Constructing the nested model object does not automatically register a separate model bean.
+The factory explicitly calls `new EmbeddingModel(...)` and `new CloudflareEmbeddingSettings(...)`. **Only the returned settings object is registered by this `@Bean` method.** Constructing the nested model object does not automatically register a separate model bean. A second `@Bean` method receives the settings and a Clock, constructs the provider, and arranges for its close method to run during application shutdown.
 
 `proxyBeanMethods = false` tells Spring not to create proxies for direct calls between bean factory methods. This configuration does not need that interception.
 
@@ -277,61 +260,46 @@ Account/token checks validate their format only. They do not verify that the acc
 
 The default model/dimension values are intentionally invalid for an enabled configuration. Enabling it requires an explicit model choice. Leaving the feature disabled needs no credentials or model choice.
 
-For the future adapter, connect timeout will bound connection establishment, request timeout will bound the request operation, and batching will limit how many texts enter one request. **Right now these values are validated settings; no transport exists to enforce them.** A batch of eight texts means eight vectors, not one average vector and not necessarily eight network requests.
+Connect timeout bounds connection establishment, request timeout bounds the request operation, and batching limits how many texts enter one request. **The HTTP adapter enforces these settings when embed is explicitly called. Validating settings or constructing the adapter makes no inference request.** A batch of eight texts means eight vectors, not one average vector and not necessarily eight network requests.
 
 The endpoint method constructs one account-scoped HTTPS destination on `api.cloudflare.com`. It does not send anything. Credentials are excluded from `toString()` and validation errors. The tests check both logs and exception text for synthetic secret sentinels.
 
 ## 9. How this connects to our durable events
 
-Current passage processing already commits the stored passages and `PassagesPrepared` fact with its delivery acknowledgment. There is no embedding consumer registered for that fact yet.
+Passage processing stores the passages and `PassagesPrepared` fact atomically with its delivery acknowledgment. There is no embedding consumer registered for that fact yet.
 
-The intended next stage will work like this:
+That missing consumer is the boundary between the connected upload pipeline and the independent embedding adapters. The HTTP adapter returns validated vectors but cannot save them. The SQL repository saves supplied vectors but cannot request them or acknowledge an event.
 
-```mermaid
-sequenceDiagram
-    participant DB as PostgreSQL
-    participant Worker as Durable worker
-    participant Provider as Embedding adapter
-    participant CF as Cloudflare
-    DB->>Worker: Claim a PassagesPrepared delivery
-    Worker->>DB: Read eligible passage batch
-    Note over Worker,CF: Provider I/O outside a database transaction
-    Worker->>Provider: embed(texts)
-    Provider->>CF: Bounded HTTPS request
-    CF-->>Provider: Numerical results
-    Provider-->>Worker: Validated EmbeddingVector objects
-    Note over DB,Worker: Short fenced transaction
-    Worker->>DB: Persist eligible staged results
-    Note over DB,Worker: Acknowledge only when required stage work is complete
-```
+The current guards explain what integration must respect:
 
-This diagram describes planned embedding integration, not a handler installed by this commit. Exact multi-batch completion is part of the later implementation. A partial batch set must not become a searchable index.
+- Provider I/O is refused inside a database transaction, so a slow network service cannot hold document locks.
+- The SQL repository requires a caller-owned transaction and rechecks document visibility, desired index generation, and source version.
+- Document/version checks do not prove delivery-lease ownership; that additional fence is absent until there is an embedding consumer.
+- Staged vectors do not make an index searchable. Activation requires a complete eligible generation.
 
-We keep network I/O outside the write transaction so a slow service does not hold database locks while we wait. Before committing results, the worker must recheck its lease and the document/index version and visibility. A deleted or superseded document must not receive stale results.
+A crash between a provider response and saving its results can require repeating the request. Idempotent database writes prevent duplicate stored results; they cannot guarantee exactly-once external processing or allowance consumption.
 
-If a process crashes after the provider responds but before results commit, the request may be repeated. Database writes must be idempotent, but that does not make the external request exactly once. Repeating a request can consume the free allowance again.
+## 10. Current capabilities and boundaries
 
-## 10. What is finished after these two commits, and what is not
-
-| Capability | State after this commit |
+| Capability | Current state |
 |---|---|
 | Explicit model/dimension compatibility rules | Implemented |
 | Validated vectors with defensive copies | Implemented |
-| Shared provider interface | Implemented; no implementation installed |
+| Shared provider interface | Implemented with an opt-in Cloudflare adapter |
 | Opt-in configuration and safe validation | Implemented |
-| HTTP calls and provider response validation | Not implemented |
+| HTTP calls and provider response validation | Implemented; tested through synthetic protocol fixtures, with real loopback checks required |
 | Vector storage in PostgreSQL/pgvector | Schema and guarded adapter implemented; no embedding consumer calls it yet |
 | Durable embedding consumer and batch recovery | Not implemented |
 | Complete-index activation and semantic search | Not implemented |
 | Live model/account/quality/free-allowance verification | Not performed |
 
-The first commit is useful because the following code can rely on agreed model, data, and configuration rules. It does not establish that live inference works or that retrieval is good.
+The model, data, and configuration rules give callers a consistent contract. That contract alone cannot establish live inference compatibility or retrieval quality.
 
-The planned HTTP integration uses Java's built-in HTTP client and the existing Jackson JSON library. We have not added Spring AI or a paid OpenAI account. Cloudflare's “OpenAI-compatible” endpoint describes a request/response protocol; Cloudflare is still the service receiving the request.
+The HTTP adapter uses Java's built-in HTTP client and the existing Jackson JSON library. We have not added Spring AI or a paid OpenAI account. Cloudflare's “OpenAI-compatible” endpoint describes a request/response protocol; Cloudflare is still the service receiving the request.
 
 Our free-only requirement also depends on staying on the correct Cloudflare account plan. Java configuration cannot guarantee an account's billing settings. The provider allowance is finite, and later code must handle its exhaustion safely.
 
-## 11. How to study and check the first commit
+## 11. Understanding and checking the model and configuration
 
 Read the five production files in the order listed in section 3. Then open:
 
@@ -344,13 +312,13 @@ From the repository root:
 ./mvnw -Dtest=EmbeddingConfigurationTest,EmbeddingVectorTest test
 ```
 
-These 25 test invocations use synthetic values and no provider client, account, Docker container, or live request. They are ordinary automated checks for this small slice. The full project completion check remains:
+These configuration/vector checks use synthetic values and make no network request. An enabled configuration constructs an idle client, which closes with the test context. No real account or Docker is required. They check the model and configuration independently. The full project completion check remains:
 
 ```sh
 ./mvnw verify
 ```
 
-That also requires access to Docker and a local HTTP listener for the existing integration tests. A successful focused run does not replace those checks. You do not need to fill in real Cloudflare credentials to study or test this commit. Keep embeddings disabled during ordinary startup for now.
+That also requires access to Docker and a local HTTP listener for the existing integration tests. A successful focused run does not replace those checks. You do not need to fill in real Cloudflare credentials to study or test this code. Keep embeddings disabled during ordinary startup.
 
 Questions to answer after reading:
 
@@ -361,11 +329,11 @@ Questions to answer after reading:
 5. Why can configuration validation pass even if an API token has expired?
 6. Why could a retry consume allowance twice while storing only one logical result?
 
-## 12. The second commit: giving vectors a safe home
+## 12. How vector storage is organized
 
-We now have somewhere to put vectors supplied to the storage adapter. We have not connected that adapter to the live model or durable embedding worker.
+The repository stores supplied vectors in PostgreSQL. Both the storage adapter and HTTP provider exist, but no document embedding worker connects them yet.
 
-### New files and the migration
+### Storage classes and migration
 
 | File | Responsibility |
 |---|---|
@@ -412,7 +380,7 @@ erDiagram
 
 The diagram omits some existing passage/source fields for readability. `vector` here means the actual PostgreSQL column type `vector(1024)`.
 
-- `document_index_versions` identifies a particular rebuild of a document and the extracted-text version it uses. It now also records the model/dimensions selected by its first stored batch.
+- `document_index_versions` identifies a particular rebuild of a document and the extracted-text version it uses. It also records the model/dimensions selected by its first stored batch.
 - `document_passages` holds the text and source location for each stable passage ID.
 - `document_embeddings` holds at most one vector for each passage ID. It repeats document/index/model identifiers so the database can check their relationship directly.
 
@@ -444,7 +412,7 @@ There is a normal index on `(document_id, indexing_version)` for accessing a gen
 
 Flyway applies versioned migrations in order and records their checksums. Existing databases may already have V10. Editing an applied migration could make those databases fail validation and would not supply a clean upgrade path.
 
-V11 adds the new fields/table/constraints. Existing documents and passages stay in place; existing generations start with no model binding and no embeddings. This migration does not generate vectors or backfill them through a remote service.
+V11 defines the embedding fields, table, and constraints. Existing documents and passages stay in place; existing generations start with no model binding and no embeddings. This migration does not generate vectors or backfill them through a remote service.
 
 ## 13. How one batch is stored
 
@@ -481,11 +449,11 @@ The diagram condenses the loop. Every row in the batch is checked before the met
 
 The method accepts 1–32 items, rejects repeated passage IDs within one call, and requires each vector's model to match the supplied model. The immutable `EmbeddingVector` has already checked its numbers.
 
-Thirty-two is the repository's fixed upper bound. The configurable default batch size of eight is a policy for the later provider/worker. One is the storage ceiling; the other is a chosen request size.
+Thirty-two is the repository's fixed upper bound. The configurable default batch size of eight controls the HTTP adapter; a document worker must respect it when integration is present. One is the storage ceiling; the other is a chosen request size.
 
 ### Step B: join the caller's transaction
 
-`PROPAGATION_MANDATORY` means an existing transaction is required. The adapter cannot quietly start and commit an independent transaction.
+`PROPAGATION_MANDATORY` means an existing transaction is required. The adapter cannot quietly finalize its own independent transaction.
 
 For example, if the caller performs:
 
@@ -497,9 +465,9 @@ BEGIN
 ROLLBACK
 ```
 
-The vector rows and any newly established model binding roll back too. This will let the later worker coordinate database effects with its lease-checked completion. This commit does not implement that embedding worker or acknowledge its event.
+The vector rows and any newly established model binding roll back too. A durable worker needs this property to coordinate database effects with its lease-checked completion. No embedding worker or event acknowledgment is connected to this repository.
 
-Our adapter uses separate parameterized statements for the rows, grouped in one transaction. Each statement has a five-second query timeout; the caller still owns the overall transaction timeout. It does not send a single bulk SQL statement and does not commit each vector separately. This is bounded by at most 32 vectors per call.
+Our adapter uses separate parameterized statements for the rows, grouped in one transaction. Each statement has a five-second query timeout; the caller still owns the overall transaction timeout. It does not send a single bulk SQL statement and does not finalize each vector separately. This is bounded by at most 32 vectors per call.
 
 ### Step C: prevent stale writes
 
@@ -509,7 +477,7 @@ That lock coordinates current database state. The later event worker must additi
 
 ### Step D: bind the model
 
-The first successful batch records the model and dimensions on its index generation. Later batches must agree. The model binding and the batch rows commit together; a failed first batch leaves neither behind.
+The first successful batch records the model and dimensions on its index generation. Later batches must agree. The model binding and the batch rows are saved atomically; a failed first batch leaves neither behind.
 
 The current Java and SQL contracts support only the explicit BGE-M3/1024 pair. Supporting another pair would require deliberate code/schema changes and a new index generation, not editing a model string on an existing populated generation.
 
@@ -530,9 +498,9 @@ That alone would be insufficient: it could silently ignore a conflicting result.
 | Same passage ID with different values | Reject; roll back this call |
 | Passage belongs to another document/version | Reject; roll back this call |
 
-Example: suppose the first batch contains passages 1–8 and commits. A retry supplies the same eight results. It inserts zero new rows. A later batch for passages 9–16 can still make progress. The adapter preserves prior committed batches, while an error inside the current batch rolls that whole batch back.
+Example: suppose the first batch contains passages 1–8 and its transaction succeeds. A retry supplies the same eight results. It inserts zero new rows. A later batch for passages 9–16 can still make progress. The adapter preserves previously persisted batches, while an error inside the current batch rolls that whole batch back.
 
-If a conflicting item appears after a new item in the same call, that earlier new insert also rolls back. Existing committed rows remain unchanged. Rejecting conflicting results avoids silently mixing numerical snapshots within one generation.
+If a conflicting item appears after a new item in the same call, that earlier new insert also rolls back. Existing persisted rows remain unchanged. Rejecting conflicting results avoids silently mixing numerical snapshots within one generation.
 
 ### Step F: let PostgreSQL own the vector representation
 
@@ -542,13 +510,13 @@ The adapter serializes validated floats into a bracketed literal and binds that 
 
 The adapter does not log vector values or provider data. Its repository method does not contact Cloudflare.
 
-### What deletion does now
+### How deletion affects vectors
 
 `ON DELETE CASCADE` follows ownership. Physically removing a passage or its index/document removes dependent vector rows as part of the database operation. An immediate deletion marker still serves a different purpose: it excludes a document before asynchronous physical cleanup finishes.
 
 Stored vectors from old generations are staging/history data, not automatically visible search results. Later retrieval must use the active, complete generation of a visible document.
 
-## 14. Checking the storage slice
+## 14. Checking storage behavior
 
 Run the isolated database checks with Docker available:
 
@@ -556,11 +524,11 @@ Run the isolated database checks with Docker available:
 ./mvnw -Dit.test=EmbeddingRepositoryIT,DatabaseMigrationIT verify
 ```
 
-The new storage suite has 14 invocations covering multi-batch continuation through fresh JDBC collaborators, exact component round-trip, identical/conflicting retries, rollback and injected SQL failure, concurrent writers, version/document separation, cascade cleanup, stale/deleted work, batch bounds, and direct database constraints. The tests use generated vectors and an isolated PostgreSQL/pgvector Testcontainer. They require no Cloudflare account or real document uploads.
+The storage suite covers multi-batch continuation through fresh JDBC collaborators, exact component round-trip, identical/conflicting retries, rollback and injected SQL failure, concurrent writers, version/document separation, cascade cleanup, stale/deleted work, batch bounds, and direct database constraints. The tests use generated vectors and an isolated PostgreSQL/pgvector Testcontainer. They require no Cloudflare account or real document uploads.
 
 These are integration tests because locking, foreign keys, the pgvector type, and transaction rollback need real PostgreSQL behavior. Fast tests alone cannot establish those properties. The existing complete gate remains `./mvnw verify`.
 
-At the time this section was added, the new database tests compiled but could not execute under the agent's Docker/socket restrictions. Do not treat compiled test cases or a successful fast suite as proof of current PostgreSQL success. The implementation plan records subsequent verification results.
+Run these tests with Docker available: compilation and fast checks cannot establish database correctness. Verification results belong in the implementation plan, separately from this learning guide.
 
 For a read-only look at staging in your normal database after applying V11:
 
@@ -577,10 +545,134 @@ GROUP BY i.document_id, i.indexing_version, i.passage_count,
 ORDER BY i.document_id, i.indexing_version;
 ```
 
-For now, `stored_vectors = 0` and empty model fields are expected in the ordinary upload workflow. Nothing invokes the new adapter from that workflow yet. Passing storage tests populates the test container, not your normal library database.
+In the current upload workflow, `stored_vectors = 0` and empty model fields are expected in the ordinary upload workflow. That workflow has no embedding consumer invoking the repository. Passing storage tests populates the test container, not your normal library database.
+
+## 15. How the HTTP adapter works
+
+The Cloudflare implementation of `EmbeddingProvider` can send a batch to Cloudflare. It remains opt-in, and no upload/event consumer invokes it yet. The regular application therefore still stops at prepared passages.
+
+| File | Job |
+|---|---|
+| [CloudflareEmbeddingProvider.java](../src/main/java/dev/secondbrain/embeddings/CloudflareEmbeddingProvider.java) | Validate inputs, send HTTP, bound waiting/body size, cancel, and close resources |
+| [CloudflareEmbeddingProtocol.java](../src/main/java/dev/secondbrain/embeddings/CloudflareEmbeddingProtocol.java) | Encode/decode bounded JSON and translate HTTP/provider errors |
+| [EmbeddingFailure.java](../src/main/java/dev/secondbrain/embeddings/EmbeddingFailure.java) | Expose a fixed error reason, retryable flag, and optional retry timestamp safely |
+
+These are separate from the SQL repository. The HTTP adapter cannot insert vectors or complete an event delivery. The repository cannot make an HTTP request. A later application operation will coordinate them.
+
+### What one call does
+
+```mermaid
+sequenceDiagram
+    participant Caller as Explicit caller
+    participant Adapter as CloudflareEmbeddingProvider
+    participant HTTP as Java HTTP client
+    participant Cloud as Cloudflare
+    Caller->>Adapter: embed(one batch of strings)
+    Adapter->>Adapter: Reject active transaction or invalid input
+    Adapter->>HTTP: POST the encoded batch
+    HTTP->>Cloud: Account-scoped HTTPS request
+    Note over Adapter,HTTP: Wait for the whole bounded body with a deadline
+    Cloud-->>HTTP: Status, headers, bounded JSON body
+    HTTP-->>Adapter: Completed response
+    Adapter->>Adapter: Validate count, indexes, model and vector components
+    Adapter-->>Caller: Immutable ordered vector list, or safe failure
+```
+
+The production destination is fixed to the Cloudflare HTTPS endpoint derived from the account ID. A package-private constructor allows a literal loopback address for tests. This is not an application setting for arbitrary hosts. Redirect following is disabled, so a redirect response cannot silently send the next request and its credentials somewhere else.
+
+### One batch is one application attempt
+
+With the default batch size of eight, calling `embed` with eight texts produces one application request that asks for eight vectors. Calling it with nine texts is rejected; this adapter does not silently split a larger collection into more requests.
+
+The caller will own batching across a document. It will also own retries. There is no sleep/retry loop inside this adapter and no second provider/model fallback. Ordinary TCP connection handling is not an exactly-once remote-execution guarantee: an interrupted or crashed process may still be unsure whether the remote service processed a request.
+
+The request body has this shape:
+
+```json
+{
+  "model": "@cf/baai/bge-m3",
+  "input": ["A synthetic first passage", "A synthetic second passage"],
+  "encoding_format": "float"
+}
+```
+
+The token travels in the Authorization header, not inside this JSON body. Those passages really would leave the computer if an enabled provider is explicitly called with them. Synthetic tests do not establish live account permissions or model compatibility.
+
+### Why a future is used even though embed waits
+
+`sendAsync` returns a `CompletableFuture`: a handle for a result that will become available later. Our caller then waits on that future with a timeout. The HTTP request also has its configured timeout.
+
+Crucially, the response handler collects a bounded byte array. The future completes after the body has been received, not merely when response headers arrive. A server cannot evade this waiting deadline by sending headers and then holding the body open. A timeout cancels the pending operation.
+
+This does not turn document processing into an unbounded background job system. The caller still waits on its configured worker; Java's HTTP client uses a separate bounded executor for networking tasks (two threads and a 64-task queue). Two networking threads do not mean exactly two requests can be in flight: the durable worker's separate concurrency limits still matter.
+
+`AutoCloseable` gives the adapter a close method. Spring registers it as the bean's shutdown method. It cancels owned HTTP activity and shuts down the networking executor. Tests close adapters with try-with-resources as well.
+
+### Input and response limits
+
+| Boundary | Rule | Reason |
+|---|---|---|
+| Inputs | 1 through the configured batch size; at most 32 | Bound each operation |
+| Each text | Nonblank, valid Unicode, no NUL, at most 1200 code points | Match the bounded passage contract and reject malformed data |
+| Encoded request | At most 256 KiB | Bound JSON bytes as well as character count |
+| Response stream | At most 1 MiB | A remote service must not make us buffer an unlimited body |
+| JSON | Bounded depth, names, strings, number length, and tokens | Bound parsing even for unexpected content |
+| Result | Exactly one valid 1024-component vector per input | Prevent partial, duplicate, or mismatched output |
+
+The parser also rejects duplicate JSON fields and extra JSON values after the first document. These limits are application policy, not a measurement of Cloudflare's maximum supported context.
+
+Response entries carry input indexes. If a response presents index 1 before index 0, the adapter reconstructs the original input order. A repeated, missing, fractional, or out-of-range index fails validation. An optional returned model field must match our request; its absence does not prove or disprove a hosted model revision. Live compatibility/quality remains unverified.
+
+### Java interruption is a cancellation signal
+
+During shutdown, a caller may interrupt a thread that is waiting on HTTP. The adapter cancels its pending future, restores the thread's interruption flag, and throws `InterruptedException` to the caller. It does not quietly turn shutdown into a successful embedding.
+
+The adapter also refuses to start inside an active database transaction. The later worker must read a batch, end its read transaction, call the provider, then open a short fenced write transaction. Waiting for a network service while holding document locks would unnecessarily block deletion/reindexing.
+
+### Errors become a small, safe vocabulary
+
+| Reason | Retryable classification | Interpretation |
+|---|---|---|
+| `ACCESS_DENIED` | No | Authentication/account permission problem |
+| `MODEL_UNAVAILABLE` | No | Missing/inaccessible model or paid-only requirement |
+| `INVALID_INPUT` | No | Our request/input is unacceptable |
+| `INVALID_RESPONSE` | No | The returned data does not satisfy our contract |
+| `RATE_LIMITED` | Yes | Temporary rate/capacity restriction |
+| `QUOTA_EXHAUSTED` | Yes | Documented daily free allowance exhaustion |
+| `UNAVAILABLE` | Yes | Provider/transport failure, including an incomplete or oversized stream |
+| `TIMED_OUT` | Yes | The operation did not finish within its deadline |
+
+“Retryable” does not mean “repeat immediately or forever.” The adapter classifies the failure and returns a safe hint. A later durable policy must respect remaining attempts, release worker capacity, preserve staging, and schedule eligibility safely.
+
+Cloudflare documents quota code `3036`. We recognize that numeric code in a 429 response and suggest the next UTC daily reset. We do not search human-readable error messages for words such as “quota.” Valid `Retry-After` seconds or HTTP dates become optional timestamps; a quota hint never precedes its suggested reset. The adapter never waits until that timestamp.
+
+A paid-only-model error is a permanent model failure. It does not trigger a plan upgrade or fallback call. The program still cannot inspect or enforce the account's billing plan; using Workers Free remains a setup prerequisite.
+
+### Why exception causes need care
+
+An HTTP or JSON exception may contain a URL, response excerpt, or other private data. Simply wrapping it as the standard cause of a new exception would let a normal printed stack trace expose it.
+
+`EmbeddingFailure` therefore exposes a fixed reason and safe message. Its original diagnostic cause is held privately in a transient field, outside the normal `getCause()` chain and ordinary Java serialization. Its retry timestamp contains no provider message. This is a deliberate privacy boundary, not a general recommendation to erase all exception causes throughout Java code.
+
+The tests print failure stack traces and capture output with synthetic private markers to check this behavior. We do not enable HTTP body/header logging or provider prompt capture.
+
+## 16. What the HTTP tests establish
+
+[CloudflareEmbeddingProviderTest](../src/test/java/dev/secondbrain/embeddings/CloudflareEmbeddingProviderTest.java) exercises protocol rules and guards without a listener or live account. [EmbeddingConfigurationTest](../src/test/java/dev/secondbrain/config/EmbeddingConfigurationTest.java) also proves opt-in provider construction and replacement by a controlled fake without credentials.
+
+[CloudflareEmbeddingHttpIT](../src/test/java/dev/secondbrain/embeddings/CloudflareEmbeddingHttpIT.java) uses an actual server on `127.0.0.1` with synthetic account/token/text. It checks real request serialization and ordering, status/quota errors without automatic retries, redirects, the Unicode batch boundary, oversized streams, connection failure, slow headers and body, and cancellation during a request.
+
+```sh
+./mvnw -Dtest=CloudflareEmbeddingProviderTest,EmbeddingConfigurationTest,EmbeddingVectorTest test
+./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify
+```
+
+The first command needs neither Docker nor a socket listener. The second needs local socket permission but no Docker or Cloudflare account. The full project gate remains `./mvnw verify`.
+
+An HTTP stub proves how our client handles controlled responses. It does not prove that a real token works, that Cloudflare's hosted output matches the fixture, that account usage is free, or that retrieval quality is good. A separately invoked bounded live smoke check is still pending. Upload-to-embedding processing and durable retry scheduling are absent from the current code; the HTTP adapter alone does not provide them.
 
 ## References and related notes
 
-The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) owns design decisions and provider research; [the implementation plan](../.task/IMPLEMENTATION_PLAN.md) owns scope and verification status. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
+The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
 
-Provider/model sources checked during implementation: [Cloudflare compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/), [BGE-M3 model specification](https://huggingface.co/BAAI/bge-m3), and [Cloudflare free-plan pricing rules](https://developers.cloudflare.com/workers-ai/platform/pricing/). Model documentation and pricing are external facts; recheck them before live inference. No live inference was performed to create this guide.
+Provider/model references: [Cloudflare compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/), [BGE-M3 model specification](https://huggingface.co/BAAI/bge-m3), and [Cloudflare free-plan pricing rules](https://developers.cloudflare.com/workers-ai/platform/pricing/). Model documentation and pricing are external facts; recheck them before live inference.
