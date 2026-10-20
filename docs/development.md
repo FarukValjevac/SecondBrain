@@ -182,6 +182,27 @@ After processing, expect a positive desired version/event ID, `passage_count` gr
 
 Safe request measurements are `secondbrain.document.indexing.requests` and `secondbrain.document.indexing.request.duration`, with fixed requested/unchanged/unavailable outcomes. Success is recorded only after commit. Request counts include repeated calls; they are not unique index counts. Existing event metrics and correlated logs describe durable handoffs. No filenames, text, or credentials become metric labels.
 
+## Embedding configuration
+
+Embedding settings are opt-in and currently validate configuration only. No provider client or embedding consumer is installed, and no text is sent to Cloudflare. Normal startup needs no AI credentials. Run `./mvnw -Dtest=EmbeddingConfigurationTest,EmbeddingVectorTest test` to verify this contract without Docker or an account.
+
+The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not yet a live-verified default. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
+
+| Setting | Default | Accepted value or purpose |
+|---|---|---|
+| `SECONDBRAIN_EMBEDDINGS_ENABLED` | `false` | Opt into configuration validation |
+| `CLOUDFLARE_ACCOUNT_ID` | Empty | Required 32-character hexadecimal account ID when enabled |
+| `CLOUDFLARE_API_TOKEN` | Empty | Required API token when enabled; keep private in `.env` or the environment |
+| `CLOUDFLARE_EMBEDDING_MODEL` | Empty | Explicitly select `@cf/baai/bge-m3` |
+| `CLOUDFLARE_EMBEDDING_DIMENSIONS` | `0` | Explicitly select `1024` |
+| `secondbrain.embeddings.batch-size` | `8` | Between 1 and 32 inputs per provider request |
+| `secondbrain.embeddings.connect-timeout` | `2s` | Between 100 ms and 10 seconds |
+| `secondbrain.embeddings.request-timeout` | `30s` | At least the connect timeout and at most 60 seconds |
+
+The uppercase settings work in the imported `.env` file; corresponding application properties use the `secondbrain.embeddings` prefix. The endpoint is fixed to the account-scoped HTTPS API on `api.cloudflare.com`. Credentials are excluded from settings diagnostics and validation messages. Limits currently constrain settings; transport enforcement belongs to the provider implementation.
+
+Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). No live model quality, quota consumption, or account permissions have been verified.
+
 ## Deleted-document cleanup
 
 Select **Delete** beside a document’s status in **Your documents**, or open its detail page and select **Delete document**, then review the confirmation page. **Cancel** returns without changes. Confirming submits a POST request, hides the document immediately, commits a durable cleanup request, and redirects to the library with one-time feedback. Refreshing the library does not resubmit deletion; repeated submissions safely report that the document is already absent. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
