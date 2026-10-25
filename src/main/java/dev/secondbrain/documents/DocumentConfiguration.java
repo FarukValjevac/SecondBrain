@@ -87,6 +87,16 @@ class DocumentConfiguration {
     }
 
     @Bean
+    EventEnvelope.Type indexPublishedEventType() {
+        return IndexPublishedEvent.TYPE;
+    }
+
+    @Bean
+    EventEnvelope.Type indexPublicationRequestedEventType() {
+        return IndexPublicationRequestedEvent.TYPE;
+    }
+
+    @Bean
     @ConditionalOnProperty(
             name = {
                 "secondbrain.documents.indexing.enabled",
@@ -99,8 +109,10 @@ class DocumentConfiguration {
             DocumentIndexingService indexing,
             EventPublisher events,
             ObjectProvider<DocumentPassageHandler> passages,
-            ObjectProvider<DocumentEmbeddingHandler> embeddings) {
-        return new DocumentIndexingReconciliation(indexes, indexing, events, passages, embeddings);
+            ObjectProvider<DocumentEmbeddingHandler> embeddings,
+            ObjectProvider<DocumentIndexPublication> publication) {
+        return new DocumentIndexingReconciliation(
+                indexes, indexing, events, passages, embeddings, publication);
     }
 
     @Bean

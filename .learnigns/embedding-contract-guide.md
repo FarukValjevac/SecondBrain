@@ -2,7 +2,7 @@
 
 This guide explains how the current embedding code works: its Java types, Spring configuration, PostgreSQL storage, and Cloudflare HTTP adapter. Read it alongside the linked source files.
 
-The model rules, storage adapter, and HTTP adapter are joined by a durable document embedding handler. **Background embeddings are disabled by default. When explicitly enabled, prepared passages are sent to Cloudflare and their vectors are staged locally.** Guarded active-version storage exists, while automatic publication, semantic search, and chat are absent from the application workflow.
+The model rules, storage adapter, and HTTP adapter are joined by a durable document embedding handler. **Background embeddings are disabled by default. When explicitly enabled, prepared passages are sent to Cloudflare and their vectors are staged locally.** The enabled workflow publishes complete active indexes atomically with its durable acknowledgment. Semantic search and chat are absent from the application workflow.
 
 The diagrams use Mermaid. Open this file in a Markdown viewer with Mermaid support to render them. The tables and text examples explain the same ideas if your viewer displays the diagram source.
 
@@ -35,12 +35,12 @@ flowchart TD
     Read --> Embed[Call Cloudflare outside the read transaction]
     Embed --> Checkpoint[Check lease and document state; save batch]
     Checkpoint --> Read
-    Read -->|No missing passages| Finish[Verify completeness and acknowledge delivery]
+    Read -->|No missing passages| Finish[Activate complete index, record publication fact, and acknowledge]
 ```
 
 The handler is opt-in through `secondbrain.embeddings.enabled`. Startup constructs the client without a test request; background workers may then process new and retained document facts. Enabling with polling active permits real passage text to leave the computer. Keeping the default disabled requires no Cloudflare credentials and makes no inference calls.
 
-For semantic search, passage embeddings represent stored text and a query embedding represents the search text. Comparing those vectors would identify related passages. Writing a cited answer would require a separate chat operation. Search, automatic publication, and chat are absent from the application workflow.
+For semantic search, passage embeddings represent stored text and a query embedding represents the search text. Comparing those vectors would identify related passages. Writing a cited answer would require a separate chat operation. Search and chat are absent from the application workflow.
 
 ## 2. What “1024 dimensions” means
 
@@ -296,7 +296,7 @@ The checkpoint is supplied by the dispatcher as an [EventHandler.Checkpoint](../
 
 If ownership expires during a checkpoint, its writes roll back. Earlier successful checkpoints remain stored. On a retry or restart, the missing-batch query excludes those saved passages, so only unfinished work needs provider calls. The existing attempt limit and overall execution deadline still apply; saving progress does not reset either one.
 
-When no vectors are missing, the final effect locks/rechecks document eligibility and verifies the expected passage/vector count and model. The dispatcher then acknowledges the delivery in the same transaction. This does **not** activate a searchable index. If acknowledgment fails, the staged vectors remain; a retry can check completeness without repeating completed HTTP work.
+When no vectors are missing, the final effect locks/rechecks eligibility and completeness, selects the active generation, and records an `IndexPublished` fact. The dispatcher acknowledges the delivery in that same fenced transaction. Failure rolls back activation, the fact, and acknowledgment together; earlier vector checkpoints remain staged. A retry can finalize without repeating completed HTTP work. An active index is prepared for retrieval, but no search endpoint exists yet.
 
 A crash between a provider response and its checkpoint can require repeating the request. Idempotent database writes prevent duplicate stored results; they cannot guarantee exactly-once external processing or allowance consumption.
 
@@ -312,8 +312,8 @@ A crash between a provider response and its checkpoint can require repeating the
 | Vector storage in PostgreSQL/pgvector | Implemented with resumable bounded checkpoints |
 | Durable embedding consumer and batch recovery | Implemented; disabled by default |
 | Safe provider request metrics, logs, and child traces | Implemented; export optional |
-| Guarded active-version persistence | Implemented; worker handoff pending |
-| Automatic publication and semantic search | Not implemented |
+| Guarded active-version persistence and automatic publication | Implemented with atomic acknowledgment |
+| Semantic search and chat | Not implemented |
 | Live model/account/quality/free-allowance verification | Not performed |
 
 The model, data, and configuration rules give callers a consistent contract. That contract alone cannot establish live inference compatibility or retrieval quality.
@@ -779,7 +779,55 @@ The nested `Activation` enum describes this operation's four possible results. I
 
 The caller owns the transaction. If another required database operation fails, selecting the active version rolls back too. Two callers targeting the same complete generation serialize through the document lock: one changes the pointer; the other observes an unchanged selection. Neither should count a second publication merely because the operation was called again.
 
-The embedding worker currently does not invoke this operation. Automatic activation, the `IndexPublished` fact, and delivery acknowledgment still need to be joined under the dispatcher's lease fence. Existing staged generations are not automatically selected, and there is no search endpoint. The [publication integration tests](../src/test/java/dev/secondbrain/documents/IndexPublicationIT.java) exercise the storage boundary against isolated PostgreSQL using deterministic vectors. See [publication prerequisites](../docs/development.md#index-publication-prerequisites) for verification and the read-only pointer query.
+The enabled embedding worker invokes the guarded operation through `DocumentIndexPublication`. The active pointer, `IndexPublished` fact, and delivery acknowledgment share the dispatcher's fenced transaction. Fully staged historical work can also be recovered as described below. There is no search endpoint. The [publication integration tests](../src/test/java/dev/secondbrain/documents/IndexPublicationIT.java) exercise the storage boundary against isolated PostgreSQL using deterministic vectors. See [publication prerequisites](../docs/development.md#index-publication-prerequisites) for verification and the read-only pointer query.
+
+## 20. Atomic publication and completed-work recovery
+
+[DocumentIndexPublication](../src/main/java/dev/secondbrain/documents/DocumentIndexPublication.java) owns the shared publication effect. It calls the guarded activation operation and emits the `IndexPublished` fact with the same operation timestamp. It joins the caller's transaction; the dispatcher owns the lease check and acknowledgment.
+
+```mermaid
+sequenceDiagram
+    participant Worker as Delivery worker
+    participant Store as Event store
+    participant Publish as DocumentIndexPublication
+    participant DB as PostgreSQL
+    Worker->>Store: complete(lease, final effect)
+    Store->>DB: Begin; lock and validate lease
+    Store->>Publish: Apply final effect
+    Publish->>DB: Validate and select the complete active generation
+    Publish->>DB: Record one IndexPublished fact and logical key
+    Store->>DB: Acknowledge only if lease/deadline remain valid
+    Store->>DB: Finish the transaction
+    Note over Store,DB: Failure rolls back all three effects together
+```
+
+`IndexPublished` is a fact: this generation became active. Its payload contains no text. The event header identifies document/version, correlation, and cause. Normal publication uses `PassagesPrepared` as its cause. Logical identity is document/version/event type, so repeated effects cannot create another publication fact even when a fresh candidate UUID is supplied.
+
+An `ALREADY_ACTIVE` result still lets the application supply a missing fact. The event store returns an existing logical fact instead of overwriting it. That preserves the first fact's identity and context. An `INCOMPLETE` result becomes a permanent safe delivery failure; an `INELIGIBLE` result skips obsolete/deleted work. A lost lease rolls back effects instead of allowing a late worker to publish.
+
+### Why completed staging has its own recovery request
+
+A fully staged generation can have a completed embedding delivery but no publication fact. Restarting that completed delivery would change its history and retry accounting. The recovery path therefore uses a distinct intent, `IndexPublicationRequested`, handled by `documents.publish-index.v1`. The embedding delivery stays as it is. The recovery consumer performs database publication only and never calls the embedding provider.
+
+```mermaid
+flowchart TD
+    Normal[PassagesPrepared delivery] --> Batches[Save missing embedding batches]
+    Batches --> Effect[Shared guarded publication effect]
+    Completed[Completed staging with no publication fact] --> Eligible{Eligible for recovery?}
+    Eligible -->|Yes| Intent[IndexPublicationRequested durable intent]
+    Intent --> Recovery[Publication recovery delivery]
+    Recovery --> Effect
+    Effect --> Atomic[Select active generation, record fact, acknowledge caller]
+    Eligible -->|Pending/running/failed work or existing intent/fact| Leave[Preserve existing work and budget]
+```
+
+The candidate query requires current visible source/desired state, supported metadata, full stored counts, and either a completed embedding delivery or an aged-out passage payload. Pending, running, failed, or skipped embedding work is excluded. An existing recovery/publication key excludes another intent. These rules keep recovery from bypassing another job's finite attempt budget.
+
+Reconciliation reads at most 100 candidates, then locks/rechecks each document and recovery eligibility in a bounded transaction before recording its intent. A recovery request itself has the normal finite delivery budget. Its consumer rechecks the original passage event identity and completed embedding state before activation, so a retained intent cannot bypass work that is now unfinished or failed. If the recovery fails, the next scan does not create a replacement request with a fresh budget.
+
+With a retained passage payload, the intent keeps its correlation/trace and uses the passage event ID as cause. If payload retention has removed that context, the logical passage key still supplies provenance; the application creates a new correlation root rather than pretending it knows the lost trace. The publication fact then names the recovery request as its cause.
+
+The [publication unit checks](../src/test/java/dev/secondbrain/documents/DocumentIndexPublicationTest.java) cover outcome/identity/context and caller transaction boundaries. The real PostgreSQL delivery tests additionally cover rollback after event insertion or transaction failure, acknowledgment failure, lease expiry, competing deliveries, and recovery across restart without another model call. Test execution results belong in the implementation plan, separately from this current-code guide.
 
 ## References and related notes
 

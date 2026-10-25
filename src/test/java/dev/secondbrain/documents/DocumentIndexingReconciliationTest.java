@@ -31,7 +31,9 @@ class DocumentIndexingReconciliationTest {
                         new StaticListableBeanFactory()
                                 .getBeanProvider(DocumentPassageHandler.class),
                         new StaticListableBeanFactory()
-                                .getBeanProvider(DocumentEmbeddingHandler.class))
+                                .getBeanProvider(DocumentEmbeddingHandler.class),
+                        new StaticListableBeanFactory()
+                                .getBeanProvider(DocumentIndexPublication.class))
                 .reconcile();
         verify(indexing).enroll(eq(id), any(UUID.class));
         verifyNoInteractions(events);
@@ -53,7 +55,9 @@ class DocumentIndexingReconciliationTest {
                         new StaticListableBeanFactory()
                                 .getBeanProvider(DocumentPassageHandler.class),
                         new StaticListableBeanFactory()
-                                .getBeanProvider(DocumentEmbeddingHandler.class));
+                                .getBeanProvider(DocumentEmbeddingHandler.class),
+                        new StaticListableBeanFactory()
+                                .getBeanProvider(DocumentIndexPublication.class));
         assertThatCode(reconciliation::reconcile).doesNotThrowAnyException();
         assertThatCode(reconciliation::reconcile).doesNotThrowAnyException();
         verifyNoInteractions(indexing, events);
@@ -65,6 +69,8 @@ class DocumentIndexingReconciliationTest {
         var indexing = mock(DocumentIndexingService.class);
         var events = mock(EventPublisher.class);
         var beans = new StaticListableBeanFactory();
+        var publication = mock(DocumentIndexPublication.class);
+        beans.addBean("publication", publication);
         beans.addBean("embeddings", mock(DocumentEmbeddingHandler.class));
         when(indexes.findUnenrolled(100)).thenReturn(List.of());
         new DocumentIndexingReconciliation(
@@ -72,10 +78,12 @@ class DocumentIndexingReconciliationTest {
                         indexing,
                         events,
                         beans.getBeanProvider(DocumentPassageHandler.class),
-                        beans.getBeanProvider(DocumentEmbeddingHandler.class))
+                        beans.getBeanProvider(DocumentEmbeddingHandler.class),
+                        beans.getBeanProvider(DocumentIndexPublication.class))
                 .reconcile();
         verify(events)
                 .scheduleMissing(PassagesPreparedEvent.TYPE, DocumentEmbeddingHandler.ID, 100);
+        verify(publication).reconcile();
         verifyNoInteractions(indexing);
     }
 }

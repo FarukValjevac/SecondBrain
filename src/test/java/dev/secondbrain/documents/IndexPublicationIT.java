@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -312,6 +313,57 @@ class IndexPublicationIT {
                             JdbcIndexingRepository.Activation.ALREADY_ACTIVE);
         }
         assertThat(active(prepared.version().documentId())).hasValue(7);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PENDING", "RUNNING", "FAILED"})
+    void recoveryNeverBypassesAnExistingEmbeddingDeliveryBudget(String state) throws Exception {
+        var prepared = fixture(7);
+        storeVectors(prepared);
+        var event = UUID.randomUUID();
+        jdbc.sql(
+                        """
+                INSERT INTO event_keys(event_id, document_id, processing_version, event_type, schema_version, fingerprint)
+                VALUES (:event, :id, 7, 'PassagesPrepared', 1, :fingerprint)
+                """)
+                .param("event", event)
+                .param("id", prepared.version().documentId())
+                .param("fingerprint", "a".repeat(64))
+                .update();
+        jdbc.sql(
+                        """
+                INSERT INTO domain_events(event_id, occurred_at, correlation_id, reference_ids, created_at)
+                VALUES (:event, :at, :correlation, '{}'::jsonb, :at)
+                """)
+                .param("event", event)
+                .param("at", Timestamp.from(AT))
+                .param("correlation", UUID.randomUUID())
+                .update();
+        jdbc.sql(
+                        """
+                INSERT INTO event_deliveries(delivery_id, event_id, handler_id, state, attempts, eligible_at,
+                    lease_owner, lease_token, lease_until, deadline_at, created_at, updated_at)
+                VALUES (:delivery, :event, 'documents.embed-passages.v1', :state, 5, :at,
+                    CASE WHEN :state = 'RUNNING' THEN gen_random_uuid() END,
+                    CASE WHEN :state = 'RUNNING' THEN gen_random_uuid() END,
+                    CASE WHEN :state = 'RUNNING' THEN CAST(:until AS timestamptz) END,
+                    CASE WHEN :state = 'RUNNING' THEN CAST(:until AS timestamptz) END, :at, :at)
+                """)
+                .param("delivery", UUID.randomUUID())
+                .param("event", event)
+                .param("state", state)
+                .param("at", Timestamp.from(AT))
+                .param("until", Timestamp.from(AT.plusSeconds(60)))
+                .update();
+        assertThat(indexes.findPublicationRecovery(MODEL, 100)).isEmpty();
+        assertThat(indexes.canRecoverPublication(prepared.version(), MODEL)).isFalse();
+        assertThat(indexes.completedEmbeddingSource(prepared.version(), event)).isFalse();
+        assertThat(
+                        jdbc.sql("SELECT attempts FROM event_deliveries WHERE event_id = :event")
+                                .param("event", event)
+                                .query(Integer.class)
+                                .single())
+                .isEqualTo(5);
     }
 
     private static PreparedPassages fixture(long number) throws Exception {
