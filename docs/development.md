@@ -231,7 +231,57 @@ Retries request only missing vectors. A crash after an HTTP response and before 
 ./mvnw -Dit.test=DocumentEmbeddingDeliveryIT,DurableEventsIT,EmbeddingRepositoryIT verify
 ```
 
-This requires Docker but no Cloudflare account. It checks multi-batch/restart recovery, stale versions/deletion/leases, final-acknowledgment rollback, retained facts, and retry eligibility. Existing event traces/attempt metrics cover the delivery; separate provider latency/usage telemetry is not implemented yet.
+This requires Docker but no Cloudflare account. It checks multi-batch/restart recovery, stale versions/deletion/leases, final-acknowledgment rollback, retained facts, and retry eligibility. Existing event traces/attempt metrics cover the delivery. Provider request telemetry is described below.
+
+## Embedding request telemetry
+
+The enabled Cloudflare adapter records each attempted request after local input validation. Invalid input or an already-interrupted caller rejected before transport is not counted as a provider request. An attempt includes receiving and validating the response; it is independent of saving vectors or acknowledging a delivery. A repeated request after a crash counts again.
+
+| Metric | Meaning | Labels |
+|---|---|---|
+| `secondbrain.embedding.requests` | Completed application request attempts | Fixed `outcome` |
+| `secondbrain.embedding.request.duration` | Request/response-validation duration in seconds | Fixed `outcome`; framework `error=none` |
+| `secondbrain.embedding.tokens` | Sum of accepted, provider-reported input tokens on successful responses | None |
+| `secondbrain.embedding.usage.reports` | Successful responses with accepted usage metadata | None |
+
+Outcomes are `success`, `access_denied`, `model_unavailable`, `invalid_input`, `invalid_response`, `rate_limited`, `quota_exhausted`, `unavailable`, `timed_out`, and `interrupted`. A provider-side invalid-input response is counted; local validation rejection is not. Optional `usage.prompt_tokens` must be an integer between zero and 1,000,000; missing/invalid usage is ignored without rejecting otherwise valid vectors. A response can therefore succeed while leaving both usage counters unchanged. Zero reported tokens still increments the reports counter. These process-local totals are not remaining account allowance, billing totals, or a durable ledger; they reset with the application. Token metadata on failed/invalid responses is not counted.
+
+The child observation is named `embedding.request` and inherits the current delivery/request trace without changing its scope. Logs contain fixed operation/outcome fields plus the existing safe correlation context. Inputs, credentials/account IDs, endpoint URLs, vectors, provider messages, retry timestamps, and raw exceptions do not enter these telemetry fields. Export sanitization retains the fixed operation/outcome and strips private fields/events; export remains optional. Broken counters, observation handlers, or logging backends cannot change inference results or retry classification. Standalone clients built with the original constructor use disabled telemetry; application wiring supplies the shared registries.
+
+After an explicitly enabled request, inspect the local metrics:
+
+```sh
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.embedding.requests'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.embedding.request.duration?tag=outcome:success'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.embedding.tokens'
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.embedding.usage.reports'
+```
+
+Request counters exist at zero when the adapter is wired; the duration timer appears after an observed request. Deterministic checks need no provider account:
+
+```sh
+./mvnw -Dtest=EmbeddingTelemetryTest,EmbeddingTelemetryEndpointTest,CloudflareEmbeddingProviderTest,TelemetryPrivacyTest test
+./mvnw -Dit.test=CloudflareEmbeddingHttpIT,DocumentEmbeddingDeliveryIT,DurableEventsIT verify
+```
+
+## Explicit live embedding smoke check
+
+This check is separate from routine tests and is not run automatically. Use it only after confirming the account is on Workers Free and the selected BGE-M3 model is free-plan eligible. Keep application embeddings/polling disabled during the check to prevent retained documents from being sent. The account ID/token must already be provided securely in this shell; Spring's imported `.env` does not export shell variables. Do not paste credentials into issue descriptions or verification reports.
+
+Budget: run once, one request, one fixed non-sensitive input, no retries, two-second connect timeout, thirty-second overall timeout, and a 1 MiB response limit. The fixed short text bounds embedding input; the embeddings protocol has no chat-style output-token setting. This uses the documented [Cloudflare compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/). It does not test retrieval quality or produce application metrics because it bypasses the application adapter.
+
+```sh
+printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" | curl \
+  --silent --show-error --fail-with-body --retry 0 \
+  --connect-timeout 2 --max-time 30 --max-filesize 1048576 \
+  --request POST \
+  --header @- --header 'Content-Type: application/json' \
+  --data '{"model":"@cf/baai/bge-m3","input":["Synthetic SecondBrain embedding check."],"encoding_format":"float"}' \
+  --output /tmp/secondbrain-embedding-smoke.json \
+  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1/embeddings"
+```
+
+Inspect the saved synthetic response locally: require one result with input index zero, exactly 1024 finite components with a nonzero vector norm, and matching model metadata if present. Record date, model/dimensions, success/failure, elapsed time, and reported token usage if present; unknown usage stays unknown. Record remaining allowance only if independently available from the account. Stop on authentication/quota/model failure; no retry, upgrade, model fallback, or real-document experiment is authorized by this check. Live compatibility and quality evidence remain pending until a run is explicitly performed and reviewed.
 
 ## Deleted-document cleanup
 

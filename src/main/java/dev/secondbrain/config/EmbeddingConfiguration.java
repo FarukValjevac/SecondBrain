@@ -4,6 +4,10 @@ import dev.secondbrain.embeddings.CloudflareEmbeddingProvider;
 import dev.secondbrain.embeddings.CloudflareEmbeddingSettings;
 import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingProvider;
+import dev.secondbrain.embeddings.EmbeddingTelemetry;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -22,8 +26,22 @@ import java.time.Duration;
 class EmbeddingConfiguration {
     @Bean(destroyMethod = "close")
     CloudflareEmbeddingProvider cloudflareEmbeddingProvider(
-            CloudflareEmbeddingSettings settings, ObjectProvider<Clock> clocks) {
-        return new CloudflareEmbeddingProvider(settings, clocks.getIfAvailable(Clock::systemUTC));
+            CloudflareEmbeddingSettings settings,
+            ObjectProvider<Clock> clocks,
+            EmbeddingTelemetry telemetry) {
+        return new CloudflareEmbeddingProvider(
+                settings, clocks.getIfAvailable(Clock::systemUTC), telemetry);
+    }
+
+    @Bean
+    EmbeddingTelemetry embeddingTelemetry(
+            ObjectProvider<MeterRegistry> meters,
+            ObjectProvider<ObservationRegistry> observations) {
+        var registry = meters.getIfAvailable();
+        return registry == null
+                ? EmbeddingTelemetry.disabled()
+                : new EmbeddingTelemetry(
+                        registry, observations.getIfAvailable(() -> ObservationRegistry.NOOP));
     }
 
     @Bean

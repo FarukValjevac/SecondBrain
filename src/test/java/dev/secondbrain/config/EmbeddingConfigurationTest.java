@@ -38,6 +38,39 @@ class EmbeddingConfigurationTest {
     }
 
     @Test
+    void realRegistriesReceiveZeroedCountersWithoutStartingInference() {
+        var meters = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        try {
+            configured()
+                    .withBean(io.micrometer.core.instrument.MeterRegistry.class, () -> meters)
+                    .withBean(
+                            io.micrometer.observation.ObservationRegistry.class,
+                            io.micrometer.observation.ObservationRegistry::create)
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThat(context)
+                                        .hasSingleBean(
+                                                dev.secondbrain.embeddings.EmbeddingTelemetry
+                                                        .class);
+                                assertThat(
+                                                meters.get("secondbrain.embedding.requests")
+                                                        .tag("outcome", "success")
+                                                        .counter()
+                                                        .count())
+                                        .isZero();
+                                assertThat(
+                                                meters.find(
+                                                                "secondbrain.embedding.request.duration")
+                                                        .timer())
+                                        .isNull();
+                            });
+        } finally {
+            meters.close();
+        }
+    }
+
+    @Test
     void applicationPropertiesResolveTheExternalEnvFileNames() {
         runner.withInitializer(new ConfigDataApplicationContextInitializer())
                 .withPropertyValues(

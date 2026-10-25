@@ -25,6 +25,7 @@ import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /** Bounded JSON protocol and fixed error classifications; never exposes provider messages. */
 final class CloudflareEmbeddingProtocol {
@@ -63,6 +64,10 @@ final class CloudflareEmbeddingProtocol {
     }
 
     List<EmbeddingVector> response(byte[] body, int count) {
+        return responseWithUsage(body, count).vectors();
+    }
+
+    Response responseWithUsage(byte[] body, int count) {
         try {
             if (body.length > MAXIMUM_RESPONSE_BYTES || count < 1 || count > 32)
                 throw new IllegalArgumentException();
@@ -93,9 +98,24 @@ final class CloudflareEmbeddingProtocol {
                 }
                 ordered[position] = new EmbeddingVector(model, values);
             }
-            return List.copyOf(Arrays.asList(ordered));
+            var reported = root.path("usage").path("prompt_tokens");
+            var tokens =
+                    reported.isIntegralNumber()
+                                    && reported.canConvertToLong()
+                                    && reported.longValue() >= 0
+                                    && reported.longValue() <= 1_000_000
+                            ? OptionalLong.of(reported.longValue())
+                            : OptionalLong.empty();
+            return new Response(List.copyOf(Arrays.asList(ordered)), tokens);
         } catch (JacksonException | IllegalArgumentException invalid) {
             throw new EmbeddingFailure(INVALID_RESPONSE, null, invalid);
+        }
+    }
+
+    record Response(List<EmbeddingVector> vectors, OptionalLong inputTokens) {
+        Response {
+            vectors = List.copyOf(vectors);
+            java.util.Objects.requireNonNull(inputTokens, "inputTokens");
         }
     }
 

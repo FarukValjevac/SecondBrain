@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import tools.jackson.databind.json.JsonMapper;
@@ -30,6 +31,39 @@ class CloudflareEmbeddingProviderTest {
             Clock.fixed(Instant.parse("2030-01-01T23:59:30Z"), ZoneOffset.UTC);
     private final CloudflareEmbeddingProtocol protocol =
             new CloudflareEmbeddingProtocol(MODEL, CLOCK);
+
+    @Test
+    void extractsOnlyReportedInputTokensAlongsideValidatedVectors() {
+        var result =
+                protocol.responseWithUsage(
+                        bytes(
+                                "{\"data\":["
+                                        + entry(0, "1")
+                                        + "],\"usage\":{\"prompt_tokens\":37,\"total_tokens\":37}}"),
+                        1);
+        assertThat(result.inputTokens()).hasValue(37);
+        assertThat(result.vectors()).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "null",
+                "{}",
+                "{\"prompt_tokens\":-1}",
+                "{\"prompt_tokens\":1.5}",
+                "{\"prompt_tokens\":\"private-usage-sentinel\"}",
+                "{\"prompt_tokens\":1000001}",
+                "{\"prompt_tokens\":999999999999999999999999}",
+                "{\"total_tokens\":37}"
+            })
+    void missingOrInvalidOptionalUsageDoesNotInvalidateGoodVectors(String usage) {
+        var result =
+                protocol.responseWithUsage(
+                        bytes("{\"data\":[" + entry(0, "1") + "],\"usage\":" + usage + "}"), 1);
+        assertThat(result.inputTokens()).isEmpty();
+        assertThat(result.vectors()).hasSize(1);
+    }
 
     @Test
     void encodesLiteralUnicodeAndReturnsValidatedVectorsInInputOrder() {

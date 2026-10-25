@@ -26,14 +26,29 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
     private final URI endpoint;
     private final ThreadPoolExecutor network;
     private final HttpClient client;
+    private final EmbeddingTelemetry telemetry;
 
     public CloudflareEmbeddingProvider(CloudflareEmbeddingSettings settings, Clock clock) {
-        this(settings, clock, settings.endpoint());
+        this(settings, clock, settings.endpoint(), EmbeddingTelemetry.disabled());
+    }
+
+    public CloudflareEmbeddingProvider(
+            CloudflareEmbeddingSettings settings, Clock clock, EmbeddingTelemetry telemetry) {
+        this(settings, clock, settings.endpoint(), telemetry);
     }
 
     /** Test-only loopback seam; production exposes no configurable endpoint override. */
     CloudflareEmbeddingProvider(CloudflareEmbeddingSettings settings, Clock clock, URI endpoint) {
+        this(settings, clock, endpoint, EmbeddingTelemetry.disabled());
+    }
+
+    CloudflareEmbeddingProvider(
+            CloudflareEmbeddingSettings settings,
+            Clock clock,
+            URI endpoint,
+            EmbeddingTelemetry telemetry) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         if (!endpoint.equals(settings.endpoint())
                 && !("http".equals(endpoint.getScheme())
@@ -92,6 +107,23 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
                         .header("Accept", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                         .build();
+        try (var operation = telemetry.start()) {
+            try {
+                var result = exchange(request, texts.size());
+                operation.success(result.inputTokens());
+                return result.vectors();
+            } catch (EmbeddingFailure failed) {
+                operation.failure(failed.reason());
+                throw failed;
+            } catch (InterruptedException interrupted) {
+                operation.interrupted();
+                throw interrupted;
+            }
+        }
+    }
+
+    private CloudflareEmbeddingProtocol.Response exchange(HttpRequest request, int count)
+            throws InterruptedException {
         final java.util.concurrent.CompletableFuture<HttpResponse<byte[]>> pending;
         try {
             pending =
@@ -133,7 +165,7 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
         if (!contentType.split(";", 2)[0].trim().equalsIgnoreCase("application/json")) {
             throw new EmbeddingFailure(EmbeddingFailure.Reason.INVALID_RESPONSE, null, null);
         }
-        return protocol.response(response.body(), texts.size());
+        return protocol.responseWithUsage(response.body(), count);
     }
 
     private List<String> validate(List<String> inputs) {

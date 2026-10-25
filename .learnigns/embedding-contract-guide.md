@@ -311,6 +311,7 @@ A crash between a provider response and its checkpoint can require repeating the
 | HTTP calls and provider response validation | Implemented with bounded inputs, responses, and deadlines |
 | Vector storage in PostgreSQL/pgvector | Implemented with resumable bounded checkpoints |
 | Durable embedding consumer and batch recovery | Implemented; disabled by default |
+| Safe provider request metrics, logs, and child traces | Implemented; export optional |
 | Complete-index activation and semantic search | Not implemented |
 | Live model/account/quality/free-allowance verification | Not performed |
 
@@ -704,6 +705,44 @@ An HTTP stub proves how our client handles controlled responses. It does not pro
 ```
 
 The second command requires Docker. Both use synthetic data and no live inference. The overall gate is `./mvnw verify`. Test definitions describe what should be checked; current run results are recorded in the implementation plan.
+
+## 18. Understanding embedding telemetry
+
+Telemetry is information about an operation, such as its duration and outcome. It is separate from the operation's saved business data. [EmbeddingTelemetry](../src/main/java/dev/secondbrain/embeddings/EmbeddingTelemetry.java) observes the Cloudflare adapter; it never receives passage text, an HTTP request, an API token, a vector, or an exception.
+
+```mermaid
+flowchart LR
+    Validate[Validate inputs locally] --> Start[Start request observation]
+    Start --> HTTP[Send request and validate response]
+    HTTP --> Outcome[Set a fixed outcome]
+    Outcome --> Close[Close operation once]
+    Close --> Counter[Increment request counter]
+    Close --> Timer[Stop duration observation]
+    Close --> Usage[Record accepted optional token usage]
+    Close --> Log[Log fixed operation and outcome]
+```
+
+Only calls reaching the transport boundary count. If the adapter rejects an empty batch before sending, no provider attempt is recorded. If the provider itself rejects a request, its safe outcome is counted. `success` means valid vectors were returned, not that PostgreSQL has saved them or search is ready.
+
+The implementation uses the existing Micrometer registries:
+
+- A **counter** adds up events. `secondbrain.embedding.requests` separates fixed outcomes such as `success`, `quota_exhausted`, and `timed_out`.
+- An **observation** describes one operation. The standard meter handler turns its `secondbrain.embedding.request.duration` name into a duration timer; the tracing handler creates an `embedding.request` child span.
+- A **label** groups measurements. Outcome values come from a closed Java enum, keeping the number of time series bounded. Document IDs, text, URLs, and arbitrary error messages are not labels.
+
+The observation inherits the current delivery/request trace without opening a replacement scope. The durable event context therefore remains the parent while the HTTP operation has its own span. The trace exporter allows only known operation names and outcomes, and removes private attributes and exception events.
+
+The operation object implements `AutoCloseable`, so try-with-resources records completion even when the HTTP call throws. Its state belongs to that one call, not to the shared singleton telemetry service. Closing twice does not count twice. Telemetry failures are caught at their own boundary; a broken metrics backend cannot turn a valid embedding into a failed delivery or replace the original provider failure.
+
+### Token reports are optional
+
+A successful response may include `usage.prompt_tokens`. The bounded parser accepts a nonnegative integer no larger than 1,000,000. That ceiling is a sanity limit, not a claim about model capacity. Missing, fractional, negative, oversized, or textual values are ignored while valid vectors remain usable.
+
+`secondbrain.embedding.tokens` totals accepted input-token reports; `secondbrain.embedding.usage.reports` counts how many successful responses supplied them. A legitimate report of zero adds zero tokens but one report. No report adds neither. Neither counter estimates remaining daily allowance, records billing, or survives process restart. Failed responses and crashes may consume provider allowance without appearing in these successful-response token totals.
+
+[EmbeddingTelemetryTest](../src/test/java/dev/secondbrain/embeddings/EmbeddingTelemetryTest.java) uses a controllable meter clock and an in-memory tracer to check timing, outcomes, trace parentage, and fault isolation. [EmbeddingTelemetryEndpointTest](../src/test/java/dev/secondbrain/embeddings/EmbeddingTelemetryEndpointTest.java) verifies the actual Actuator response with MockMvc. The loopback HTTP tests cover telemetry through the actual client with synthetic text and credentials.
+
+See [embedding request telemetry](../docs/development.md#embedding-request-telemetry) for metric queries and the separate live smoke-check instructions. Synthetic tests do not establish real account permissions, model quality, or remaining free allowance.
 
 ## References and related notes
 

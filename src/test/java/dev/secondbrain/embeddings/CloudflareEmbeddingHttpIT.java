@@ -2,10 +2,20 @@ package dev.secondbrain.embeddings;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,9 +57,14 @@ class CloudflareEmbeddingHttpIT {
     private ThreadPoolExecutor serverThreads;
     private final AtomicInteger calls = new AtomicInteger();
     private final AtomicReference<HttpHandler> behavior = new AtomicReference<>();
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final ObservationRegistry observations = ObservationRegistry.create();
 
     @BeforeEach
     void startOnlyAnIsolatedLoopbackServer() throws IOException {
+        observations
+                .observationConfig()
+                .observationHandler(new DefaultMeterObservationHandler(meters));
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         serverThreads =
                 new ThreadPoolExecutor(
@@ -73,6 +88,7 @@ class CloudflareEmbeddingHttpIT {
 
     @AfterEach
     void stopOwnedResources() throws InterruptedException {
+        meters.close();
         if (server != null) server.stop(0);
         if (serverThreads != null) {
             serverThreads.shutdownNow();
@@ -343,6 +359,105 @@ class CloudflareEmbeddingHttpIT {
         assertThat(calls).hasValue(0);
     }
 
+    @Test
+    void reportsSuccessfulUsageAndQuotaFailuresWithoutPrivateTelemetry(CapturedOutput output)
+            throws Exception {
+        try (var provider = provider(Duration.ofSeconds(2))) {
+            behavior.set(
+                    exchange ->
+                            reply(
+                                    exchange,
+                                    200,
+                                    "{\"data\":["
+                                            + entry(0, "1")
+                                            + "],\"usage\":{\"prompt_tokens\":23},\"private\":\""
+                                            + PRIVATE_RESPONSE
+                                            + "\"}"));
+            assertThat(provider.embed(List.of(PRIVATE_TEXT))).hasSize(1);
+            behavior.set(
+                    exchange ->
+                            reply(
+                                    exchange,
+                                    429,
+                                    "{\"errors\":[{\"code\":3036,\"message\":\""
+                                            + PRIVATE_RESPONSE
+                                            + "\"}]}"));
+            assertFailure(provider, EmbeddingFailure.Reason.QUOTA_EXHAUSTED);
+        }
+        assertThat(calls).hasValue(2);
+        assertThat(
+                        meters.get("secondbrain.embedding.requests")
+                                .tag("outcome", "success")
+                                .counter()
+                                .count())
+                .isEqualTo(1);
+        assertThat(
+                        meters.get("secondbrain.embedding.requests")
+                                .tag("outcome", "quota_exhausted")
+                                .counter()
+                                .count())
+                .isEqualTo(1);
+        assertThat(
+                        meters.get("secondbrain.embedding.request.duration")
+                                .tag("outcome", "quota_exhausted")
+                                .timer()
+                                .count())
+                .isEqualTo(1);
+        assertThat(meters.get("secondbrain.embedding.tokens").counter().count()).isEqualTo(23);
+        assertThat(meters.get("secondbrain.embedding.usage.reports").counter().count())
+                .isEqualTo(1);
+        assertThat(
+                        meters.getMeters().stream()
+                                .map(meter -> meter.getId().toString())
+                                .toList()
+                                .toString())
+                .doesNotContain(
+                        PRIVATE_TEXT, PRIVATE_RESPONSE, "synthetic-test-token", "a".repeat(32));
+        assertThat(output)
+                .doesNotContain(
+                        PRIVATE_TEXT, PRIVATE_RESPONSE, "synthetic-test-token", "a".repeat(32));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"start", "stop"})
+    void brokenTelemetryCannotChangeARealSuccessfulResponse(String phase, CapturedOutput output)
+            throws Exception {
+        var brokenMeters = mock(MeterRegistry.class);
+        when(brokenMeters.counter(any(String.class), any(String[].class)))
+                .thenThrow(new IllegalStateException(PRIVATE_RESPONSE));
+        var brokenObservations = ObservationRegistry.create();
+        brokenObservations
+                .observationConfig()
+                .observationHandler(
+                        new ObservationHandler<Observation.Context>() {
+                            @Override
+                            public boolean supportsContext(Observation.Context context) {
+                                return true;
+                            }
+
+                            @Override
+                            public void onStart(Observation.Context context) {
+                                if (phase.equals("start"))
+                                    throw new IllegalStateException(PRIVATE_RESPONSE);
+                            }
+
+                            @Override
+                            public void onStop(Observation.Context context) {
+                                if (phase.equals("stop"))
+                                    throw new IllegalStateException(PRIVATE_RESPONSE);
+                            }
+                        });
+        behavior.set(exchange -> reply(exchange, 200, "{\"data\":[" + entry(0, "1") + "]}"));
+        try (var provider =
+                provider(
+                        Duration.ofSeconds(2),
+                        new EmbeddingTelemetry(brokenMeters, brokenObservations))) {
+            assertThat(provider.embed(List.of(PRIVATE_TEXT))).hasSize(1);
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(output).doesNotContain(PRIVATE_TEXT, PRIVATE_RESPONSE, "synthetic-test-token");
+    }
+
     private static void assertFailure(
             CloudflareEmbeddingProvider provider, EmbeddingFailure.Reason reason) {
         assertThatThrownBy(() -> provider.embed(List.of(PRIVATE_TEXT)))
@@ -352,6 +467,11 @@ class CloudflareEmbeddingHttpIT {
     }
 
     private CloudflareEmbeddingProvider provider(Duration requestTimeout) {
+        return provider(requestTimeout, new EmbeddingTelemetry(meters, observations));
+    }
+
+    private CloudflareEmbeddingProvider provider(
+            Duration requestTimeout, EmbeddingTelemetry telemetry) {
         var original = CloudflareEmbeddingProviderTest.settings();
         var settings =
                 new CloudflareEmbeddingSettings(
@@ -361,7 +481,7 @@ class CloudflareEmbeddingHttpIT {
                         Duration.ofMillis(500),
                         requestTimeout,
                         8);
-        return new CloudflareEmbeddingProvider(settings, CLOCK, endpoint());
+        return new CloudflareEmbeddingProvider(settings, CLOCK, endpoint(), telemetry);
     }
 
     private URI endpoint() {
