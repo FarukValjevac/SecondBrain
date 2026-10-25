@@ -2,7 +2,7 @@
 
 This guide explains how the current embedding code works: its Java types, Spring configuration, PostgreSQL storage, and Cloudflare HTTP adapter. Read it alongside the linked source files.
 
-The model rules, storage adapter, and HTTP adapter are joined by a durable document embedding handler. **Background embeddings are disabled by default. When explicitly enabled, prepared passages are sent to Cloudflare and their vectors are staged locally.** Index activation, semantic search, and chat are absent from the current code.
+The model rules, storage adapter, and HTTP adapter are joined by a durable document embedding handler. **Background embeddings are disabled by default. When explicitly enabled, prepared passages are sent to Cloudflare and their vectors are staged locally.** Guarded active-version storage exists, while automatic publication, semantic search, and chat are absent from the application workflow.
 
 The diagrams use Mermaid. Open this file in a Markdown viewer with Mermaid support to render them. The tables and text examples explain the same ideas if your viewer displays the diagram source.
 
@@ -40,7 +40,7 @@ flowchart TD
 
 The handler is opt-in through `secondbrain.embeddings.enabled`. Startup constructs the client without a test request; background workers may then process new and retained document facts. Enabling with polling active permits real passage text to leave the computer. Keeping the default disabled requires no Cloudflare credentials and makes no inference calls.
 
-For semantic search, passage embeddings represent stored text and a query embedding represents the search text. Comparing those vectors would identify related passages. Writing a cited answer would require a separate chat operation. Search, index activation, and chat are absent from the current implementation.
+For semantic search, passage embeddings represent stored text and a query embedding represents the search text. Comparing those vectors would identify related passages. Writing a cited answer would require a separate chat operation. Search, automatic publication, and chat are absent from the application workflow.
 
 ## 2. What “1024 dimensions” means
 
@@ -312,7 +312,8 @@ A crash between a provider response and its checkpoint can require repeating the
 | Vector storage in PostgreSQL/pgvector | Implemented with resumable bounded checkpoints |
 | Durable embedding consumer and batch recovery | Implemented; disabled by default |
 | Safe provider request metrics, logs, and child traces | Implemented; export optional |
-| Complete-index activation and semantic search | Not implemented |
+| Guarded active-version persistence | Implemented; worker handoff pending |
+| Automatic publication and semantic search | Not implemented |
 | Live model/account/quality/free-allowance verification | Not performed |
 
 The model, data, and configuration rules give callers a consistent contract. That contract alone cannot establish live inference compatibility or retrieval quality.
@@ -743,6 +744,42 @@ A successful response may include `usage.prompt_tokens`. The bounded parser acce
 [EmbeddingTelemetryTest](../src/test/java/dev/secondbrain/embeddings/EmbeddingTelemetryTest.java) uses a controllable meter clock and an in-memory tracer to check timing, outcomes, trace parentage, and fault isolation. [EmbeddingTelemetryEndpointTest](../src/test/java/dev/secondbrain/embeddings/EmbeddingTelemetryEndpointTest.java) verifies the actual Actuator response with MockMvc. The loopback HTTP tests cover telemetry through the actual client with synthetic text and credentials.
 
 See [embedding request telemetry](../docs/development.md#embedding-request-telemetry) for metric queries and the separate live smoke-check instructions. Synthetic tests do not establish real account permissions, model quality, or remaining free allowance.
+
+## 19. Desired and active index generations
+
+The `documents` row has two optional pointers:
+
+| Pointer | Meaning |
+|---|---|
+| `desired_indexing_version` | Which generation the application wants to build |
+| `active_indexing_version` | Which generation has been selected after publication checks |
+
+These can differ. Suppose generation 7 is active and generation 8 is being prepared. An incomplete replacement must not erase the old selection. The guard can select generation 8 only after its own passages and vectors are complete. Future retrieval also needs to check document visibility, current extraction, and model compatibility; a pointer alone does not establish those conditions.
+
+The active pointer starts empty. Its composite foreign key references `(document_id, indexing_version)`, so a valid generation belonging to another document is still an invalid target. The foreign key is deferred: it is checked when the transaction finishes, allowing coordinated owner deletion without accepting a dangling target after the transaction succeeds.
+
+[JdbcIndexingRepository.activate](../src/main/java/dev/secondbrain/documents/JdbcIndexingRepository.java) provides the guarded storage operation:
+
+```mermaid
+flowchart TD
+    Call[Receive generation, model, and timestamp] --> Tx{Caller transaction exists?}
+    Tx -->|No| Error[Reject the operation]
+    Tx -->|Yes| Current{Visible, extracted, desired, and correct source?}
+    Current -->|No| Stale[INELIGIBLE]
+    Current -->|Yes| Complete{Supported configuration and complete compatible vectors?}
+    Complete -->|No| Partial[INCOMPLETE]
+    Complete -->|Yes| Selected{Already the active generation?}
+    Selected -->|Yes| Same[ALREADY_ACTIVE; preserve timestamp]
+    Selected -->|No| Save[ACTIVATED; select generation and update timestamp]
+```
+
+The method locks the document to serialize competing operations. It checks the stored passage count against actual rows, requires sequence numbers from one through that count without gaps, and verifies one correctly owned model/dimension-compatible vector for every passage. Database constraints additionally reject invalid numerical vectors and model/ownership relationships.
+
+The nested `Activation` enum describes this operation's four possible results. It belongs beside its repository rather than in a global enum file. It keeps incomplete work distinct from obsolete/deleted work, and an idempotent repeat distinct from a new state change.
+
+The caller owns the transaction. If another required database operation fails, selecting the active version rolls back too. Two callers targeting the same complete generation serialize through the document lock: one changes the pointer; the other observes an unchanged selection. Neither should count a second publication merely because the operation was called again.
+
+The embedding worker currently does not invoke this operation. Automatic activation, the `IndexPublished` fact, and delivery acknowledgment still need to be joined under the dispatcher's lease fence. Existing staged generations are not automatically selected, and there is no search endpoint. The [publication integration tests](../src/test/java/dev/secondbrain/documents/IndexPublicationIT.java) exercise the storage boundary against isolated PostgreSQL using deterministic vectors. See [publication prerequisites](../docs/development.md#index-publication-prerequisites) for verification and the read-only pointer query.
 
 ## References and related notes
 

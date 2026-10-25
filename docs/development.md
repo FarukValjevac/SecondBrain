@@ -233,6 +233,29 @@ Retries request only missing vectors. A crash after an HTTP response and before 
 
 This requires Docker but no Cloudflare account. It checks multi-batch/restart recovery, stale versions/deletion/leases, final-acknowledgment rollback, retained facts, and retry eligibility. Existing event traces/attempt metrics cover the delivery. Provider request telemetry is described below.
 
+## Index publication prerequisites
+
+V12 adds `documents.active_indexing_version`, initially NULL. It is separate from `desired_indexing_version`: desired identifies the generation being built, while active identifies a generation selected after completeness validation. Existing data is not activated by the migration. The worker currently finishes embedding staging without calling the activation operation, so normal uploads still have no active index and no semantic-search endpoint.
+
+`JdbcIndexingRepository.activate` is an internal caller-transaction operation. It locks/rechecks the visible, extracted, desired generation and its source, then requires the supported passage configuration, exact contiguous passage count, compatible model/dimensions, and one valid owned vector per passage. It returns `ACTIVATED`, `ALREADY_ACTIVE`, `INCOMPLETE`, or `INELIGIBLE`. Only successful new activation changes the pointer/timestamp. A repeat leaves the timestamp unchanged; a failed or incomplete replacement leaves an existing active pointer intact. The composite deferred foreign key prevents selecting another document's generation or removing a selected target independently.
+
+This operation does not publish an event or validate delivery leases by itself. The publication worker must compose activation, `IndexPublished`, and acknowledgment in one fenced transaction. That integration remains pending. Future retrieval must require a visible document and an active generation compatible with its current extraction/model, rather than treating staging rows as searchable.
+
+```sh
+./mvnw -Dit.test=IndexPublicationIT,DatabaseMigrationIT verify
+```
+
+These PostgreSQL/pgvector checks require Docker and synthetic vectors only. They exercise completeness/version/deletion guards, caller rollback, concurrent activation, immutable repeats, replacement preservation, ownership constraints, and cascade deletion. For a read-only schema check after applying V12:
+
+```sql
+SELECT document_id, desired_indexing_version, active_indexing_version
+FROM documents
+WHERE deleted_at IS NULL
+ORDER BY created_at DESC;
+```
+
+An empty active pointer is expected until publication is connected to the application workflow. Avoid setting it manually; direct SQL writes bypass the application completeness guard.
+
 ## Embedding request telemetry
 
 The enabled Cloudflare adapter records each attempted request after local input validation. Invalid input or an already-interrupted caller rejected before transport is not counted as a provider request. An attempt includes receiving and validating the response; it is independent of saving vectors or acknowledging a delivery. A repeated request after a crash counts again.
@@ -332,7 +355,7 @@ To associate acceptance with a known request, supply a canonical UUID in `X-Corr
 
 ## Database inspection
 
-Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. V10 adds private staged passages with stable IDs/source ranges and binds their count/splitter configuration to each index generation. V11 adds private `vector(1024)` embedding rows, composite passage/model ownership, and per-index model binding; it does not generate vectors or activate indexes. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
+Flyway applies pending migrations on startup. V1 enables pgvector, V2 creates the durable event tables, V3 creates document metadata, V4 creates versioned extraction/numbered-text-line tables, and V5 records fixed extraction failure reasons. V6 adds deletion markers, V7 adds optional physical page numbers to stored lines, and V8 permits PDF metadata and failure codes. V9 adds index-generation metadata tied to an extracted-text version, plus an optional desired-version pointer; existing documents start with no selected index. V10 adds private staged passages with stable IDs/source ranges and binds their count/splitter configuration to each index generation. V11 adds private `vector(1024)` embedding rows, composite passage/model ownership, and per-index model binding; it does not generate vectors or activate indexes. V12 adds the optional same-document active-index pointer; existing generations remain staged. Applied versions are recorded in `flyway_schema_history`; subsequent startups validate history and apply only pending migrations.
 
 `document_extractions` identifies text by document UUID and processing version; `document_text_lines` stores its text once, with one-based line numbers and preserved empty lines. Its `page_number` is a positive physical page for PDFs and SQL NULL for TXT/Markdown. The durable extraction handler writes these tables and publishes `TextExtracted` together with delivery acknowledgment. Upload HTTP responses still return immediately with `QUEUED`; extraction completes asynchronously.
 
