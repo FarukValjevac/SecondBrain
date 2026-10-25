@@ -82,7 +82,7 @@ class DocumentConfiguration {
 
     @Bean
     EventEnvelope.Type passagesPreparedEventType() {
-        // Retain completed passage facts for the embedding consumer introduced in US-03-03.
+        // Remains known and retained while the opt-in embedding consumer is disabled.
         return PassagesPreparedEvent.TYPE;
     }
 
@@ -98,8 +98,9 @@ class DocumentConfiguration {
             JdbcIndexingRepository indexes,
             DocumentIndexingService indexing,
             EventPublisher events,
-            ObjectProvider<DocumentPassageHandler> passages) {
-        return new DocumentIndexingReconciliation(indexes, indexing, events, passages);
+            ObjectProvider<DocumentPassageHandler> passages,
+            ObjectProvider<DocumentEmbeddingHandler> embeddings) {
+        return new DocumentIndexingReconciliation(indexes, indexing, events, passages, embeddings);
     }
 
     @Bean
@@ -222,6 +223,14 @@ class DocumentConfiguration {
     @Bean
     JdbcIndexingRepository jdbcIndexingRepository(JdbcClient jdbc) {
         return new JdbcIndexingRepository(jdbc);
+    }
+
+    @Bean
+    JdbcEmbeddingRepository jdbcEmbeddingRepository(
+            JdbcClient jdbc,
+            JdbcIndexingRepository indexes,
+            PlatformTransactionManager transactions) {
+        return new JdbcEmbeddingRepository(jdbc, indexes, transactions);
     }
 
     @Bean

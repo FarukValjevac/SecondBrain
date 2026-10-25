@@ -1,5 +1,7 @@
 package dev.secondbrain.documents;
 
+import dev.secondbrain.embeddings.EmbeddingModel;
+
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -95,6 +97,70 @@ final class JdbcIndexingRepository {
         requireTransaction();
         if (lockSource(documentId).isEmpty()) return Optional.empty();
         return findEligibleDesired(documentId).filter(index -> index.number() == version);
+    }
+
+    /**
+     * Caller must also publish the fact and fence delivery ownership in this transaction. No
+     * runtime caller is installed until the publication handoff is connected.
+     */
+    Activation activate(IndexingVersion version, EmbeddingModel model, Instant now) {
+        Objects.requireNonNull(version, "version");
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(now, "now");
+        requireTransaction();
+        var current = lockEligibleDesired(version.documentId(), version.number());
+        if (current.isEmpty()
+                || current.orElseThrow().extractionVersion() != version.extractionVersion())
+            return Activation.INELIGIBLE;
+        boolean complete =
+                jdbc.sql(
+                                """
+                SELECT COALESCE(
+                    i.passage_configuration_version = :configuration
+                    AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
+                    AND count(p.passage_id) = i.passage_count
+                    AND min(p.sequence_number) = 1 AND max(p.sequence_number) = i.passage_count
+                    AND count(e.passage_id) FILTER (
+                        WHERE e.document_id = i.document_id AND e.indexing_version = i.indexing_version
+                          AND e.model_id = :model AND e.dimensions = :dimensions
+                          AND vector_dims(e.embedding) = :dimensions AND vector_norm(e.embedding) > 0
+                    ) = i.passage_count, false)
+                FROM document_index_versions i
+                LEFT JOIN document_passages p ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
+                LEFT JOIN document_embeddings e ON e.passage_id = p.passage_id
+                WHERE i.document_id = :id AND i.indexing_version = :version
+                GROUP BY i.document_id, i.indexing_version, i.passage_configuration_version,
+                         i.passage_count, i.embedding_model_id, i.embedding_dimensions
+                """)
+                        .withQueryTimeout(5)
+                        .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
+                        .param("model", model.id())
+                        .param("dimensions", model.dimensions())
+                        .param("id", version.documentId())
+                        .param("version", version.number())
+                        .query(Boolean.class)
+                        .optional()
+                        .orElse(false);
+        if (!complete) return Activation.INCOMPLETE;
+        int changed =
+                jdbc.sql(
+                                """
+                UPDATE documents SET active_indexing_version = :version, updated_at = :now
+                WHERE document_id = :id AND active_indexing_version IS DISTINCT FROM :version
+                """)
+                        .withQueryTimeout(5)
+                        .param("id", version.documentId())
+                        .param("version", version.number())
+                        .param("now", Timestamp.from(now))
+                        .update();
+        return changed == 1 ? Activation.ACTIVATED : Activation.ALREADY_ACTIVE;
+    }
+
+    enum Activation {
+        ACTIVATED,
+        ALREADY_ACTIVE,
+        INCOMPLETE,
+        INELIGIBLE
     }
 
     List<UUID> findUnenrolled(int limit) {

@@ -135,7 +135,10 @@ class TelemetryPrivacyTest {
                         {"document.deletion", "unavailable"},
                         {"document.indexing.request", "requested"},
                         {"document.indexing.request", "unchanged"},
-                        {"document.indexing.request", "unavailable"}
+                        {"document.indexing.request", "unavailable"},
+                        {"embedding.request", "success"},
+                        {"embedding.request", "quota_exhausted"},
+                        {"embedding.request", "invalid_response"}
                     }) {
                 var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
                 span.setAttribute("outcome", operation[1]);

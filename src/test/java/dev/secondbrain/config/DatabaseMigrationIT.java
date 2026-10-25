@@ -56,9 +56,9 @@ class DatabaseMigrationIT {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(10);
+            Assertions.assertThat(flyway.info().applied()).hasSize(12);
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("10");
+            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("12");
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -83,7 +83,7 @@ class DatabaseMigrationIT {
                             jdbc.sql(
                                             """
                             SELECT count(*) FROM documents
-                            WHERE document_id = :id AND desired_indexing_version IS NULL
+                            WHERE document_id = :id AND desired_indexing_version IS NULL AND active_indexing_version IS NULL
                             """)
                                     .param("id", documentId)
                                     .query(Integer.class)
@@ -96,6 +96,11 @@ class DatabaseMigrationIT {
                     .isZero();
             Assertions.assertThat(
                             jdbc.sql("SELECT count(*) FROM document_passages")
+                                    .query(Integer.class)
+                                    .single())
+                    .isZero();
+            Assertions.assertThat(
+                            jdbc.sql("SELECT count(*) FROM document_embeddings")
                                     .query(Integer.class)
                                     .single())
                     .isZero();
@@ -162,7 +167,7 @@ class DatabaseMigrationIT {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(10);
+            Assertions.assertThat(flyway.info().applied()).hasSize(12);
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(
@@ -175,7 +180,7 @@ class DatabaseMigrationIT {
                             jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE success")
                                     .query(Integer.class)
                                     .single())
-                    .isEqualTo(10);
+                    .isEqualTo(12);
             assertExtractedLines(jdbc, documentId);
             Assertions.assertThat(
                             jdbc.sql(

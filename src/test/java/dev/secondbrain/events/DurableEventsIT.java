@@ -654,6 +654,95 @@ class DurableEventsIT {
                 .isEqualTo("FAILED");
     }
 
+    @Test
+    void checkpointsPersistWithoutAcknowledgingOrResettingAttemptAndDeadline() {
+        var event = event();
+        publish(event);
+        var lease = claim();
+        Assertions.assertThat(store.checkpoint(lease, handler.effect(event)))
+                .contains(EventHandler.Outcome.COMPLETED);
+        Assertions.assertThat(count("probe_effects")).isEqualTo(1);
+        Assertions.assertThat(state(event.eventId())).isEqualTo("RUNNING");
+        Assertions.assertThat(
+                        jdbc.sql("SELECT attempts FROM event_deliveries WHERE delivery_id = :id")
+                                .param("id", lease.deliveryId())
+                                .query(Integer.class)
+                                .single())
+                .isEqualTo(1);
+        Assertions.assertThat(
+                        jdbc.sql("SELECT deadline_at FROM event_deliveries WHERE delivery_id = :id")
+                                .param("id", lease.deliveryId())
+                                .query(java.sql.Timestamp.class)
+                                .single()
+                                .toInstant())
+                .isEqualTo(lease.deadline());
+        store.fail(lease, DeliveryFailure.Code.HANDLER_TRANSIENT, true);
+        Assertions.assertThat(count("probe_effects")).isEqualTo(1);
+        clock.advance(Duration.ofSeconds(2));
+        var retryLease = claim();
+        Assertions.assertThat(
+                        store.checkpoint(
+                                lease,
+                                () -> {
+                                    throw new AssertionError("Stale checkpoint ran");
+                                }))
+                .isEmpty();
+        Assertions.assertThat(store.complete(retryLease, handler.effect(event))).isTrue();
+        Assertions.assertThat(count("probe_effects")).isEqualTo(1);
+        Assertions.assertThat(count("domain_events")).isEqualTo(2);
+    }
+
+    @Test
+    void expiryInsideACheckpointRollsBackItsEffectsAndDownstreamFacts() {
+        var event = event();
+        publish(event);
+        var lease = claim();
+        Assertions.assertThat(
+                        store.checkpoint(
+                                lease,
+                                () -> {
+                                    var outcome = handler.effect(event).apply();
+                                    clock.advance(Duration.ofSeconds(5));
+                                    return outcome;
+                                }))
+                .isEmpty();
+        Assertions.assertThat(count("probe_effects")).isZero();
+        Assertions.assertThat(count("domain_events")).isEqualTo(1);
+        Assertions.assertThat(state(event.eventId())).isEqualTo("RUNNING");
+    }
+
+    @Test
+    void retryHintsPersistAcrossContextRestartWithoutExtendingTheAttemptBudget() {
+        var event = event();
+        publish(event);
+        var lease = claim();
+        var hint = clock.instant().plus(Duration.ofDays(1));
+        Assertions.assertThat(store.fail(lease, DeliveryFailure.Code.HANDLER_TRANSIENT, true, hint))
+                .isTrue();
+        context.close();
+        startContext(false);
+        // The fixture recreates its clock at the same epoch; eligibility lives in PostgreSQL.
+        Assertions.assertThat(store.claim(UUID.randomUUID())).isEmpty();
+        clock.advance(Duration.ofDays(1));
+        var second = claim();
+        Assertions.assertThat(second.attempt()).isEqualTo(2);
+        store.fail(
+                second,
+                DeliveryFailure.Code.HANDLER_TRANSIENT,
+                true,
+                clock.instant().minusSeconds(1));
+        Assertions.assertThat(store.claim(UUID.randomUUID())).isEmpty();
+        clock.advance(Duration.ofSeconds(2));
+        var last = claim();
+        Assertions.assertThat(last.attempt()).isEqualTo(3);
+        store.fail(
+                last, DeliveryFailure.Code.HANDLER_TRANSIENT, true, hint.plus(Duration.ofDays(1)));
+        Assertions.assertThat(state(event.eventId())).isEqualTo("FAILED");
+        Assertions.assertThat(failureCode(event.eventId())).isEqualTo("ATTEMPTS_EXHAUSTED");
+        clock.advance(Duration.ofDays(2));
+        Assertions.assertThat(store.claim(UUID.randomUUID())).isEmpty();
+    }
+
     private UUID publish(EventEnvelope event) {
         return transaction.execute(status -> publisher.publish(event));
     }
