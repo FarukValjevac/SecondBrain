@@ -23,6 +23,7 @@ final class DocumentIndexPublication implements EventHandler {
     private final EventPublisher events;
     private final EmbeddingModel model;
     private final Clock clock;
+    private final IndexReadinessMetrics metrics;
     private final TransactionTemplate isolated;
 
     DocumentIndexPublication(
@@ -30,11 +31,13 @@ final class DocumentIndexPublication implements EventHandler {
             EventPublisher events,
             EmbeddingModel model,
             Clock clock,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions,
+            IndexReadinessMetrics metrics) {
         this.indexes = Objects.requireNonNull(indexes, "indexes");
         this.events = Objects.requireNonNull(events, "events");
         this.model = Objects.requireNonNull(model, "model");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.metrics = Objects.requireNonNull(metrics, "metrics");
         isolated = new TransactionTemplate(Objects.requireNonNull(transactions, "transactions"));
         isolated.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         isolated.setTimeout(5);
@@ -105,6 +108,8 @@ final class DocumentIndexPublication implements EventHandler {
                                 cause.eventId(),
                                 cause.traceParent(),
                                 Map.of()));
+                if (outcome == JdbcIndexingRepository.Activation.ACTIVATED)
+                    metrics.afterActivation(version);
                 yield Outcome.COMPLETED;
             }
         };

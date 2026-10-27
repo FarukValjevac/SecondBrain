@@ -99,10 +99,7 @@ final class JdbcIndexingRepository {
         return findEligibleDesired(documentId).filter(index -> index.number() == version);
     }
 
-    /**
-     * Caller must also publish the fact and fence delivery ownership in this transaction. No
-     * runtime caller is installed until the publication handoff is connected.
-     */
+    /** Caller must also publish the fact and fence delivery ownership in this transaction. */
     Activation activate(IndexingVersion version, EmbeddingModel model, Instant now) {
         Objects.requireNonNull(version, "version");
         Objects.requireNonNull(model, "model");
@@ -161,6 +158,43 @@ final class JdbcIndexingRepository {
         ALREADY_ACTIVE,
         INCOMPLETE,
         INELIGIBLE
+    }
+
+    /** Guarded active pointers are authoritative; a staged replacement does not hide them. */
+    long activeCount(EmbeddingModel model) {
+        return jdbc.sql(
+                        """
+                SELECT count(*) FROM documents d JOIN document_index_versions i
+                  ON i.document_id = d.document_id AND i.indexing_version = d.active_indexing_version
+                WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
+                  AND i.extraction_version = d.processing_version
+                  AND i.passage_configuration_version = :configuration
+                  AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
+                  AND i.passage_count > 0
+                """)
+                .withQueryTimeout(5)
+                .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
+                .param("model", model.id())
+                .param("dimensions", model.dimensions())
+                .query(Long.class)
+                .single();
+    }
+
+    Optional<Instant> activeAcceptedAt(IndexingVersion version) {
+        return jdbc.sql(
+                        """
+                SELECT created_at FROM documents
+                WHERE document_id = :id AND active_indexing_version = :version
+                  AND processing_version = :source AND extraction_state = 'EXTRACTED'
+                  AND deleted_at IS NULL
+                """)
+                .withQueryTimeout(5)
+                .param("id", version.documentId())
+                .param("version", version.number())
+                .param("source", version.extractionVersion())
+                .query(Timestamp.class)
+                .optional()
+                .map(Timestamp::toInstant);
     }
 
     List<PublicationRecovery> findPublicationRecovery(EmbeddingModel model, int limit) {

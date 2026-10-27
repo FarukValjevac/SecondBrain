@@ -38,12 +38,13 @@ class DocumentIndexPublicationTest {
     private final EventEnvelope cause = event(PassagesPreparedEvent.TYPE, version.documentId(), 7);
     private final JdbcIndexingRepository indexes = mock(JdbcIndexingRepository.class);
     private final EventPublisher events = mock(EventPublisher.class);
+    private final IndexReadinessMetrics metrics = mock(IndexReadinessMetrics.class);
     private final DocumentIndexingServiceTest.CallbackTransactions manager =
             new DocumentIndexingServiceTest.CallbackTransactions();
     private final TransactionTemplate transaction = new TransactionTemplate(manager);
     private final DocumentIndexPublication publication =
             new DocumentIndexPublication(
-                    indexes, events, model, Clock.fixed(NOW, ZoneOffset.UTC), manager);
+                    indexes, events, model, Clock.fixed(NOW, ZoneOffset.UTC), manager, metrics);
 
     @ParameterizedTest
     @EnumSource(JdbcIndexingRepository.Activation.class)
@@ -76,6 +77,9 @@ class DocumentIndexPublicationTest {
                 assertThat(event.references()).isEmpty();
             }
         }
+        if (activation == JdbcIndexingRepository.Activation.ACTIVATED)
+            verify(metrics).afterActivation(version);
+        else verifyNoInteractions(metrics);
     }
 
     @Test

@@ -11,6 +11,8 @@ import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingProvider;
 import dev.secondbrain.embeddings.EmbeddingVector;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -443,6 +445,12 @@ class DocumentEmbeddingDeliveryIT {
 
     private void assertComplete(ConfigurableApplicationContext context, DeliveryLease lease) {
         assertThat(state(context, lease)).isEqualTo("COMPLETED");
+        assertThat(
+                        context.getBean(MeterRegistry.class)
+                                .get("secondbrain.index.ready.duration")
+                                .timer()
+                                .count())
+                .isEqualTo(1);
         assertThat(vectorCount(context, lease)).isEqualTo(passageCount(context, lease));
         assertThat(
                         jdbc(context)
@@ -573,6 +581,12 @@ class DocumentEmbeddingDeliveryIT {
 
     private static void assertUnpublished(
             ConfigurableApplicationContext context, DeliveryLease lease) {
+        assertThat(
+                        context.getBean(MeterRegistry.class)
+                                .get("secondbrain.index.ready.duration")
+                                .timer()
+                                .count())
+                .isZero();
         assertThat(
                         jdbc(context)
                                 .sql(

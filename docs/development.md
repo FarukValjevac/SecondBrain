@@ -258,7 +258,7 @@ An empty active pointer is expected while processing is disabled, incomplete, or
 
 ## Atomic publication and recovery
 
-The normal `documents.embed-passages.v1` delivery acknowledges `PassagesPrepared` only after the shared publication effect succeeds. It selects the complete desired/current generation, emits one ID-only schema-1 `IndexPublished` fact, and acknowledges in the same transaction. Correlation is retained, and causation points to that `PassagesPrepared` event. Repeating an effect uses the original logical event identity; an already active generation still repairs a missing fact. `IndexPublished` is terminal and creates no additional business delivery. Library pages still display extraction status; readiness metrics and semantic-search endpoints are separate work.
+The normal `documents.embed-passages.v1` delivery acknowledges `PassagesPrepared` only after the shared publication effect succeeds. It selects the complete desired/current generation, emits one ID-only schema-1 `IndexPublished` fact, and acknowledges in the same transaction. Correlation is retained, and causation points to that `PassagesPrepared` event. Repeating an effect uses the original logical event identity; an already active generation still repairs a missing fact. `IndexPublished` is terminal and creates no additional business delivery. Library pages still display extraction status. Index readiness metrics are available below; semantic-search endpoints remain under development.
 
 Indexing reconciliation also handles fully staged generations whose embedding delivery is already completed. It creates an idempotent `IndexPublicationRequested` recovery intent and a `documents.publish-index.v1` delivery. This pure database operation uses the same publication effect and its own fenced acknowledgment. It never reopens the completed embedding delivery, copies a failed job into a new budget, or repeats inference. Pending/running/failed/skipped embedding deliveries and existing recovery/publication keys exclude this enrollment; ordinary existing work keeps its original retry policy. Counts/model/configuration must indicate complete staging, and the consumer rechecks completed embedding provenance and the full activation guard again.
 
@@ -272,6 +272,39 @@ If the old passage event payload still exists, recovery retains its correlation 
 ```
 
 The PostgreSQL checks exercise insertion/deferred-transaction failure, acknowledgment failure, lease expiry after publication effects, competing valid deliveries, restart with retained/cleaned historical payloads, and exclusion of existing embedding budgets. They use isolated databases, temporary originals, and deterministic inference. Full `./mvnw verify` remains the gate; no live credentials or original library data are required.
+
+## Index readiness telemetry
+
+When embeddings, indexing, and events are enabled, Actuator exposes these unlabelled metrics:
+
+| Metric | Meaning |
+|---|---|
+| `secondbrain.index.active` | Number of visible, current-source active indexes compatible with the configured model and splitter configuration |
+| `secondbrain.index.active.available` | 1 when the cached database read succeeded, 0 when unavailable |
+| `secondbrain.index.ready.duration` | Timer from original upload acceptance to each newly committed index activation, in seconds |
+
+The count comes from the committed active-version relationship, not a publication counter. Retries cannot inflate it, and a restart rebuilds it from PostgreSQL. A compatible old active generation stays counted while its replacement is staged. Hidden documents, outdated extraction sources, and staged-only generations are excluded. Publication's completeness guard validates passages/vectors before selecting that pointer; the metric does not scan all vector contents on every scrape.
+
+Both gauges share one read cached for five seconds, including failures. Queries use a separate read-only transaction with a five-second transaction/query timeout. A failed read reports `NaN` for the count and availability 0 rather than claiming an empty library. Values may lag publication/deletion by up to the cache interval. These metrics describe index data; they do not change `/actuator/health/readiness`.
+
+The timer records only after a new activation commits, including activation through publication recovery. It does not count provider calls, vector checkpoints, rollback, lease loss, or repeated publication of an already active generation. Reindexing can add a new sample measured from the document's original acceptance. Samples include queued/retry time. Timer data resets on restart and is best effort: a crash after commit, telemetry failure, or deletion/replacement before its post-commit lookup can lose a sample. It is not a durable publication ledger. Future-dated acceptance timestamps produce no sample. Application correctness never depends on these measurements.
+
+```sh
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.index.active
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.index.active.available
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.index.ready.duration
+```
+
+With indexing enabled and successfully processed documents, availability should be 1. The active count reflects the eligible library; the timer's `COUNT` reflects new activations observed by this process. No filenames, document IDs, content, model credentials, or queries are metric labels. These queries make no provider request. Do not enable hosted inference solely to inspect metrics unless its setup and data sharing are intended.
+
+For isolated verification without credentials or model requests:
+
+```sh
+./mvnw -Dtest=IndexReadinessMetricsTest,DocumentIndexPublicationTest,DocumentTelemetryEndpointTest test
+./mvnw -Dit.test=IndexPublicationIT,DocumentEmbeddingDeliveryIT verify
+```
+
+The PostgreSQL checks cover committed versus uncommitted state, rollback, replacement visibility, source/deletion changes, fresh collectors, retries, failed acknowledgment, and lost leases. The full gate remains `./mvnw verify`.
 
 ## Embedding request telemetry
 

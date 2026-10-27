@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingVector;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -25,7 +27,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -314,6 +318,91 @@ class IndexPublicationIT {
                             JdbcIndexingRepository.Activation.ALREADY_ACTIVE);
         }
         assertThat(active(prepared.version().documentId())).hasValue(7);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void readinessReadsCommittedStateAndRecordsDurationOnlyForCommittedActivation(boolean rollback)
+            throws Exception {
+        var prepared = fixture(7);
+        storeVectors(prepared);
+        var meters = new SimpleMeterRegistry();
+        try {
+            var metrics =
+                    new IndexReadinessMetrics(
+                            indexes,
+                            MODEL,
+                            meters,
+                            Clock.fixed(AT.plusSeconds(20), ZoneOffset.UTC),
+                            transactions.getTransactionManager());
+            transactions.executeWithoutResult(
+                    status -> {
+                        assertThat(indexes.activate(prepared.version(), MODEL, AT.plusSeconds(10)))
+                                .isEqualTo(JdbcIndexingRepository.Activation.ACTIVATED);
+                        metrics.afterActivation(prepared.version());
+                        // A separate connection cannot observe this transaction's uncommitted
+                        // pointer.
+                        assertThat(meters.get("secondbrain.index.active").gauge().value()).isZero();
+                        assertThat(meters.get("secondbrain.index.ready.duration").timer().count())
+                                .isZero();
+                        if (rollback) status.setRollbackOnly();
+                    });
+            assertThat(meters.get("secondbrain.index.ready.duration").timer().count())
+                    .isEqualTo(rollback ? 0 : 1);
+            assertThat(
+                            meters.get("secondbrain.index.ready.duration")
+                                    .timer()
+                                    .totalTime(TimeUnit.SECONDS))
+                    .isEqualTo(rollback ? 0 : 20);
+        } finally {
+            meters.close();
+        }
+        // A new collector rebuilds its gauge from PostgreSQL and starts an empty local timer.
+        var restarted = new SimpleMeterRegistry();
+        try {
+            new IndexReadinessMetrics(
+                    indexes,
+                    MODEL,
+                    restarted,
+                    Clock.fixed(AT, ZoneOffset.UTC),
+                    transactions.getTransactionManager());
+            assertThat(restarted.get("secondbrain.index.active").gauge().value())
+                    .isEqualTo(rollback ? 0 : 1);
+            assertThat(restarted.get("secondbrain.index.ready.duration").timer().count()).isZero();
+        } finally {
+            restarted.close();
+        }
+    }
+
+    @Test
+    void activeProjectionKeepsCompatibleReplacementSourcesAndExcludesHiddenOrStaleSources()
+            throws Exception {
+        var prepared = fixture(7);
+        var version = prepared.version();
+        storeVectors(prepared);
+        assertThat(indexes.activeCount(MODEL)).isZero();
+        assertThat(indexes.activeAcceptedAt(version)).isEmpty();
+        activate(version);
+        assertThat(indexes.activeCount(MODEL)).isEqualTo(1);
+        assertThat(indexes.activeAcceptedAt(version)).contains(AT);
+        transactions.executeWithoutResult(
+                status -> indexes.request(version.documentId(), OptionalLong.of(8), AT));
+        assertThat(indexes.activeCount(MODEL)).isEqualTo(1);
+        jdbc.sql("UPDATE documents SET processing_version = 3 WHERE document_id = :id")
+                .param("id", version.documentId())
+                .update();
+        assertThat(indexes.activeCount(MODEL)).isZero();
+        assertThat(indexes.activeAcceptedAt(version)).isEmpty();
+        jdbc.sql(
+                        "UPDATE documents SET processing_version = 2, deleted_at = updated_at WHERE document_id = :id")
+                .param("id", version.documentId())
+                .update();
+        assertThat(indexes.activeCount(MODEL)).isZero();
+        assertThat(indexes.activeAcceptedAt(version)).isEmpty();
+        jdbc.sql("DELETE FROM documents WHERE document_id = :id")
+                .param("id", version.documentId())
+                .update();
+        assertThat(indexes.activeCount(MODEL)).isZero();
     }
 
     @ParameterizedTest

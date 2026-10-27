@@ -3,6 +3,8 @@ package dev.secondbrain.documents;
 import dev.secondbrain.embeddings.EmbeddingProvider;
 import dev.secondbrain.events.EventPublisher;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -39,7 +41,11 @@ class DocumentEmbeddingConfiguration {
             EventPublisher events,
             EmbeddingProvider provider,
             Clock clock,
-            PlatformTransactionManager transactions) {
-        return new DocumentIndexPublication(indexes, events, provider.model(), clock, transactions);
+            PlatformTransactionManager transactions,
+            MeterRegistry meters) {
+        var metrics =
+                new IndexReadinessMetrics(indexes, provider.model(), meters, clock, transactions);
+        return new DocumentIndexPublication(
+                indexes, events, provider.model(), clock, transactions, metrics);
     }
 }

@@ -66,6 +66,9 @@ class DocumentEmbeddingConfigurationTest {
                         () -> mock(dev.secondbrain.events.EventPublisher.class))
                 .withBean(java.time.Clock.class, java.time.Clock::systemUTC)
                 .withBean(
+                        io.micrometer.core.instrument.MeterRegistry.class,
+                        io.micrometer.core.instrument.simple.SimpleMeterRegistry::new)
+                .withBean(
                         org.springframework.transaction.PlatformTransactionManager.class,
                         DocumentIndexingServiceTest.CallbackTransactions::new);
     }

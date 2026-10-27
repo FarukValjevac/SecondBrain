@@ -859,6 +859,32 @@ Late workers meet two checks. While the hidden owner remains, visibility/source/
 
 The [deletion delivery tests](../src/test/java/dev/secondbrain/events/DocumentDeletionDeliveryIT.java) exercise these boundaries with real database ownership rules and deterministic vectors. The [development guide](../docs/development.md#deleted-document-cleanup) documents the UI and focused verification command.
 
+## 22. Ready data versus processing attempts
+
+A provider response, saved vector batch, and ready index are different milestones. Readiness belongs to the committed active-version relationship. `secondbrain.index.active` counts eligible documents with that relationship. It reads PostgreSQL rather than increasing a counter when a worker runs, so a retry cannot count the same document twice. A fresh application process can recover the count from the same database.
+
+```mermaid
+flowchart TD
+    Batch[Save vector batches] --> Staged[Staged generation]
+    Staged --> Guard[Validate complete current generation]
+    Guard --> Atomic[Select active generation and record publication fact]
+    Atomic --> Finish{Transaction finishes}
+    Finish -->|Rollback or lost lease| NoSample[No duration sample; no new active state]
+    Finish -->|Commit| Active[Active pointer visible to other transactions]
+    Active --> Gauge[Cached database count]
+    Active --> Sample[Best-effort upload-to-ready timer sample]
+```
+
+`secondbrain.index.ready.duration` measures elapsed time from original upload acceptance to a newly committed activation. It includes waiting and retries. An already active repeat adds no sample; activating a replacement adds one. That differs from the provider request timer, which measures an individual inference attempt.
+
+The timer uses Spring's `TransactionSynchronization.afterCommit` callback. Recording it inside the publication transaction would produce misleading samples if the final acknowledgment or lease check later rolled back. The callback reads in its own short transaction because Spring can still have the completed transaction's connection bound during the callback. The gauge also uses an independent read transaction so it cannot see another caller's uncommitted pointer.
+
+The count and `secondbrain.index.active.available` share a five-second cache. A failed database read produces an unknown count (`NaN`) and availability 0, rather than a false zero. This cache can briefly show the previous count after publication or deletion. A compatible old active index stays counted while a replacement is staged; hidden documents and obsolete extraction sources do not count.
+
+Duration samples are local diagnostics. They reset on restart, and a crash after database success can lose one. Telemetry failure never changes publication success. The database remains the authority for ready data. These index metrics are separate from the application's HTTP health readiness probe and contain no document names, IDs, or text in their labels.
+
+See [IndexReadinessMetrics](../src/main/java/dev/secondbrain/documents/IndexReadinessMetrics.java) for the collector and callback, and [metric usage](../docs/development.md#index-readiness-telemetry) for the read-only curl queries.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
