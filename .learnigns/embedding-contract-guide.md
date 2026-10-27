@@ -829,6 +829,36 @@ With a retained passage payload, the intent keeps its correlation/trace and uses
 
 The [publication unit checks](../src/test/java/dev/secondbrain/documents/DocumentIndexPublicationTest.java) cover outcome/identity/context and caller transaction boundaries. The real PostgreSQL delivery tests additionally cover rollback after event insertion or transaction failure, acknowledgment failure, lease expiry, competing deliveries, and recovery across restart without another model call. Test execution results belong in the implementation plan, separately from this current-code guide.
 
+## 21. Deleting a document and its indexes
+
+The document is the owner of its saved content. When you confirm deletion, the application hides it immediately and records a durable cleanup request. The worker then removes the stored copy of the original and deletes the database owner. Foreign keys with `ON DELETE CASCADE` remove the dependent rows automatically. Your source file is untouched.
+
+```mermaid
+flowchart TD
+    Confirm[Confirm deletion] --> Hidden[Hide document and save durable request]
+    Hidden --> File[Worker removes generated original]
+    File --> Tx[Lease-fenced database transaction]
+    Tx --> Events[Remove other document event payloads and deliveries]
+    Events --> Owner[Delete document owner]
+    Owner --> Text[Extracted text and numbered lines]
+    Text --> Index[All index generations: active and staged]
+    Index --> Passages[Passages]
+    Passages --> Vectors[Embedding vectors]
+    Tx --> Keys[Retain compact event keys for duplicate protection]
+```
+
+### Two kinds of version number
+
+Extraction/deletion processing versions and index generations count different things. Extraction version **1** might have active index generation **7** and staged replacement **8**. Deletion advances the document processing version to **2**. It still removes both indexes. Comparing 7 or 8 with 2 would be incorrect; cleanup follows document ownership and removes that document's other event payloads regardless of their generation.
+
+### Files and database transactions behave differently
+
+Removing a file cannot roll back with PostgreSQL. If the worker removes the original but loses its lease before database finalization finishes, the database changes roll back. The hidden document and its derived rows remain recoverable. A later attempt accepts the missing original and retries database cleanup. If file removal itself fails, database content stays hidden and the delivery uses its bounded retry policy.
+
+Late workers meet two checks. While the hidden owner remains, visibility/source/generation guards reject old embedding writes and publication. After physical cleanup, the owner no longer exists and old delivery leases have been removed. Even a prepared effect cannot restore the content. Compact event keys retain only logical identity, so replaying an old event cannot recreate its removed payload or start another delivery. They contain no document text or vectors.
+
+The [deletion delivery tests](../src/test/java/dev/secondbrain/events/DocumentDeletionDeliveryIT.java) exercise these boundaries with real database ownership rules and deterministic vectors. The [development guide](../docs/development.md#deleted-document-cleanup) documents the UI and focused verification command.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

@@ -73,7 +73,8 @@ class IndexPublicationIT {
 
     @AfterEach
     void clearOnlyContainerFixtures() {
-        jdbc.sql("TRUNCATE documents CASCADE").update();
+        // Event keys deliberately outlive document ownership; clear both isolated fixture roots.
+        jdbc.sql("TRUNCATE documents, event_keys CASCADE").update();
     }
 
     @Test

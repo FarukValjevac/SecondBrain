@@ -5,12 +5,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentDeletionService;
+import dev.secondbrain.documents.DocumentIndexingService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.ExtractionState;
+import dev.secondbrain.embeddings.EmbeddingModel;
+import dev.secondbrain.embeddings.EmbeddingProvider;
+import dev.secondbrain.embeddings.EmbeddingVector;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -24,14 +30,20 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Exercises real document handlers through the package-private delivery/lease boundary. */
 @Testcontainers
@@ -46,6 +58,32 @@ class DocumentDeletionDeliveryIT {
     @TempDir private Path storage;
     private final MutableClock clock =
             new MutableClock(Instant.parse("2030-01-01T00:00:00.123456Z"));
+    private final AtomicInteger embeddingCalls = new AtomicInteger();
+    private final EmbeddingProvider embeddings =
+            new EmbeddingProvider() {
+                @Override
+                public EmbeddingModel model() {
+                    return new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024);
+                }
+
+                @Override
+                public List<EmbeddingVector> embed(List<String> inputs) {
+                    assertThat(
+                                    org.springframework.transaction.support
+                                            .TransactionSynchronizationManager
+                                            .isActualTransactionActive())
+                            .isFalse();
+                    embeddingCalls.incrementAndGet();
+                    return inputs.stream()
+                            .map(
+                                    ignored -> {
+                                        float[] values = new float[1024];
+                                        values[0] = 1;
+                                        return new EmbeddingVector(model(), values);
+                                    })
+                            .toList();
+                }
+            };
 
     @AfterEach
     void clearOnlyTheIsolatedDatabase() {
@@ -197,6 +235,314 @@ class DocumentDeletionDeliveryIT {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(LateStage.class)
+    void deletesPublishedAndStagedGenerationsAndFencesLateWork(LateStage stage) throws Exception {
+        try (var context = start(true)) {
+            var fixture = published(context);
+            var late = prepareLateWork(context, fixture, stage);
+            var before = indexCounts(context, fixture);
+            requestDeletion(context, fixture);
+            assertThat(original(fixture)).exists();
+            var transaction = transaction(context);
+            assertThat(transaction.<EventHandler.Outcome>execute(status -> late.effect().apply()))
+                    .isEqualTo(EventHandler.Outcome.SKIPPED);
+            assertThat(indexCounts(context, fixture)).isEqualTo(before);
+            var fences = keys(context, fixture);
+            var cleanup = claimCleanup(context);
+            context.getBean(EventDispatcher.class).dispatch(cleanup);
+            assertCleaned(context, fixture);
+            assertThat(keys(context, fixture)).isEqualTo(fences);
+
+            var store = context.getBean(JdbcEventStore.class);
+            var ran = new AtomicBoolean();
+            assertThat(
+                            store.complete(
+                                    late.lease(),
+                                    () -> {
+                                        ran.set(true);
+                                        return late.effect().apply();
+                                    }))
+                    .isFalse();
+            assertThat(store.checkpoint(late.lease(), late.effect())).isEmpty();
+            assertThat(ran).isFalse();
+            assertThat(transaction.<EventHandler.Outcome>execute(status -> late.effect().apply()))
+                    .isEqualTo(EventHandler.Outcome.SKIPPED);
+            int calls = embeddingCalls.get();
+            assertThat(
+                            transaction.<UUID>execute(
+                                    status ->
+                                            context.getBean(EventPublisher.class)
+                                                    .publish(late.lease().event())))
+                    .isEqualTo(late.lease().event().eventId());
+            assertThat(
+                            context.getBean(EventPublisher.class)
+                                    .scheduleMissing(
+                                            new EventEnvelope.Type("PassagesPrepared", 1),
+                                            "documents.embed-passages.v1",
+                                            100))
+                    .isZero();
+            assertThat(
+                            context.getBean(EventPublisher.class)
+                                    .scheduleMissing(
+                                            new EventEnvelope.Type("IndexPublicationRequested", 1),
+                                            "documents.publish-index.v1",
+                                            100))
+                    .isZero();
+            assertThat(store.claim(UUID.randomUUID())).isEmpty();
+            assertThat(
+                            context.getBean(EventRegistry.class)
+                                    .handler(DELETE_HANDLER)
+                                    .orElseThrow()
+                                    .prepare(cleanup.event())
+                                    .apply())
+                    .isEqualTo(EventHandler.Outcome.SKIPPED);
+            assertThat(embeddingCalls.get()).isEqualTo(calls);
+            assertThat(keys(context, fixture)).isEqualTo(fences);
+            assertCleaned(context, fixture);
+        }
+    }
+
+    @Test
+    void publishedIndexCleanupRollsBackOnExpiryAndRecoversAfterRestart() throws Exception {
+        Fixture fixture;
+        LateWork late;
+        DeliveryLease expired;
+        List<Long> before;
+        List<UUID> fences;
+        try (var context = start(true)) {
+            fixture = published(context);
+            late = prepareLateWork(context, fixture, LateStage.PUBLICATION);
+            before = indexCounts(context, fixture);
+            requestDeletion(context, fixture);
+            fences = keys(context, fixture);
+            expired = claimCleanup(context);
+            var prepared =
+                    context.getBean(EventRegistry.class)
+                            .handler(DELETE_HANDLER)
+                            .orElseThrow()
+                            .prepare(expired.event());
+            assertThat(original(fixture)).doesNotExist();
+            assertThat(
+                            context.getBean(JdbcEventStore.class)
+                                    .complete(
+                                            expired,
+                                            () -> {
+                                                var result = prepared.apply();
+                                                clock.advance(
+                                                        context.getBean(
+                                                                        EventDeliveryProperties
+                                                                                .class)
+                                                                .leaseDuration()
+                                                                .plusSeconds(1));
+                                                return result;
+                                            }))
+                    .isFalse();
+            assertHidden(context, fixture);
+            assertThat(indexCounts(context, fixture)).isEqualTo(before);
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT active_indexing_version FROM documents WHERE document_id = :id")
+                                    .param("id", fixture.id())
+                                    .query(Long.class)
+                                    .single())
+                    .isEqualTo(7);
+            assertThat(payloadCount(context, fixture, "IndexPublished")).isEqualTo(1);
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT state FROM event_deliveries WHERE delivery_id = :id")
+                                    .param("id", late.lease().deliveryId())
+                                    .query(String.class)
+                                    .single())
+                    .isEqualTo("RUNNING");
+            assertThat(keys(context, fixture)).isEqualTo(fences);
+        }
+        try (var context = start(true)) {
+            var store = context.getBean(JdbcEventStore.class);
+            // Reap both expired leases; retries become eligible after bounded backoff.
+            store.claim(UUID.randomUUID());
+            store.claim(UUID.randomUUID());
+            clock.advance(
+                    context.getBean(EventDeliveryProperties.class).maxBackoff().plusSeconds(1));
+            var replacement = claimCleanup(context);
+            assertThat(replacement.token()).isNotEqualTo(expired.token());
+            context.getBean(EventDispatcher.class).dispatch(replacement);
+            assertCleaned(context, fixture);
+            assertThat(
+                            store.complete(
+                                    expired,
+                                    () -> {
+                                        throw new AssertionError("Expired cleanup ran");
+                                    }))
+                    .isFalse();
+            assertThat(keys(context, fixture)).isEqualTo(fences);
+            assertThat(attempts(context, fixture)).containsExactly("EXPIRED", "COMPLETED");
+        }
+    }
+
+    @Test
+    void filesystemFailurePreservesHiddenPublishedDataUntilTheOriginalCanBeRemoved()
+            throws Exception {
+        try (var context = start(true)) {
+            var fixture = published(context);
+            var before = indexCounts(context, fixture);
+            var backup = storage.resolve("test-original-backup");
+            Files.move(original(fixture), backup);
+            Files.createDirectory(original(fixture));
+            var obstruction =
+                    Files.writeString(
+                            original(fixture).resolve("obstruction"), "synthetic obstruction");
+            try {
+                requestDeletion(context, fixture);
+                context.getBean(EventDispatcher.class).dispatch(claimCleanup(context));
+                assertThat(deliveryState(context, fixture)).isEqualTo("PENDING");
+                assertHidden(context, fixture);
+                assertThat(indexCounts(context, fixture)).isEqualTo(before);
+                assertThat(payloadCount(context, fixture, "IndexPublished")).isEqualTo(1);
+                assertThat(Files.readAllBytes(backup)).isEqualTo(CONTENT);
+            } finally {
+                Files.delete(obstruction);
+                Files.delete(original(fixture));
+                Files.move(backup, original(fixture));
+            }
+            clock.advance(Duration.ofSeconds(2));
+            context.getBean(EventDispatcher.class).dispatch(claimCleanup(context));
+            assertCleaned(context, fixture);
+            assertThat(attempts(context, fixture)).containsExactly("FAILED", "COMPLETED");
+        }
+    }
+
+    private Fixture published(ConfigurableApplicationContext context) throws Exception {
+        var fixture = upload(context);
+        extract(context, fixture);
+        // Index versions are independent of extraction/deletion versions (1/2).
+        clock.advance(Duration.ofMillis(1));
+        context.getBean(DocumentIndexingService.class)
+                .request(fixture.id(), 7, UUID.randomUUID())
+                .orElseThrow();
+        for (var handler :
+                List.of(
+                        "documents.request-index.v1",
+                        "documents.prepare-passages.v1",
+                        "documents.embed-passages.v1")) {
+            var lease =
+                    context.getBean(JdbcEventStore.class).claim(UUID.randomUUID()).orElseThrow();
+            assertThat(lease.handlerId()).isEqualTo(handler);
+            context.getBean(EventDispatcher.class).dispatch(lease);
+        }
+        assertThat(
+                        jdbc(context)
+                                .sql(
+                                        "SELECT active_indexing_version FROM documents WHERE document_id = :id")
+                                .param("id", fixture.id())
+                                .query(Long.class)
+                                .single())
+                .isEqualTo(7);
+        assertThat(payloadCount(context, fixture, "IndexPublished")).isEqualTo(1);
+        return fixture;
+    }
+
+    private LateWork prepareLateWork(
+            ConfigurableApplicationContext context, Fixture fixture, LateStage stage)
+            throws Exception {
+        context.getBean(DocumentIndexingService.class)
+                .request(fixture.id(), 8, UUID.randomUUID())
+                .orElseThrow();
+        var store = context.getBean(JdbcEventStore.class);
+        var passage = store.claim(UUID.randomUUID()).orElseThrow();
+        assertThat(passage.handlerId()).isEqualTo("documents.prepare-passages.v1");
+        context.getBean(EventDispatcher.class).dispatch(passage);
+        var embedding = store.claim(UUID.randomUUID()).orElseThrow();
+        assertThat(embedding.handlerId()).isEqualTo("documents.embed-passages.v1");
+        var handler =
+                context.getBean(EventRegistry.class).handler(embedding.handlerId()).orElseThrow();
+        if (stage == LateStage.BATCH) {
+            var captured = new AtomicReference<EventHandler.Effect>();
+            handler.prepare(
+                    embedding.event(),
+                    effect -> {
+                        captured.set(effect);
+                        return Optional.empty();
+                    });
+            assertThat(captured.get()).isNotNull();
+            return new LateWork(embedding, captured.get());
+        }
+        var effect =
+                handler.prepare(
+                        embedding.event(), progress -> store.checkpoint(embedding, progress));
+        if (stage == LateStage.PUBLICATION) return new LateWork(embedding, effect);
+        assertThat(store.complete(embedding, () -> EventHandler.Outcome.COMPLETED)).isTrue();
+        transaction(context)
+                .executeWithoutResult(
+                        status ->
+                                context.getBean(EventPublisher.class)
+                                        .publish(
+                                                new EventEnvelope(
+                                                        UUID.randomUUID(),
+                                                        new EventEnvelope.Type(
+                                                                "IndexPublicationRequested", 1),
+                                                        fixture.id(),
+                                                        8,
+                                                        clock.instant(),
+                                                        embedding.event().correlationId(),
+                                                        embedding.event().eventId(),
+                                                        embedding.event().traceParent(),
+                                                        Map.of())));
+        var recovery = store.claim(UUID.randomUUID()).orElseThrow();
+        assertThat(recovery.handlerId()).isEqualTo("documents.publish-index.v1");
+        return new LateWork(
+                recovery,
+                context.getBean(EventRegistry.class)
+                        .handler(recovery.handlerId())
+                        .orElseThrow()
+                        .prepare(recovery.event()));
+    }
+
+    private static DeliveryLease claimCleanup(ConfigurableApplicationContext context) {
+        for (int count = 0; count < 10; count++) {
+            var lease = context.getBean(JdbcEventStore.class).claim(UUID.randomUUID());
+            if (lease.isEmpty()) continue;
+            if (lease.orElseThrow().handlerId().equals(DELETE_HANDLER)) return lease.orElseThrow();
+            context.getBean(EventDispatcher.class).dispatch(lease.orElseThrow());
+        }
+        throw new AssertionError("Cleanup delivery was not claimable within the fixture bound");
+    }
+
+    private static TransactionTemplate transaction(ConfigurableApplicationContext context) {
+        var transaction =
+                new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
+        transaction.setTimeout(5);
+        return transaction;
+    }
+
+    private static List<Long> indexCounts(ConfigurableApplicationContext context, Fixture fixture) {
+        return List.of("document_index_versions", "document_passages", "document_embeddings")
+                .stream()
+                .map(table -> count(context, table, fixture.id()))
+                .toList();
+    }
+
+    private static List<UUID> keys(ConfigurableApplicationContext context, Fixture fixture) {
+        return jdbc(context)
+                .sql("SELECT event_id FROM event_keys WHERE document_id = :id ORDER BY event_id")
+                .param("id", fixture.id())
+                .query(UUID.class)
+                .list();
+    }
+
+    private static long payloadCount(
+            ConfigurableApplicationContext context, Fixture fixture, String type) {
+        return jdbc(context)
+                .sql(
+                        "SELECT count(*) FROM domain_events JOIN event_keys USING (event_id) WHERE document_id = :id AND event_type = :type")
+                .param("id", fixture.id())
+                .param("type", type)
+                .query(Long.class)
+                .single();
+    }
+
     private static boolean claimAndDispatch(
             ConfigurableApplicationContext context, CyclicBarrier ready, CyclicBarrier claimed)
             throws Exception {
@@ -249,7 +595,14 @@ class DocumentDeletionDeliveryIT {
     private void assertCleaned(ConfigurableApplicationContext context, Fixture fixture) {
         assertHidden(context, fixture);
         assertThat(original(fixture)).doesNotExist();
-        for (var table : List.of("documents", "document_extractions", "document_text_lines")) {
+        for (var table :
+                List.of(
+                        "documents",
+                        "document_extractions",
+                        "document_text_lines",
+                        "document_index_versions",
+                        "document_passages",
+                        "document_embeddings")) {
             assertThat(count(context, table, fixture.id())).as(table).isZero();
         }
         assertThat(deliveryState(context, fixture)).isEqualTo("COMPLETED");
@@ -269,7 +622,7 @@ class DocumentDeletionDeliveryIT {
                                 .sql(
                                         """
                 SELECT count(*) FROM domain_events e JOIN event_keys k USING (event_id)
-                WHERE k.document_id = :id AND k.processing_version < 2
+                WHERE k.document_id = :id AND k.event_type <> 'DocumentDeletionRequested'
                 """)
                                 .param("id", fixture.id())
                                 .query(Integer.class)
@@ -341,17 +694,26 @@ class DocumentDeletionDeliveryIT {
     }
 
     private ConfigurableApplicationContext start() {
+        return start(false);
+    }
+
+    private ConfigurableApplicationContext start(boolean indexed) {
         return new SpringApplicationBuilder(SecondBrainApplication.class)
                 .web(WebApplicationType.NONE)
                 .initializers(
-                        context ->
+                        context -> {
+                            context.getBeanFactory().registerSingleton("deletionTestClock", clock);
+                            if (indexed)
                                 context.getBeanFactory()
-                                        .registerSingleton("deletionTestClock", clock))
+                                        .registerSingleton("deletionTestEmbeddings", embeddings);
+                        })
                 .run(
                         "--spring.config.import=",
                         "--secondbrain.events.polling-enabled=false",
                         "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.enabled=false",
+                        "--secondbrain.documents.indexing.enabled=" + indexed,
+                        "--secondbrain.embeddings.enabled=" + indexed,
+                        "--secondbrain.documents.indexing.reconcile-enabled=false",
                         "--secondbrain.documents.extraction.reconcile-enabled=false",
                         "--secondbrain.documents.deletion.reconcile-enabled=false",
                         "--secondbrain.events.initial-backoff=1s",
@@ -363,4 +725,12 @@ class DocumentDeletionDeliveryIT {
     }
 
     private record Fixture(UUID id, UUID storageId) {}
+
+    private record LateWork(DeliveryLease lease, EventHandler.Effect effect) {}
+
+    enum LateStage {
+        BATCH,
+        PUBLICATION,
+        RECOVERY
+    }
 }
