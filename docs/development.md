@@ -221,9 +221,9 @@ The opt-in document handler saves each successful batch through a lease-checked 
 
 ## Durable document embeddings
 
-With `secondbrain.embeddings.enabled=true`, the `documents.embed-passages.v1` handler consumes `PassagesPrepared`. It reads at most the configured batch size of missing passages, closes its read transaction, calls the provider, then saves vectors in a short transaction guarded by the delivery lease and current document/source/index generation. Every successful checkpoint preserves the attempt/deadline and prior progress. Final acknowledgment requires all expected vectors. Search activation is not implemented yet; stored vectors remain staging data.
+With `secondbrain.embeddings.enabled=true`, the `documents.embed-passages.v1` handler consumes `PassagesPrepared`. It reads at most the configured batch size of missing passages, closes its read transaction, calls the provider, then saves vectors in a short transaction guarded by the delivery lease and current document/source/index generation. Every successful checkpoint preserves the attempt/deadline and prior progress. Final acknowledgment requires all expected vectors and publishes the complete active index with an `IndexPublished` fact in the same fenced transaction. Partial or obsolete generations remain staging data. Semantic search is not implemented yet.
 
-Existing indexing reconciliation schedules up to 100 missing deliveries for retained passage facts per pass when the handler is present. It never resets existing pending/failed/completed deliveries. Stop event polling before disabling embeddings if outstanding embedding deliveries need to remain paused; removing a handler while polling continues uses the existing missing-handler failure behavior. Terminal embedding failures currently appear in durable-delivery diagnostics; document pages still show extraction status.
+Existing indexing reconciliation schedules up to 100 missing deliveries for retained passage facts per pass when the handler is present. It never resets existing pending/failed/completed deliveries. Stop event polling before disabling embeddings if outstanding embedding or publication deliveries need to remain paused; removing a handler while polling continues uses the existing missing-handler failure behavior. Terminal embedding failures currently appear in durable-delivery diagnostics; document pages still show extraction status.
 
 Retries request only missing vectors. A crash after an HTTP response and before saving its batch can repeat a provider call and consume allowance again. Quota/reset hints persist as delivery eligibility timestamps; they release worker capacity and cannot bypass the attempt limit. No paid/provider fallback occurs. Model/account compatibility and eligibility still need a separately authorized bounded live check before real use; routine verification uses deterministic inference.
 
@@ -235,11 +235,11 @@ This requires Docker but no Cloudflare account. It checks multi-batch/restart re
 
 ## Index publication prerequisites
 
-V12 adds `documents.active_indexing_version`, initially NULL. It is separate from `desired_indexing_version`: desired identifies the generation being built, while active identifies a generation selected after completeness validation. Existing data is not activated by the migration. The worker currently finishes embedding staging without calling the activation operation, so normal uploads still have no active index and no semantic-search endpoint.
+V12 adds `documents.active_indexing_version`, initially NULL. It is separate from `desired_indexing_version`: desired identifies the generation being built, while active identifies a generation selected after completeness validation. Existing data is not activated by the migration. The enabled embedding worker calls the activation operation after staging all vectors. Activation, `IndexPublished`, and acknowledgment share the dispatcher's lease-fenced transaction. There is no semantic-search endpoint yet.
 
 `JdbcIndexingRepository.activate` is an internal caller-transaction operation. It locks/rechecks the visible, extracted, desired generation and its source, then requires the supported passage configuration, exact contiguous passage count, compatible model/dimensions, and one valid owned vector per passage. It returns `ACTIVATED`, `ALREADY_ACTIVE`, `INCOMPLETE`, or `INELIGIBLE`. Only successful new activation changes the pointer/timestamp. A repeat leaves the timestamp unchanged; a failed or incomplete replacement leaves an existing active pointer intact. The composite deferred foreign key prevents selecting another document's generation or removing a selected target independently.
 
-This operation does not publish an event or validate delivery leases by itself. The publication worker must compose activation, `IndexPublished`, and acknowledgment in one fenced transaction. That integration remains pending. Future retrieval must require a visible document and an active generation compatible with its current extraction/model, rather than treating staging rows as searchable.
+The repository operation does not publish an event or validate delivery leases by itself. `DocumentIndexPublication` supplies the shared effect; the normal embedding handler calls it before returning to the dispatcher for acknowledgment. If activation, event insertion, transaction completion, or the final lease check fails, the active pointer, new fact/key, and acknowledgment roll back together. Earlier batch checkpoints remain staged. Future retrieval must require a visible document and an active generation compatible with its current extraction/model, rather than treating staging rows as searchable.
 
 ```sh
 ./mvnw -Dit.test=IndexPublicationIT,DatabaseMigrationIT verify
@@ -254,7 +254,96 @@ WHERE deleted_at IS NULL
 ORDER BY created_at DESC;
 ```
 
-An empty active pointer is expected until publication is connected to the application workflow. Avoid setting it manually; direct SQL writes bypass the application completeness guard.
+An empty active pointer is expected while processing is disabled, incomplete, or failed. Avoid setting it manually; direct SQL writes bypass the application completeness guard.
+
+## Atomic publication and recovery
+
+The normal `documents.embed-passages.v1` delivery acknowledges `PassagesPrepared` only after the shared publication effect succeeds. It selects the complete desired/current generation, emits one ID-only schema-1 `IndexPublished` fact, and acknowledges in the same transaction. Correlation is retained, and causation points to that `PassagesPrepared` event. Repeating an effect uses the original logical event identity; an already active generation still repairs a missing fact. `IndexPublished` is terminal and creates no additional business delivery. Library pages still display extraction status. Index readiness metrics are available below; semantic-search endpoints remain under development.
+
+Indexing reconciliation also handles fully staged generations whose embedding delivery is already completed. It creates an idempotent `IndexPublicationRequested` recovery intent and a `documents.publish-index.v1` delivery. This pure database operation uses the same publication effect and its own fenced acknowledgment. It never reopens the completed embedding delivery, copies a failed job into a new budget, or repeats inference. Pending/running/failed/skipped embedding deliveries and existing recovery/publication keys exclude this enrollment; ordinary existing work keeps its original retry policy. Counts/model/configuration must indicate complete staging, and the consumer rechecks completed embedding provenance and the full activation guard again.
+
+Up to 100 recovery candidates are read per reconciliation pass, with a separate bounded transaction and a document/version/state recheck for each intent. Existing `secondbrain.documents.indexing.reconcile-enabled` and embedding/indexing enable switches apply. Retained recovery intents can gain missing deliveries when the consumer is enabled. A failed recovery delivery remains failed rather than receiving a new intent on every scan.
+
+If the old passage event payload still exists, recovery retains its correlation and trace context. If retention has removed the payload/delivery while keeping the logical key, recovery starts a fresh correlation root and retains the passage event ID as causation. The published fact points to the recovery intent, preserving that chain. No document text or extra queue/progress table is added. Recovery enrollment requires no model call.
+
+```sh
+./mvnw -Dtest=DocumentIndexPublicationTest,DocumentEmbeddingHandlerTest test
+./mvnw -Dit.test=DocumentEmbeddingDeliveryIT,IndexPublicationIT,DurableEventsIT verify
+```
+
+The PostgreSQL checks exercise insertion/deferred-transaction failure, acknowledgment failure, lease expiry after publication effects, competing valid deliveries, restart with retained/cleaned historical payloads, and exclusion of existing embedding budgets. They use isolated databases, temporary originals, and deterministic inference. Full `./mvnw verify` remains the gate; no live credentials or original library data are required.
+
+## Index readiness telemetry
+
+When embeddings, indexing, and events are enabled, Actuator exposes these unlabelled metrics:
+
+| Metric | Meaning |
+|---|---|
+| `secondbrain.index.active` | Number of visible, current-source active indexes compatible with the configured model and splitter configuration |
+| `secondbrain.index.active.available` | 1 when the cached database read succeeded, 0 when unavailable |
+| `secondbrain.index.ready.duration` | Timer from original upload acceptance to each newly committed index activation, in seconds |
+
+The count comes from the committed active-version relationship, not a publication counter. Retries cannot inflate it, and a restart rebuilds it from PostgreSQL. A compatible old active generation stays counted while its replacement is staged. Hidden documents, outdated extraction sources, and staged-only generations are excluded. Publication's completeness guard validates passages/vectors before selecting that pointer; the metric does not scan all vector contents on every scrape.
+
+Both gauges share one read cached for five seconds, including failures. Queries use a separate read-only transaction with a five-second transaction/query timeout. A failed read reports `NaN` for the count and availability 0 rather than claiming an empty library. Values may lag publication/deletion by up to the cache interval. These metrics describe index data; they do not change `/actuator/health/readiness`.
+
+The timer records only after a new activation commits, including activation through publication recovery. It does not count provider calls, vector checkpoints, rollback, lease loss, or repeated publication of an already active generation. Reindexing can add a new sample measured from the document's original acceptance. Samples include queued/retry time. Timer data resets on restart and is best effort: a crash after commit, telemetry failure, or deletion/replacement before its post-commit lookup can lose a sample. It is not a durable publication ledger. Future-dated acceptance timestamps produce no sample. Application correctness never depends on these measurements.
+
+```sh
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.index.active
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.index.active.available
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.index.ready.duration
+```
+
+With indexing enabled and successfully processed documents, availability should be 1. The active count reflects the eligible library; the timer's `COUNT` reflects new activations observed by this process. No filenames, document IDs, content, model credentials, or queries are metric labels. These queries make no provider request. Do not enable hosted inference solely to inspect metrics unless its setup and data sharing are intended.
+
+For isolated verification without credentials or model requests:
+
+```sh
+./mvnw -Dtest=IndexReadinessMetricsTest,DocumentIndexPublicationTest,DocumentTelemetryEndpointTest test
+./mvnw -Dit.test=IndexPublicationIT,DocumentEmbeddingDeliveryIT verify
+```
+
+The PostgreSQL checks cover committed versus uncommitted state, rollback, replacement visibility, source/deletion changes, fresh collectors, retries, failed acknowledgment, and lost leases. The full gate remains `./mvnw verify`.
+
+## Verifying the complete indexing workflow
+
+The indexing pipeline is:
+
+```text
+Upload -> DocumentAccepted -> extracted text -> TextExtracted
+       -> ReindexRequested -> passages -> PassagesPrepared
+       -> embedding batches -> active index + IndexPublished
+```
+
+The upload returns `202 Accepted` with `QUEUED` after storing its original and durable request. The automatic worker handles later stages. A successful provider response alone does not make an index ready: all batches, guarded activation, publication, and acknowledgment must complete. Library pages currently show extraction status; use the active pointer or index metrics to inspect indexing. Semantic search is not yet implemented.
+
+Run the complete offline workflow checks with Docker and local HTTP listeners available:
+
+```sh
+./mvnw -Dit.test=DocumentIndexingWorkflowIT verify
+./mvnw verify
+```
+
+`DocumentIndexingWorkflowIT` uses real HTTP multipart uploads, isolated PostgreSQL/pgvector, temporary original files, automatic polling, real stage handlers, and deterministic embeddings. It covers TXT/Markdown/selectable PDF input; upload completion while inference is deliberately blocked; located passages and vector identity; one logical publication despite repeated requests; correlation/causation and linked stage spans; quota-delayed partial progress across restart; and deletion during inference followed by restart without resurrection. It makes no Cloudflare or external telemetry request and ignores local configuration imports. Required tests fail if Docker or local listeners are unavailable rather than silently skipping.
+
+Existing delivery tests additionally cover failed publication insertion/commit/acknowledgment, stale leases, competing completions, old completed staging, and retry-budget exhaustion. The workflow checks complement those focused fault tests.
+
+For a read-only check of an already configured local library:
+
+```sql
+SELECT d.document_id, d.original_name, d.extraction_state,
+       d.desired_indexing_version, d.active_indexing_version,
+       i.embedding_model_id, i.passage_count
+FROM documents d
+LEFT JOIN document_index_versions i
+  ON i.document_id = d.document_id
+ AND i.indexing_version = d.active_indexing_version
+WHERE d.deleted_at IS NULL
+ORDER BY d.created_at DESC;
+```
+
+A null active version is expected with embeddings disabled or incomplete processing. An extracted document can still be waiting for embeddings. Do not set the active pointer manually. The offline tests prove deterministic processing boundaries; they do not establish live account permissions, remaining allowance, model quality, or semantic search quality. The separate [live embedding smoke check](#embedding-request-telemetry) remains explicitly invoked within its documented budget.
 
 ## Embedding request telemetry
 
@@ -308,7 +397,7 @@ Inspect the saved synthetic response locally: require one result with input inde
 
 ## Deleted-document cleanup
 
-Select **Delete** beside a document’s status in **Your documents**, or open its detail page and select **Delete document**, then review the confirmation page. **Cancel** returns without changes. Confirming submits a POST request, hides the document immediately, commits a durable cleanup request, and redirects to the library with one-time feedback. Refreshing the library does not resubmit deletion; repeated submissions safely report that the document is already absent. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Small event keys remain to prevent duplicate publication. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
+Select **Delete** beside a document’s status in **Your documents**, or open its detail page and select **Delete document**, then review the confirmation page. **Cancel** returns without changes. Confirming submits a POST request, hides the document immediately, commits a durable cleanup request, and redirects to the library with one-time feedback. Refreshing the library does not resubmit deletion; repeated submissions safely report that the document is already absent. The `documents.delete.v1` worker removes its generated original file outside a database transaction, then removes document metadata, all extracted-text versions, all index generations, passages, vectors, and obsolete processing payloads/deliveries in the lease-checked acknowledgment transaction. Both published indexes and staged replacements belong to the document and are removed through database ownership cascades. Small event keys remain to prevent duplicate publication. Index-generation numbers are independent of extraction/deletion versions; cleanup identifies obsolete processing state by document ownership. A missing original is success; a storage or database failure retains recoverable work and uses the configured event retry budget. Exhausted attempts remain failed and hidden.
 
 | Setting | Default | Purpose |
 |---|---|---|
@@ -317,9 +406,9 @@ Select **Delete** beside a document’s status in **Your documents**, or open it
 
 Reconciliation runs every second in batches of up to 100. It does not duplicate deliveries or reset failed attempts. Disabling the handler still permits deletion requests and preserves their events. `secondbrain.events.polling-enabled=false` pauses execution; `secondbrain.documents.cleanup.enabled` controls the separate abandoned-file scanner. GET `/documents/{id}/delete` displays confirmation without changing state; POST to that URL requests deletion and returns `303 See Other` to `/`. Malformed IDs return 400, unavailable confirmation targets return 404, and database/transaction failures return fixed 503 text without a success message.
 
-Restarting the application with normal settings processes existing deletion requests automatically. Use the document UUID with the [database inspection](#database-inspection) connection: successful cleanup leaves no matching row in `documents` or `document_extractions`, and its `documents.delete.v1` delivery is `COMPLETED` (or `SKIPPED` for already absent work). The generated `.original` file is removed; source files selected for upload remain untouched. Generic event-delivery logs, attempt metrics, and backlog metrics cover cleanup using persisted correlation IDs. The `secondbrain.document.cleanup.deleted` counter belongs to the abandoned-file scanner and does not count this durable handler.
+Restarting the application with normal settings processes existing deletion requests automatically. Use the document UUID with the [database inspection](#database-inspection) connection: successful cleanup leaves no matching rows in `documents`, `document_extractions`, `document_text_lines`, `document_index_versions`, `document_passages`, or `document_embeddings`, and its `documents.delete.v1` delivery is `COMPLETED` (or `SKIPPED` for already absent work). The generated `.original` file is removed; source files selected for upload remain untouched. Generic event-delivery logs, attempt metrics, and backlog metrics cover cleanup using persisted correlation IDs. The `secondbrain.document.cleanup.deleted` counter belongs to the abandoned-file scanner and does not count this durable handler.
 
-Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for isolated PostgreSQL cleanup, missing-file recovery, retry, and deletion-request checks, including competing delivery claims, lease expiry during cleanup, and old extraction work after deletion. The full gate remains `./mvnw verify`.
+Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for isolated PostgreSQL cleanup, missing-file recovery, retry, and deletion-request checks, including competing delivery claims, active and staged index cleanup, original-removal failure/retry, lease-expiry rollback/restart, retained-key replay, and late extraction/embedding/publication work after deletion. These checks use temporary originals, synthetic vectors, and a container database; they do not call the hosted provider. The full gate remains `./mvnw verify`.
 
 ## Uploading documents over HTTP
 

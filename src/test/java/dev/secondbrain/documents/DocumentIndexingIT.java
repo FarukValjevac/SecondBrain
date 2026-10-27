@@ -573,7 +573,8 @@ class DocumentIndexingIT {
                         context.getBean(DocumentIndexingService.class),
                         context.getBean(EventPublisher.class),
                         context.getBeanProvider(DocumentPassageHandler.class),
-                        context.getBeanProvider(DocumentEmbeddingHandler.class))
+                        context.getBeanProvider(DocumentEmbeddingHandler.class),
+                        context.getBeanProvider(DocumentIndexPublication.class))
                 .reconcile();
     }
 

@@ -54,7 +54,9 @@ class DocumentConfigurationTest {
                                             TextExtractedEvent.TYPE,
                                             DocumentDeletionRequestedEvent.TYPE,
                                             ReindexRequestedEvent.TYPE,
-                                            PassagesPreparedEvent.TYPE);
+                                            PassagesPreparedEvent.TYPE,
+                                            IndexPublishedEvent.TYPE,
+                                            IndexPublicationRequestedEvent.TYPE);
                         });
     }
 

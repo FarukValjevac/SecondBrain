@@ -22,12 +22,14 @@ final class DocumentEmbeddingHandler implements EventHandler {
     private final EmbeddingProvider provider;
     private final EmbeddingModel model;
     private final int batchSize;
+    private final DocumentIndexPublication publication;
 
     DocumentEmbeddingHandler(
             JdbcIndexingRepository indexes,
             JdbcEmbeddingRepository embeddings,
             EmbeddingProvider provider,
-            int batchSize) {
+            int batchSize,
+            DocumentIndexPublication publication) {
         this.indexes = Objects.requireNonNull(indexes, "indexes");
         this.embeddings = Objects.requireNonNull(embeddings, "embeddings");
         this.provider = Objects.requireNonNull(provider, "provider");
@@ -35,6 +37,7 @@ final class DocumentEmbeddingHandler implements EventHandler {
         if (batchSize < 1 || batchSize > 32)
             throw new IllegalArgumentException("Invalid embedding batch size");
         this.batchSize = batchSize;
+        this.publication = Objects.requireNonNull(publication, "publication");
     }
 
     @Override
@@ -74,7 +77,7 @@ final class DocumentEmbeddingHandler implements EventHandler {
             } catch (IllegalArgumentException | IllegalStateException invalid) {
                 throw new DeliveryFailure(invalid);
             }
-            if (pending.isEmpty()) return () -> finish(version);
+            if (pending.isEmpty()) return () -> finish(version, event);
             if (batch == PassageSplitter.MAXIMUM_PASSAGES)
                 throw new DeliveryFailure(
                         new IllegalStateException("Embedding progress limit exceeded"));
@@ -130,13 +133,13 @@ final class DocumentEmbeddingHandler implements EventHandler {
                 .isPresent();
     }
 
-    private Outcome finish(IndexingVersion version) {
+    private Outcome finish(IndexingVersion version, EventEnvelope cause) {
         if (!eligible(version)) return Outcome.SKIPPED;
         try {
             embeddings.requireComplete(version, model);
         } catch (IllegalArgumentException | IllegalStateException invalid) {
             throw new DeliveryFailure(invalid);
         }
-        return Outcome.COMPLETED;
+        return publication.publish(version, cause);
     }
 }

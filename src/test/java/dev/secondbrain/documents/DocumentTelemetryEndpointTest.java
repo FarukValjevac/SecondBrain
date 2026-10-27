@@ -3,6 +3,8 @@ package dev.secondbrain.documents;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -18,6 +20,7 @@ import org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -89,9 +92,38 @@ class DocumentTelemetryEndpointTest {
                 .containsExactlyInAnyOrder("outcome", "error");
     }
 
+    @Test
+    void exposesCommittedReadinessGaugesAndDurationWithoutPrivateLabels() throws Exception {
+        mvc.perform(get("/actuator/metrics/secondbrain.index.active"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(4.0))
+                .andExpect(jsonPath("$.availableTags").isEmpty());
+        mvc.perform(get("/actuator/metrics/secondbrain.index.active.available"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+        mvc.perform(get("/actuator/metrics/secondbrain.index.ready.duration"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.baseUnit").value("seconds"))
+                .andExpect(jsonPath("$.measurements[0].value").value(0.0))
+                .andExpect(jsonPath("$.availableTags").isEmpty());
+    }
+
     // Explicit source only; it must not be component-scanned into other application tests.
     @EnableAutoConfiguration(
             exclude = {DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class})
     @Import(DocumentTelemetry.class)
-    static class TelemetryApplication {}
+    static class TelemetryApplication {
+        @Bean
+        IndexReadinessMetrics indexReadinessMetrics(MeterRegistry meters) {
+            var indexes = mock(JdbcIndexingRepository.class);
+            var model = new dev.secondbrain.embeddings.EmbeddingModel("@cf/baai/bge-m3", 1024);
+            when(indexes.activeCount(model)).thenReturn(4L);
+            return new IndexReadinessMetrics(
+                    indexes,
+                    model,
+                    meters,
+                    java.time.Clock.systemUTC(),
+                    new DocumentIndexingServiceTest.CallbackTransactions());
+        }
+    }
 }

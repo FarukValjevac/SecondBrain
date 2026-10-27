@@ -52,6 +52,7 @@ class DocumentEmbeddingHandlerTest {
     private final JdbcIndexingRepository indexes = mock(JdbcIndexingRepository.class);
     private final JdbcEmbeddingRepository embeddings = mock(JdbcEmbeddingRepository.class);
     private final EmbeddingProvider provider = mock(EmbeddingProvider.class);
+    private final DocumentIndexPublication publication = mock(DocumentIndexPublication.class);
     private final TransactionTemplate transaction =
             new TransactionTemplate(new DocumentIndexingServiceTest.CallbackTransactions());
 
@@ -59,7 +60,8 @@ class DocumentEmbeddingHandlerTest {
         when(provider.model()).thenReturn(model);
         when(indexes.findEligibleDesired(version.documentId())).thenReturn(Optional.of(version));
         when(indexes.lockEligibleDesired(version.documentId(), 7)).thenReturn(Optional.of(version));
-        return new DocumentEmbeddingHandler(indexes, embeddings, provider, 2);
+        when(publication.publish(version, event)).thenReturn(EventHandler.Outcome.COMPLETED);
+        return new DocumentEmbeddingHandler(indexes, embeddings, provider, 2, publication);
     }
 
     @Test

@@ -139,7 +139,10 @@ final class JdbcDocumentRepository {
                 .optional();
     }
 
-    /** Cascades all stored text versions; event keys remain as non-content deduplication fences. */
+    /**
+     * Cascades text, index generations, passages, and vectors with their owning document. The event
+     * store retains compact keys separately as content-free deduplication fences.
+     */
     boolean finishDeletion(UUID id, long version, UUID storageId) {
         return jdbc.sql(
                                 """

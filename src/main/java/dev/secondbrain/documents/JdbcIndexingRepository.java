@@ -99,10 +99,7 @@ final class JdbcIndexingRepository {
         return findEligibleDesired(documentId).filter(index -> index.number() == version);
     }
 
-    /**
-     * Caller must also publish the fact and fence delivery ownership in this transaction. No
-     * runtime caller is installed until the publication handoff is connected.
-     */
+    /** Caller must also publish the fact and fence delivery ownership in this transaction. */
     Activation activate(IndexingVersion version, EmbeddingModel model, Instant now) {
         Objects.requireNonNull(version, "version");
         Objects.requireNonNull(model, "model");
@@ -161,6 +158,143 @@ final class JdbcIndexingRepository {
         ALREADY_ACTIVE,
         INCOMPLETE,
         INELIGIBLE
+    }
+
+    /** Guarded active pointers are authoritative; a staged replacement does not hide them. */
+    long activeCount(EmbeddingModel model) {
+        return jdbc.sql(
+                        """
+                SELECT count(*) FROM documents d JOIN document_index_versions i
+                  ON i.document_id = d.document_id AND i.indexing_version = d.active_indexing_version
+                WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
+                  AND i.extraction_version = d.processing_version
+                  AND i.passage_configuration_version = :configuration
+                  AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
+                  AND i.passage_count > 0
+                """)
+                .withQueryTimeout(5)
+                .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
+                .param("model", model.id())
+                .param("dimensions", model.dimensions())
+                .query(Long.class)
+                .single();
+    }
+
+    Optional<Instant> activeAcceptedAt(IndexingVersion version) {
+        return jdbc.sql(
+                        """
+                SELECT created_at FROM documents
+                WHERE document_id = :id AND active_indexing_version = :version
+                  AND processing_version = :source AND extraction_state = 'EXTRACTED'
+                  AND deleted_at IS NULL
+                """)
+                .withQueryTimeout(5)
+                .param("id", version.documentId())
+                .param("version", version.number())
+                .param("source", version.extractionVersion())
+                .query(Timestamp.class)
+                .optional()
+                .map(Timestamp::toInstant);
+    }
+
+    List<PublicationRecovery> findPublicationRecovery(EmbeddingModel model, int limit) {
+        return publicationRecovery(model, Optional.empty(), limit);
+    }
+
+    boolean canRecoverPublication(IndexingVersion version, EmbeddingModel model) {
+        return publicationRecovery(model, Optional.of(version.documentId()), 1).stream()
+                .anyMatch(candidate -> candidate.version().equals(version));
+    }
+
+    /** Recheck at consumption too: an old recovery intent must not bypass unfinished work. */
+    boolean completedEmbeddingSource(IndexingVersion version, UUID passagesEvent) {
+        if (passagesEvent == null) return false;
+        return jdbc.sql(
+                        """
+                SELECT EXISTS (
+                    SELECT 1 FROM event_keys k LEFT JOIN domain_events e USING (event_id)
+                    WHERE k.event_id = :event AND k.document_id = :id AND k.processing_version = :version
+                      AND k.event_type = 'PassagesPrepared' AND k.schema_version = 1
+                      AND NOT EXISTS (SELECT 1 FROM event_deliveries work WHERE work.event_id = k.event_id
+                          AND work.handler_id = 'documents.embed-passages.v1' AND work.state <> 'COMPLETED')
+                      AND (e.event_id IS NULL OR EXISTS (SELECT 1 FROM event_deliveries work
+                          WHERE work.event_id = k.event_id AND work.handler_id = 'documents.embed-passages.v1'
+                            AND work.state = 'COMPLETED')))
+                """)
+                .withQueryTimeout(5)
+                .param("event", passagesEvent)
+                .param("id", version.documentId())
+                .param("version", version.number())
+                .query(Boolean.class)
+                .single();
+    }
+
+    private List<PublicationRecovery> publicationRecovery(
+            EmbeddingModel model, Optional<UUID> document, int limit) {
+        Objects.requireNonNull(model, "model");
+        if (limit < 1 || limit > 100)
+            throw new IllegalArgumentException("Invalid publication recovery batch");
+        return jdbc.sql(
+                        """
+                SELECT i.document_id, i.indexing_version, i.extraction_version, i.created_at,
+                       k.event_id, e.correlation_id, e.trace_parent
+                FROM documents d JOIN document_index_versions i
+                  ON i.document_id = d.document_id AND i.indexing_version = d.desired_indexing_version
+                     AND i.extraction_version = d.processing_version
+                JOIN event_keys k ON k.document_id = i.document_id AND k.processing_version = i.indexing_version
+                     AND k.event_type = 'PassagesPrepared' AND k.schema_version = 1
+                LEFT JOIN domain_events e ON e.event_id = k.event_id
+                WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
+                  AND (CAST(:document AS uuid) IS NULL OR d.document_id = CAST(:document AS uuid))
+                  AND EXISTS (SELECT 1 FROM document_extractions x WHERE x.document_id = i.document_id
+                               AND x.processing_version = i.extraction_version)
+                  AND i.passage_configuration_version = :configuration
+                  AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
+                  AND i.passage_count = (SELECT count(*) FROM document_passages p
+                      WHERE p.document_id = i.document_id AND p.indexing_version = i.indexing_version)
+                  AND i.passage_count = (SELECT count(*) FROM document_embeddings v
+                      WHERE v.document_id = i.document_id AND v.indexing_version = i.indexing_version)
+                  AND NOT EXISTS (SELECT 1 FROM event_deliveries work WHERE work.event_id = k.event_id
+                      AND work.handler_id = 'documents.embed-passages.v1' AND work.state <> 'COMPLETED')
+                  AND (e.event_id IS NULL OR EXISTS (SELECT 1 FROM event_deliveries work
+                      WHERE work.event_id = k.event_id AND work.handler_id = 'documents.embed-passages.v1'
+                            AND work.state = 'COMPLETED'))
+                  AND NOT EXISTS (SELECT 1 FROM event_keys done WHERE done.document_id = i.document_id
+                      AND done.processing_version = i.indexing_version
+                      AND done.event_type IN ('IndexPublicationRequested', 'IndexPublished'))
+                ORDER BY i.created_at, i.document_id LIMIT :limit
+                """)
+                .withQueryTimeout(5)
+                .param(
+                        "document",
+                        document.orElse(null)) // SQL NULL selects the bounded global batch.
+                .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
+                .param("model", model.id())
+                .param("dimensions", model.dimensions())
+                .param("limit", limit)
+                .query(
+                        (row, index) -> {
+                            var correlation = row.getObject("correlation_id", UUID.class);
+                            return new PublicationRecovery(
+                                    new IndexingVersion(
+                                            row.getObject("document_id", UUID.class),
+                                            row.getLong("indexing_version"),
+                                            row.getLong("extraction_version"),
+                                            row.getTimestamp("created_at").toInstant()),
+                                    row.getObject("event_id", UUID.class),
+                                    correlation == null ? UUID.randomUUID() : correlation,
+                                    row.getString("trace_parent"));
+                        })
+                .list();
+    }
+
+    record PublicationRecovery(
+            IndexingVersion version, UUID passagesEventId, UUID correlationId, String traceParent) {
+        PublicationRecovery {
+            Objects.requireNonNull(version, "version");
+            Objects.requireNonNull(passagesEventId, "passagesEventId");
+            Objects.requireNonNull(correlationId, "correlationId");
+        }
     }
 
     List<UUID> findUnenrolled(int limit) {

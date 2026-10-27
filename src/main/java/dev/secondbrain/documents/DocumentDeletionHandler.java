@@ -69,7 +69,7 @@ final class DocumentDeletionHandler implements EventHandler {
                                             .filter(storageId::equals)
                                             .isEmpty()) return Outcome.SKIPPED;
                                     // Lock old delivery records before the document row, matching
-                                    // extraction's lock order.
+                                    // the delivery-before-document order used by fenced handlers.
                                     events.discardOtherDocumentEvents(
                                             event.documentId(), event.eventId());
                                     return documents.finishDeletion(
