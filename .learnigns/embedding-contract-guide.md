@@ -885,6 +885,40 @@ Duration samples are local diagnostics. They reset on restart, and a crash after
 
 See [IndexReadinessMetrics](../src/main/java/dev/secondbrain/documents/IndexReadinessMetrics.java) for the collector and callback, and [metric usage](../docs/development.md#index-readiness-telemetry) for the read-only curl queries.
 
+## 23. Following a document through the complete pipeline
+
+The upload request saves the original, metadata, and `DocumentAccepted` request together, then returns. It does not wait for the embedding model. A separate automatic worker claims deliveries from PostgreSQL and invokes the registered handlers.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App as Upload endpoint
+    participant DB as PostgreSQL
+    participant Worker as Background worker
+    participant Model as Embedding provider
+    Browser->>App: Upload a document
+    App->>DB: Save metadata and durable accepted event
+    App-->>Browser: 202 Accepted, QUEUED
+    Worker->>DB: Claim accepted delivery
+    Worker->>DB: Save extracted text and TextExtracted
+    Worker->>DB: Select generation and ReindexRequested
+    Worker->>DB: Save passages and PassagesPrepared
+    loop Missing batches only
+        Worker->>Model: Request bounded embeddings outside transaction
+        Model-->>Worker: Vectors
+        Worker->>DB: Save batch under delivery/document fences
+    end
+    Worker->>DB: Activate complete generation, record IndexPublished, acknowledge atomically
+```
+
+Extraction version and index generation identify different stages. A document can show `EXTRACTED` while its embedding work is still pending. Only its complete committed active generation is ready for future retrieval. No semantic-search endpoint exists yet.
+
+Every handoff retains a correlation ID identifying the overall operation and a causation ID identifying the immediately preceding event. Each delivery attempt has its own trace span linked to its producer's persisted trace context. This lets you follow the chain without storing document text in diagnostics. Retries are additional attempts, not additional ready documents.
+
+If a batch fails with a quota delay, already stored batches remain. Restarting does not erase eligibility time or attempt count. Once eligible, the worker requests only missing batches. A crash after a model response but before saving can still repeat that remote request. Deletion hides the owner immediately; a delayed response cannot restore it, and cleanup removes its original and derived data.
+
+[DocumentIndexingWorkflowIT](../src/test/java/dev/secondbrain/events/DocumentIndexingWorkflowIT.java) uses the actual HTTP endpoint and automatic worker with an isolated database and fake embeddings. Its inference gate proves that upload returns before model work finishes. Other checks follow restart and deletion races. A fake vector verifies storage/control flow, not the quality of semantic meaning; that requires a separate retrieval evaluation after search exists.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

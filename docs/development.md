@@ -306,6 +306,45 @@ For isolated verification without credentials or model requests:
 
 The PostgreSQL checks cover committed versus uncommitted state, rollback, replacement visibility, source/deletion changes, fresh collectors, retries, failed acknowledgment, and lost leases. The full gate remains `./mvnw verify`.
 
+## Verifying the complete indexing workflow
+
+The indexing pipeline is:
+
+```text
+Upload -> DocumentAccepted -> extracted text -> TextExtracted
+       -> ReindexRequested -> passages -> PassagesPrepared
+       -> embedding batches -> active index + IndexPublished
+```
+
+The upload returns `202 Accepted` with `QUEUED` after storing its original and durable request. The automatic worker handles later stages. A successful provider response alone does not make an index ready: all batches, guarded activation, publication, and acknowledgment must complete. Library pages currently show extraction status; use the active pointer or index metrics to inspect indexing. Semantic search is not yet implemented.
+
+Run the complete offline workflow checks with Docker and local HTTP listeners available:
+
+```sh
+./mvnw -Dit.test=DocumentIndexingWorkflowIT verify
+./mvnw verify
+```
+
+`DocumentIndexingWorkflowIT` uses real HTTP multipart uploads, isolated PostgreSQL/pgvector, temporary original files, automatic polling, real stage handlers, and deterministic embeddings. It covers TXT/Markdown/selectable PDF input; upload completion while inference is deliberately blocked; located passages and vector identity; one logical publication despite repeated requests; correlation/causation and linked stage spans; quota-delayed partial progress across restart; and deletion during inference followed by restart without resurrection. It makes no Cloudflare or external telemetry request and ignores local configuration imports. Required tests fail if Docker or local listeners are unavailable rather than silently skipping.
+
+Existing delivery tests additionally cover failed publication insertion/commit/acknowledgment, stale leases, competing completions, old completed staging, and retry-budget exhaustion. The workflow checks complement those focused fault tests.
+
+For a read-only check of an already configured local library:
+
+```sql
+SELECT d.document_id, d.original_name, d.extraction_state,
+       d.desired_indexing_version, d.active_indexing_version,
+       i.embedding_model_id, i.passage_count
+FROM documents d
+LEFT JOIN document_index_versions i
+  ON i.document_id = d.document_id
+ AND i.indexing_version = d.active_indexing_version
+WHERE d.deleted_at IS NULL
+ORDER BY d.created_at DESC;
+```
+
+A null active version is expected with embeddings disabled or incomplete processing. An extracted document can still be waiting for embeddings. Do not set the active pointer manually. The offline tests prove deterministic processing boundaries; they do not establish live account permissions, remaining allowance, model quality, or semantic search quality. The separate [live embedding smoke check](#embedding-request-telemetry) remains explicitly invoked within its documented budget.
+
 ## Embedding request telemetry
 
 The enabled Cloudflare adapter records each attempted request after local input validation. Invalid input or an already-interrupted caller rejected before transport is not counted as a provider request. An attempt includes receiving and validating the response; it is independent of saving vectors or acknowledging a delivery. A repeated request after a crash counts again.
