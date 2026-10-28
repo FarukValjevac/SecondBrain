@@ -919,6 +919,26 @@ If a batch fails with a quota delay, already stored batches remain. Restarting d
 
 [DocumentIndexingWorkflowIT](../src/test/java/dev/secondbrain/events/DocumentIndexingWorkflowIT.java) uses the actual HTTP endpoint and automatic worker with an isolated database and fake embeddings. Its inference gate proves that upload returns before model work finishes. Other checks follow restart and deletion races. A fake vector verifies storage/control flow, not the quality of semantic meaning; that requires a separate retrieval evaluation after search exists.
 
+## 24. Representing a search before executing it
+
+[SearchQuery](../src/main/java/dev/secondbrain/search/SearchQuery.java) is a Java record carrying query text, scope, and result limit. Its constructor checks the limits and valid Unicode before any provider or database work. This protects every future caller, including a web controller or answering service. The two-argument constructor supplies the default limit of five; the full constructor permits one through twenty.
+
+[SearchScope](../src/main/java/dev/secondbrain/search/SearchScope.java) is a `sealed interface`: Java permits exactly the two declared implementations. That expresses two different intentions without a boolean flag or ambiguous null value:
+
+| Value | Meaning |
+|---|---|
+| `SearchScope.all()` | Search the eligible library |
+| `SearchScope.selected(Set.of(id))` | Search only the selected ID |
+| `SearchScope.selected(Set.of())` | No documents were selected; this is still not all documents |
+
+The selected scope copies its set. Clearing the caller's original set cannot silently change the request. The collection returned from the record cannot be modified either. Records make their fields final; defensive copies make these collection contents safe to share.
+
+[SearchResult](../src/main/java/dev/secondbrain/search/SearchResult.java) is a purpose-specific read value. It carries located passage matches, not document persistence objects or raw provider responses. A match has stable IDs, an index version, text, source coordinates, and a similarity score. Locations use the same conventions as stored passages, while remaining a separate public search contract. A higher cosine score means closer vector direction; it is not a probability that an answer is correct.
+
+Records normally generate a `toString()` containing all fields. These text-bearing records override it with summaries so casually printing a request/result does not reveal queries, passages, or document IDs. Validation messages also omit private input.
+
+These types currently validate and carry data. They do not call an embedding provider or execute search. [SearchContractsTest](../src/test/java/dev/secondbrain/search/SearchContractsTest.java) checks Unicode/result bounds, explicit empty scope, immutable collections, valid coordinates/scores, and safe summaries. [The development guide](../docs/development.md#search-query-contracts) includes a JShell example for exploring them.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

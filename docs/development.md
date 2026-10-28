@@ -345,6 +345,38 @@ ORDER BY d.created_at DESC;
 
 A null active version is expected with embeddings disabled or incomplete processing. An extracted document can still be waiting for embeddings. Do not set the active pointer manually. The offline tests prove deterministic processing boundaries; they do not establish live account permissions, remaining allowance, model quality, or semantic search quality. The separate [live embedding smoke check](#embedding-request-telemetry) remains explicitly invoked within its documented budget.
 
+## Search query contracts
+
+The `search` feature currently defines validated Java input/result types. It does not yet execute query embeddings, SQL retrieval, or provide a search endpoint/form.
+
+`SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
+
+`SearchScope.all()` explicitly selects the library. `SearchScope.selected(Set<UUID>)` accepts up to 100 IDs and keeps an empty set as an empty selection. It never converts that selection into all documents. The input set is copied and cannot change through later caller mutation.
+
+`SearchResult` holds an immutable list of up to 20 distinct passage matches. Each match has stable passage/document IDs, index version, sequence, text, source coordinates, and a finite cosine score in [-1,1]. A score is similarity, not answer confidence. Lines/pages are one-based, columns count Unicode code points from zero, and the range end is exclusive. Optional PDF page numbers preserve physical page identity. Query/result/match diagnostics omit private text and IDs.
+
+Run the focused checks without Docker or credentials:
+
+```sh
+./mvnw -Dtest=SearchContractsTest test
+```
+
+For a small Java console check after compilation:
+
+```sh
+jshell --execution local --class-path target/classes
+```
+
+```java
+import dev.secondbrain.search.*;
+import java.util.Set;
+var selected = SearchScope.selected(Set.of());
+new SearchQuery("Study notes", selected);
+new SearchQuery(" ", SearchScope.all());
+```
+
+The first query prints a safe summary with `SelectedDocuments[count=0]` and limit 5. The blank query throws an `IllegalArgumentException` without echoing its text. Use `/exit` to leave JShell. No provider call or database access is involved. Default `./mvnw verify` remains the completion gate.
+
 ## Embedding request telemetry
 
 The enabled Cloudflare adapter records each attempted request after local input validation. Invalid input or an already-interrupted caller rejected before transport is not counted as a provider request. An attempt includes receiving and validating the response; it is independent of saving vectors or acknowledging a delivery. A repeated request after a crash counts again.
