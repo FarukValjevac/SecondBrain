@@ -347,7 +347,7 @@ A null active version is expected with embeddings disabled or incomplete process
 
 ## Search query contracts
 
-The `search` feature defines validated Java input/result types and an internal query-embedding operation. SQL retrieval and the search endpoint/form are not yet connected.
+The `search` feature defines validated Java input/result types, query embedding, and a synchronous `SearchService` Java API for local pgvector retrieval. A search endpoint/form is not yet connected.
 
 `SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
 
@@ -365,7 +365,7 @@ When `secondbrain.embeddings.enabled=true`, `SearchConfiguration` supplies `Quer
 
 Provider I/O is refused inside a database transaction. The existing client supplies bounded connection/full-response timeouts and input/response budgets. Query preparation adds no retries, fallback, sleeps, durable jobs, or query storage. An interruption preserves the thread flag and discards a late response. Responses must contain exactly one non-null model-compatible vector; the shared vector type validates dimensions, finite components, and nonzero magnitude.
 
-`SearchFailure` exposes fixed reasons for incompatible models, invalid vectors, provider unavailability, rate limits, daily quota, timeout, and interruption. Optional retry eligibility is a hint for a later user request. Failure messages/printable cause chains omit query/provider details. An empty preparation result means only an explicit empty selection; failures do not masquerade as an empty search result. The future retrieval service will separately check whether an eligible stored index exists. Existing adapter telemetry measures actual provider attempts without private query text; retrieval-level observations come with the later retrieval service.
+`SearchFailure` exposes fixed reasons for incompatible models, invalid vectors, provider unavailability, rate limits, daily quota, timeout, and interruption. Optional retry eligibility is a hint for a later user request. Failure messages/printable cause chains omit query/provider details. An empty preparation result means only an explicit empty selection; failures do not masquerade as an empty search result. The retrieval service checks whether a compatible eligible stored index exists before making an inference request. Existing adapter telemetry measures actual provider attempts without private query text; retrieval-level observations come with the later retrieval service.
 
 Check query preparation with fake vectors and errors, without credentials or network calls:
 
@@ -390,6 +390,25 @@ new SearchQuery(" ", SearchScope.all());
 ```
 
 The first query prints a safe summary with `SelectedDocuments[count=0]` and limit 5. The blank query throws an `IllegalArgumentException` without echoing its text. Use `/exit` to leave JShell. No provider call or database access is involved. Default `./mvnw verify` remains the completion gate.
+
+## Local passage retrieval
+
+When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A nonempty scope with no compatible complete active index raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
+
+The read-only projection joins the selected active index to its current extracted source, passages, and vectors. It excludes deleted/queued/processing/failed documents, stale extraction sources, unsupported/unbound model/configuration metadata, and generations with missing vectors/passages or sequence gaps. A compatible old active generation remains eligible while a replacement is staged; desired does not have to equal active. Selected-document filtering happens before ranking/limits.
+
+Ranking uses exact cosine similarity (`1 - cosine distance`). Scores outside [-1,1], including undefined/nonfinite values, are excluded before thresholding and ordering; they are never clamped into a perfect match. Results sort by descending score, then document UUID, passage sequence, and passage UUID for stable ties. The inclusive minimum score defaults to 0.3 and can be configured with `secondbrain.search.minimum-score` in [-1,1], for example `--secondbrain.search.minimum-score=0.65`. This is provisional policy for later evaluation, not a measured quality guarantee. The query limits results to at most 20 (default 5). No approximate-search index or migration is added. See [pgvector's distance documentation](https://github.com/pgvector/pgvector#distances) for the operator convention.
+
+Availability and ranking run in separate read-only transactions with five-second transaction/query timeouts; no transaction spans provider I/O. The ranking statement rechecks eligibility after inference, so deletion or a source change during inference excludes that content. A final post-selection visibility check and retrieval observations are the next planned increment; the current API does not yet promise that additional return-time check. Provider-level observations remain available. No search query history, durable job, document mutation, or chat request is created.
+
+Run the focused checks:
+
+```sh
+./mvnw -Dtest=SearchServiceTest,SearchConfigurationTest test
+./mvnw -Dit.test=JdbcPassageSearchIT verify
+```
+
+The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, and deletion during inference. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. This API prepares search behavior for the upcoming web feature; no browser search control is available yet.
 
 ## Embedding request telemetry
 

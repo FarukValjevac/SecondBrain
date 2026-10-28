@@ -28,6 +28,8 @@ public final class SearchFailure extends RuntimeException {
     }
 
     public enum Reason {
+        NO_COMPATIBLE_INDEX,
+        DATABASE_UNAVAILABLE,
         INCOMPATIBLE_MODEL,
         INVALID_EMBEDDING,
         PROVIDER_UNAVAILABLE,

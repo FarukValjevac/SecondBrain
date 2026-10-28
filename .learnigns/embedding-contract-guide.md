@@ -937,7 +937,7 @@ The selected scope copies its set. Clearing the caller's original set cannot sil
 
 Records normally generate a `toString()` containing all fields. These text-bearing records override it with summaries so casually printing a request/result does not reveal queries, passages, or document IDs. Validation messages also omit private input.
 
-These types validate and carry data. QueryEmbedding uses them for the provider operation described below; SQL search is not connected yet. [SearchContractsTest](../src/test/java/dev/secondbrain/search/SearchContractsTest.java) checks Unicode/result bounds, explicit empty scope, immutable collections, valid coordinates/scores, and safe summaries. [The development guide](../docs/development.md#search-query-contracts) includes a JShell example for exploring them.
+These types validate and carry data. QueryEmbedding uses them for query preparation and SearchService passes the resulting vector to the local SQL reader described below. [SearchContractsTest](../src/test/java/dev/secondbrain/search/SearchContractsTest.java) checks Unicode/result bounds, explicit empty scope, immutable collections, valid coordinates/scores, and safe summaries. [The development guide](../docs/development.md#search-query-contracts) includes a JShell example for exploring them.
 
 ## 25. Turning one query into a compatible vector
 
@@ -958,7 +958,7 @@ flowchart TD
 
 A model mismatch stops before sending the query. The query vector must have the same model and dimensions as the stored passage vectors, otherwise comparing them would have no valid meaning. The shared `EmbeddingVector` already checks dimensions, finite values, and a nonzero vector; query preparation checks response count and model association as well.
 
-Only the question/query needs a new vector. The stored document vectors are reused by the later SQL step. This operation neither re-embeds documents nor asks a chat model for an answer. It currently prepares the query vector; it does not perform ranking or inspect database index eligibility.
+Only the question/query needs a new vector. The stored document vectors are reused by the later SQL step. This operation neither re-embeds documents nor asks a chat model for an answer. It prepares the query vector; SearchService owns the index-availability preflight and the SQL retrieval step described below.
 
 `Optional.empty()` has one meaning here: the caller explicitly selected no documents. A provider failure throws [SearchFailure](../src/main/java/dev/secondbrain/search/SearchFailure.java) instead, with a small nested `Reason` enum. That keeps “nothing selected,” “no matching evidence,” and “the provider could not answer” from becoming the same state. Timeout, rate limit, quota, and interruption remain distinguishable. A retry timestamp is information for a later request, not an instruction to block until tomorrow or create a background job.
 
@@ -967,6 +967,34 @@ A blocking operation can clear the Java thread's interrupt flag when it throws `
 The original diagnostic cause is kept privately for debugging but excluded from the normal exception cause chain. Printing a failure therefore does not accidentally expose an HTTP response, token, or query. Request observations remain in the existing provider adapter; the preparation layer adds no duplicate log or retry loop.
 
 [QueryEmbeddingTest](../src/test/java/dev/secondbrain/search/QueryEmbeddingTest.java) exercises one-query calls, model/response validation, empty-selection avoidance, failure mapping and cancellation with a fake provider. Configuration tests prove startup makes no inference request. [The development guide](../docs/development.md#search-query-contracts) lists the focused verification command.
+
+## 26. Finding passages in PostgreSQL
+
+[SearchService](../src/main/java/dev/secondbrain/search/SearchService.java) connects the query input, shared provider, and local passage reader. It uses no chat model. An empty selected scope returns immediately. Otherwise it first asks whether a compatible complete active index exists in that scope, avoiding a provider request when there is nothing eligible to search.
+
+```mermaid
+flowchart TD
+    Query[SearchQuery] --> Empty{Empty selected scope?}
+    Empty -->|Yes| Skip[Empty result; no database or provider call]
+    Empty -->|No| Preflight[Read compatible active-index availability]
+    Preflight -->|None| Missing[NO_COMPATIBLE_INDEX]
+    Preflight -->|Available| Embed[Embed only the query outside a transaction]
+    Embed --> Read[Read eligible stored passages and vectors again]
+    Read --> Rank[Exact cosine scores, threshold, stable ordering, limit]
+    Rank --> Result[Immutable located matches, possibly empty]
+```
+
+[JdbcPassageSearch](../src/main/java/dev/secondbrain/search/JdbcPassageSearch.java) owns an approved read-only projection over document tables. It neither imports private document repositories nor writes document state. The source document must be visible and extracted; its active generation must match the current source, supported model, and passage configuration. Counts and contiguous passage sequences must agree, with a vector for every passage. The selected-document filter is part of this eligibility step, before the result limit.
+
+The reader uses the active generation, not simply the newest or desired generation. A complete active version can stay useful while its replacement is still being prepared. Staged replacements, old extraction sources, missing vectors, and deleted documents cannot contribute matches.
+
+The vector operator `<=>` measures cosine distance. Similarity is `1 - distance`; higher scores rank first. The reader accepts only scores in [-1,1], excludes undefined/nonfinite numerical results, uses an inclusive minimum score (initially 0.3), and applies the requested bounded limit. Ties use document ID, passage sequence, and passage ID. The threshold is configurable and still needs evaluation against real semantic queries. There is no approximate vector index yet.
+
+Availability and ranking each have their own short read-only transaction. They close before/after provider I/O rather than holding a database connection across the remote call. The second read observes deletion or a source/version change during inference. A final visibility check after selecting matches is still a separate planned safeguard; this code currently enforces visibility within the ranking read.
+
+No compatible index, no matches above threshold, and a database/provider failure have different outcomes. That distinction lets future UI code show useful feedback without treating an unavailable service as absent evidence. [SearchProperties](../src/main/java/dev/secondbrain/search/SearchProperties.java) validates the threshold; [SearchFailure](../src/main/java/dev/secondbrain/search/SearchFailure.java) exposes safe failure reasons without SQL/query/vector details.
+
+[JdbcPassageSearchIT](../src/test/java/dev/secondbrain/search/JdbcPassageSearchIT.java) uses known vectors in real PostgreSQL/pgvector to check mechanics and filtering. Those synthetic vectors prove ordering rules, not the quality of semantic search with a real embedding model. [The development guide](../docs/development.md#local-passage-retrieval) lists the focused checks.
 
 ## References and related notes
 
