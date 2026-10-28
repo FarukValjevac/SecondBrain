@@ -407,10 +407,14 @@ Run the focused checks:
 
 ```sh
 ./mvnw -Dtest=SearchServiceTest,SearchTelemetryTest,SearchTelemetryEndpointTest,SearchConfigurationTest,TelemetryPrivacyTest test
-./mvnw -Dit.test=JdbcPassageSearchIT verify
+./mvnw -Dit.test=JdbcPassageSearchIT,SearchWorkflowIT verify
 ```
 
 The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. This API prepares search behavior for the upcoming web feature; no browser search control is available yet.
+
+`SearchWorkflowIT` starts the application without an HTTP listener, accepts synthetic TXT/Markdown/PDF documents through the public acceptance service, and lets the real durable workers extract, split, embed, and publish them. Queries then use the actual `SearchService` and PostgreSQL reader. It checks filters, empty/no-index/no-match outcomes, source locations, deletion, restart, and timeout/rate/quota failures. Searching must reuse stored vectors without creating delivery jobs or retrying automatically; telemetry must preserve caller context without private text.
+
+These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, passage configuration 1, indexing generation 1, minimum score 0.3, and default limit 5. They prove application wiring and retrieval mechanics; they do not measure semantic relevance, live provider behavior, or response latency. Existing upload HTTP tests cover multipart/browser behavior separately. Run the command with Docker available; the workflow uses a temporary library and its own container, with no `.env`, model credentials, or external telemetry service.
 
 ## Retrieval telemetry
 

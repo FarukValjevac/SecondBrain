@@ -1030,6 +1030,31 @@ The observation inherits the caller's current trace without changing its thread-
 
 [SearchTelemetryTest](../src/test/java/dev/secondbrain/search/SearchTelemetryTest.java) checks timing/counts, fixed failures, caller context and broken telemetry. The [Actuator test](../src/test/java/dev/secondbrain/search/SearchTelemetryEndpointTest.java) checks real metric responses. Coordinated PostgreSQL tests pause after ranking and commit a change before final validation. [The development guide](../docs/development.md#retrieval-telemetry) lists metric queries and focused verification.
 
+## 29. Following a document into a search
+
+A document goes through the background pipeline once per indexing generation. A search reads its published passages and vectors; only the query needs a new vector.
+
+```mermaid
+flowchart TD
+    Upload[Accept TXT, Markdown or PDF] --> Extract[Extract located text]
+    Extract --> Split[Prepare stable passages]
+    Split --> Embed[Embed passages in background]
+    Embed --> Publish[Publish complete active index in PostgreSQL]
+    Query[SearchQuery plus document scope] --> Check[Check for an eligible active index]
+    Publish --> Check
+    Check --> QueryVector[Embed only this query]
+    QueryVector --> Rank[Compare with saved passage vectors]
+    Publish --> Rank
+    Rank --> Validate[Recheck candidate visibility]
+    Validate --> Matches[Located matches or no matches]
+```
+
+[SearchWorkflowIT](../src/test/java/dev/secondbrain/search/SearchWorkflowIT.java) follows this complete path through the application's services and real workers. The test provider assigns ALPHA passages one direction and BETA passages another. A matching query points in the same direction; an unrelated query points away. Because those directions are chosen by the test, expected matches are predictable. This verifies the connections between components, not whether a real model understands language.
+
+The workflow snapshots saved vectors and delivery records before searching and checks that querying leaves them unchanged. After an application restart, the same passage IDs, locations and scores remain available with one new query embedding. A timeout, rate limit or exhausted quota is a failure rather than evidence that no passage exists. The application makes no hidden retry: a later explicit request may try again.
+
+An empty selection costs no inference. A scope with no compatible index also avoids inference but reports that distinct problem. Deleting a document immediately excludes it; cleanup can continue in the background. A successful search can still return no matches above the threshold. These different outcomes give the web layer enough information to explain what happened.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
