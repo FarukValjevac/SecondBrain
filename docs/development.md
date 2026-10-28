@@ -347,7 +347,7 @@ A null active version is expected with embeddings disabled or incomplete process
 
 ## Search query contracts
 
-The `search` feature currently defines validated Java input/result types. It does not yet execute query embeddings, SQL retrieval, or provide a search endpoint/form.
+The `search` feature defines validated Java input/result types and an internal query-embedding operation. SQL retrieval and the search endpoint/form are not yet connected.
 
 `SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
 
@@ -360,6 +360,20 @@ Run the focused checks without Docker or credentials:
 ```sh
 ./mvnw -Dtest=SearchContractsTest test
 ```
+
+When `secondbrain.embeddings.enabled=true`, `SearchConfiguration` supplies `QueryEmbedding` with the same `EmbeddingProvider` used by document indexing. Construction performs no inference. Query preparation is independent of event polling and background-indexing enablement. It skips inference for an explicit empty document selection, checks the supplied index model against the provider model, and otherwise requests exactly one vector for the normalized query. It never sends document passages or calls chat.
+
+Provider I/O is refused inside a database transaction. The existing client supplies bounded connection/full-response timeouts and input/response budgets. Query preparation adds no retries, fallback, sleeps, durable jobs, or query storage. An interruption preserves the thread flag and discards a late response. Responses must contain exactly one non-null model-compatible vector; the shared vector type validates dimensions, finite components, and nonzero magnitude.
+
+`SearchFailure` exposes fixed reasons for incompatible models, invalid vectors, provider unavailability, rate limits, daily quota, timeout, and interruption. Optional retry eligibility is a hint for a later user request. Failure messages/printable cause chains omit query/provider details. An empty preparation result means only an explicit empty selection; failures do not masquerade as an empty search result. The future retrieval service will separately check whether an eligible stored index exists. Existing adapter telemetry measures actual provider attempts without private query text; retrieval-level observations come with the later retrieval service.
+
+Check query preparation with fake vectors and errors, without credentials or network calls:
+
+```sh
+./mvnw -Dtest=QueryEmbeddingTest,SearchConfigurationTest test
+```
+
+These tests use the shared provider boundary; the existing `CloudflareEmbeddingHttpIT` suite remains the transport/timeout contract gate. Passing fake-provider tests does not establish live account/model availability or ranking quality.
 
 For a small Java console check after compilation:
 

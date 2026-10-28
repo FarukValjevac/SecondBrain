@@ -937,7 +937,36 @@ The selected scope copies its set. Clearing the caller's original set cannot sil
 
 Records normally generate a `toString()` containing all fields. These text-bearing records override it with summaries so casually printing a request/result does not reveal queries, passages, or document IDs. Validation messages also omit private input.
 
-These types currently validate and carry data. They do not call an embedding provider or execute search. [SearchContractsTest](../src/test/java/dev/secondbrain/search/SearchContractsTest.java) checks Unicode/result bounds, explicit empty scope, immutable collections, valid coordinates/scores, and safe summaries. [The development guide](../docs/development.md#search-query-contracts) includes a JShell example for exploring them.
+These types validate and carry data. QueryEmbedding uses them for the provider operation described below; SQL search is not connected yet. [SearchContractsTest](../src/test/java/dev/secondbrain/search/SearchContractsTest.java) checks Unicode/result bounds, explicit empty scope, immutable collections, valid coordinates/scores, and safe summaries. [The development guide](../docs/development.md#search-query-contracts) includes a JShell example for exploring them.
+
+## 25. Turning one query into a compatible vector
+
+[QueryEmbedding](../src/main/java/dev/secondbrain/search/QueryEmbedding.java) is the search feature's internal provider operation. Constructor injection supplies the same `EmbeddingProvider` that background indexing uses. It keeps the provider and its model in final fields; each query's state stays in local variables. [SearchConfiguration](../src/main/java/dev/secondbrain/search/SearchConfiguration.java) enables this operation with embeddings, without making any startup request.
+
+```mermaid
+flowchart TD
+    Query[Validated SearchQuery] --> Empty{Explicit empty selection?}
+    Empty -->|Yes| Skip[Skip inference]
+    Empty -->|No| Match{Provider model matches index model?}
+    Match -->|No| Error[Safe typed failure]
+    Match -->|Yes| Guard[Check transaction and interruption]
+    Guard --> Call[One provider request containing only query text]
+    Call --> Response{Exactly one compatible vector?}
+    Response -->|Yes| Vector[Vector for later SQL retrieval]
+    Response -->|No or provider failure| Error
+```
+
+A model mismatch stops before sending the query. The query vector must have the same model and dimensions as the stored passage vectors, otherwise comparing them would have no valid meaning. The shared `EmbeddingVector` already checks dimensions, finite values, and a nonzero vector; query preparation checks response count and model association as well.
+
+Only the question/query needs a new vector. The stored document vectors are reused by the later SQL step. This operation neither re-embeds documents nor asks a chat model for an answer. It currently prepares the query vector; it does not perform ranking or inspect database index eligibility.
+
+`Optional.empty()` has one meaning here: the caller explicitly selected no documents. A provider failure throws [SearchFailure](../src/main/java/dev/secondbrain/search/SearchFailure.java) instead, with a small nested `Reason` enum. That keeps “nothing selected,” “no matching evidence,” and “the provider could not answer” from becoming the same state. Timeout, rate limit, quota, and interruption remain distinguishable. A retry timestamp is information for a later request, not an instruction to block until tomorrow or create a background job.
+
+A blocking operation can clear the Java thread's interrupt flag when it throws `InterruptedException`. The catch restores it with `Thread.currentThread().interrupt()` before returning a safe failure. The operation also checks interruption before and after the provider call, so it cannot accept a response after cancellation. Provider calls inside an active database transaction are rejected before network work.
+
+The original diagnostic cause is kept privately for debugging but excluded from the normal exception cause chain. Printing a failure therefore does not accidentally expose an HTTP response, token, or query. Request observations remain in the existing provider adapter; the preparation layer adds no duplicate log or retry loop.
+
+[QueryEmbeddingTest](../src/test/java/dev/secondbrain/search/QueryEmbeddingTest.java) exercises one-query calls, model/response validation, empty-selection avoidance, failure mapping and cancellation with a fake provider. Configuration tests prove startup makes no inference request. [The development guide](../docs/development.md#search-query-contracts) lists the focused verification command.
 
 ## References and related notes
 
