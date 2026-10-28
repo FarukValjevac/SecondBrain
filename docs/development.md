@@ -399,16 +399,42 @@ The read-only projection joins the selected active index to its current extracte
 
 Ranking uses exact cosine similarity (`1 - cosine distance`). Scores outside [-1,1], including undefined/nonfinite values, are excluded before thresholding and ordering; they are never clamped into a perfect match. Results sort by descending score, then document UUID, passage sequence, and passage UUID for stable ties. The inclusive minimum score defaults to 0.3 and can be configured with `secondbrain.search.minimum-score` in [-1,1], for example `--secondbrain.search.minimum-score=0.65`. This is provisional policy for later evaluation, not a measured quality guarantee. The query limits results to at most 20 (default 5). No approximate-search index or migration is added. See [pgvector's distance documentation](https://github.com/pgvector/pgvector#distances) for the operator convention.
 
-Availability and ranking run in separate read-only transactions with five-second transaction/query timeouts; no transaction spans provider I/O. The ranking statement rechecks eligibility after inference, so deletion or a source change during inference excludes that content. A final post-selection visibility check and retrieval observations are the next planned increment; the current API does not yet promise that additional return-time check. Provider-level observations remain available. No search query history, durable job, document mutation, or chat request is created.
+Availability, ranking, and final candidate validation use separate read-only transactions with five-second transaction/query timeouts; no transaction spans provider I/O. The final read uses a fresh snapshot for at most the 20 candidate documents/passages, intersects the original scope, and repeats active/source/model/completeness checks. Deletion or a source/active-index change committed before that final check prevents the affected passage from being returned. Removed candidates are dropped without reranking, refilling, or another provider request, so the result can contain fewer matches or become empty. No final database read is needed for an already empty candidate list.
+
+This is a check-time guarantee: a deletion committed after the final snapshot cannot recall previously selected or delivered text. Source links and later answer generation must perform their own visibility checks. A failed validation read returns a safe database failure instead of serving the earlier candidates. Interruption is checked around the final read. No search query history, durable job, document mutation, or chat request is created.
 
 Run the focused checks:
 
 ```sh
-./mvnw -Dtest=SearchServiceTest,SearchConfigurationTest test
+./mvnw -Dtest=SearchServiceTest,SearchTelemetryTest,SearchTelemetryEndpointTest,SearchConfigurationTest,TelemetryPrivacyTest test
 ./mvnw -Dit.test=JdbcPassageSearchIT verify
 ```
 
-The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, and deletion during inference. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. This API prepares search behavior for the upcoming web feature; no browser search control is available yet.
+The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. This API prepares search behavior for the upcoming web feature; no browser search control is available yet.
+
+## Retrieval telemetry
+
+The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:
+
+| Metric | Meaning | Labels |
+|---|---|---|
+| `secondbrain.search.requests` | Completed search operations, including failures and empty scopes | Fixed `outcome` |
+| `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
+| `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
+
+Outcomes are `success`, `no_results`, `empty_scope`, `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
+
+The result summary records only final returned counts from 0 through 20. Completed empty selections/no-matches contribute zero; failed requests contribute no sample. It therefore does not interpret a provider/database outage as absent evidence. Counters/timers/summary reset per process and are best effort. Metrics, observations, and safe logging fail independently without changing a successful result or an original error.
+
+The `search.retrieval` observation inherits an active caller/request trace without replacing its scope. Provider request observations retain that caller context too; this layer does not open an extra scope around them. A direct API call without a parent can create a standalone span. Safe logs use `operation=search_retrieval`, fixed outcome, and bounded result count on completion, plus any existing caller correlation context. No query, filename, excerpt, vector, selection IDs, raw exception, or result IDs become metric labels or telemetry payloads. The exporter retains the fixed span name/outcome and drops unknown fields/events.
+
+```sh
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.search.requests
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.search.duration?tag=outcome:success'
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.search.results
+```
+
+Request counters and the result summary are registered at startup with embeddings enabled; a duration series appears after an observed call. Reading metrics makes no provider request. The browser search route is still planned, so startup/refreshing the library does not execute a search. `SearchTelemetryEndpointTest` exercises the actual Actuator responses without a listener, database, or live model.
 
 ## Embedding request telemetry
 

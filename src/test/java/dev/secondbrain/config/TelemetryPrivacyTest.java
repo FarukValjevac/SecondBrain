@@ -138,11 +138,20 @@ class TelemetryPrivacyTest {
                         {"document.indexing.request", "unavailable"},
                         {"embedding.request", "success"},
                         {"embedding.request", "quota_exhausted"},
-                        {"embedding.request", "invalid_response"}
+                        {"embedding.request", "invalid_response"},
+                        {"search.retrieval", "success"},
+                        {"search.retrieval", "no_results"},
+                        {"search.retrieval", "empty_scope"},
+                        {"search.retrieval", "database_unavailable"},
+                        {"search.retrieval", "no_compatible_index"},
+                        {"search.retrieval", "quota_exhausted"}
                     }) {
                 var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
                 span.setAttribute("outcome", operation[1]);
                 span.setAttribute("filename", "sentinel-private-document-name");
+                span.setAttribute("query", "sentinel-private-query");
+                span.setAttribute("passage", "sentinel-private-passage");
+                span.setAttribute("vector", "sentinel-private-vector");
                 span.recordException(new IllegalStateException("sentinel-private-storage-error"));
                 span.end();
                 var exported = capture.getFinishedSpanItems().getLast();

@@ -8,10 +8,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /** Document-owned tables are a documented read-only projection, never a search write boundary. */
 final class JdbcPassageSearch {
@@ -122,6 +124,45 @@ final class JdbcPassageSearch {
                                                     })
                                             .list();
                             return new SearchResult(matches);
+                        }));
+    }
+
+    /**
+     * Fresh committed snapshot over only the bounded candidates; preserve ranking, never refill.
+     */
+    SearchResult retainVisible(SearchScope scope, EmbeddingModel model, SearchResult candidates) {
+        Objects.requireNonNull(scope, "scope");
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(candidates, "candidates");
+        if (candidates.matches().isEmpty()) return candidates;
+        var documents =
+                candidates.matches().stream()
+                        .map(SearchResult.Match::documentId)
+                        .collect(Collectors.toCollection(HashSet::new));
+        if (scope instanceof SearchScope.SelectedDocuments selected)
+            documents.retainAll(selected.documentIds());
+        if (documents.isEmpty()) return new SearchResult(List.of());
+        var ids = candidates.matches().stream().map(SearchResult.Match::passageId).toList();
+        return Objects.requireNonNull(
+                reads.execute(
+                        status -> {
+                            var visible =
+                                    new HashSet<>(
+                                            eligible(
+                                                            SearchScope.selected(documents),
+                                                            model,
+                                                            """
+                    SELECT p.passage_id FROM eligible_indexes i JOIN document_passages p
+                      ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
+                    WHERE p.passage_id IN (:passages)
+                    """)
+                                                    .param("passages", ids)
+                                                    .query(UUID.class)
+                                                    .list());
+                            return new SearchResult(
+                                    candidates.matches().stream()
+                                            .filter(match -> visible.contains(match.passageId()))
+                                            .toList());
                         }));
     }
 

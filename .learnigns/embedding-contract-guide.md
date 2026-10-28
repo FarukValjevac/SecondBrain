@@ -990,11 +990,45 @@ The reader uses the active generation, not simply the newest or desired generati
 
 The vector operator `<=>` measures cosine distance. Similarity is `1 - distance`; higher scores rank first. The reader accepts only scores in [-1,1], excludes undefined/nonfinite numerical results, uses an inclusive minimum score (initially 0.3), and applies the requested bounded limit. Ties use document ID, passage sequence, and passage ID. The threshold is configurable and still needs evaluation against real semantic queries. There is no approximate vector index yet.
 
-Availability and ranking each have their own short read-only transaction. They close before/after provider I/O rather than holding a database connection across the remote call. The second read observes deletion or a source/version change during inference. A final visibility check after selecting matches is still a separate planned safeguard; this code currently enforces visibility within the ranking read.
+Availability and ranking each have their own short read-only transaction. They close before/after provider I/O rather than holding a database connection across the remote call. The second read observes deletion or a source/version change during inference. After ranking, the service performs the fresh candidate visibility check described below before returning matches.
 
 No compatible index, no matches above threshold, and a database/provider failure have different outcomes. That distinction lets future UI code show useful feedback without treating an unavailable service as absent evidence. [SearchProperties](../src/main/java/dev/secondbrain/search/SearchProperties.java) validates the threshold; [SearchFailure](../src/main/java/dev/secondbrain/search/SearchFailure.java) exposes safe failure reasons without SQL/query/vector details.
 
 [JdbcPassageSearchIT](../src/test/java/dev/secondbrain/search/JdbcPassageSearchIT.java) uses known vectors in real PostgreSQL/pgvector to check mechanics and filtering. Those synthetic vectors prove ordering rules, not the quality of semantic search with a real embedding model. [The development guide](../docs/development.md#local-passage-retrieval) lists the focused checks.
+
+## 27. Checking again just before returning evidence
+
+A passage can be valid when ranked and become invalid before the service returns it. [SearchService](../src/main/java/dev/secondbrain/search/SearchService.java) therefore asks `JdbcPassageSearch.retainVisible` to validate the bounded candidate list against a fresh committed-state snapshot.
+
+```mermaid
+sequenceDiagram
+    participant Search as SearchService
+    participant DB as PostgreSQL
+    participant Delete as Concurrent change
+    Search->>DB: Rank eligible passages
+    DB-->>Search: Candidate matches
+    Delete->>DB: Hide/delete document or change source/active version
+    DB-->>Delete: Change committed
+    Search->>DB: Recheck candidate IDs and original scope in a fresh read
+    DB-->>Search: IDs still eligible
+    Search->>Search: Keep eligible candidates in their original order
+```
+
+The final read checks visibility, source, active generation, model, and completeness again. It is limited to the candidate documents and passage IDs. It also intersects their documents with the original selected scope. It reads identifiers rather than fetching another copy of the text.
+
+The service preserves the remaining scores/order and may return fewer results. It does not refill the list or make another model call. If validation fails, it reports a database failure rather than returning unvalidated private text. A deletion committed before the final snapshot is observed; one committed afterward cannot retroactively recall text. Opening a source or generating a later answer therefore needs another visibility check at that later boundary.
+
+## 28. Observing retrieval without recording its contents
+
+[SearchTelemetry](../src/main/java/dev/secondbrain/search/SearchTelemetry.java) measures one service operation, including the final check. It receives only a fixed outcome and a bounded match count. It never receives `SearchQuery`, passage text, document selections, or a raw exception.
+
+The request counter answers “how many searches ended this way?” The timer answers “how long did the whole operation take?” The unlabelled result distribution answers “how many visible matches did completed searches return?” Only the final list contributes counts: a filtered result of one match records one even if ranking originally found two. Successful empty selections/no-matches record zero; a failure records no result sample.
+
+An `Operation` is a per-call object used with try-with-resources. It stores that request's outcome, and `close()` records measurements once. Singleton telemetry holds only shared registries. Recording failures are isolated so a broken metric, observation handler, exporter, or logger cannot replace a correct search outcome. Default diagnostics use safe fixed names; raw exceptions are not attached to tracing.
+
+The observation inherits the caller's current trace without changing its thread-local scope. Search and provider observations remain correlated under that caller. Metric labels contain only fixed outcomes and the framework's safe error tag; result counts are values rather than document-specific labels. Logs may include existing safe caller correlation context, but no query/excerpt/vector or result IDs.
+
+[SearchTelemetryTest](../src/test/java/dev/secondbrain/search/SearchTelemetryTest.java) checks timing/counts, fixed failures, caller context and broken telemetry. The [Actuator test](../src/test/java/dev/secondbrain/search/SearchTelemetryEndpointTest.java) checks real metric responses. Coordinated PostgreSQL tests pause after ranking and commit a change before final validation. [The development guide](../docs/development.md#retrieval-telemetry) lists metric queries and focused verification.
 
 ## References and related notes
 

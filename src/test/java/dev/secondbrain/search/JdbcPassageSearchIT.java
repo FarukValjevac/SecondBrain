@@ -3,8 +3,10 @@ package dev.secondbrain.search;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +34,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /** Real read projection and known vectors; no provider account, model call, worker or user file. */
 @Testcontainers
@@ -61,6 +66,93 @@ class JdbcPassageSearchIT {
     @AfterEach
     void clearOnlyIsolatedDocuments() {
         jdbc.sql("TRUNCATE documents CASCADE").update();
+    }
+
+    @Test
+    void finalReadIntersectsTheOriginalScopeAndKeepsCandidateOrder() {
+        var a = UUID.randomUUID();
+        var b = UUID.randomUUID();
+        fixture(a, 7, true, new float[][] {{1, 0}});
+        fixture(b, 7, true, new float[][] {{0.8f, 0.6f}});
+        var candidates =
+                search.retrieve(new SearchQuery("Query", SearchScope.all()), vector(1, 0), 0.3);
+        assertThat(candidates.matches()).hasSize(2);
+        assertThat(
+                        search.retainVisible(SearchScope.selected(Set.of(b)), MODEL, candidates)
+                                .matches())
+                .extracting(SearchResult.Match::documentId)
+                .containsExactly(b);
+        assertThat(
+                        search.retainVisible(SearchScope.selected(Set.of()), MODEL, candidates)
+                                .matches())
+                .isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(VisibilityChange.class)
+    void committedChangesAfterRankingCannotEscapeTheFinalRead(VisibilityChange change)
+            throws Exception {
+        var changed = UUID.randomUUID();
+        var survivor = UUID.randomUUID();
+        fixture(changed, 7, true, new float[][] {{1, 0}});
+        fixture(survivor, 7, true, new float[][] {{0.8f, 0.6f}});
+        var ranked = new CountDownLatch(1);
+        var committed = new CountDownLatch(1);
+        var coordinated = spy(search);
+        doAnswer(
+                        call -> {
+                            SearchResult candidates = call.getArgument(2);
+                            assertThat(candidates.matches())
+                                    .extracting(SearchResult.Match::documentId)
+                                    .containsExactly(changed, survivor);
+                            ranked.countDown();
+                            assertThat(committed.await(10, TimeUnit.SECONDS)).isTrue();
+                            return call.callRealMethod();
+                        })
+                .when(coordinated)
+                .retainVisible(any(), any(), any());
+        var provider = mock(EmbeddingProvider.class);
+        when(provider.model()).thenReturn(MODEL);
+        when(provider.embed(any())).thenReturn(List.of(vector(1, 0)));
+        var service =
+                new SearchService(
+                        new QueryEmbedding(provider),
+                        coordinated,
+                        new SearchProperties(0.3),
+                        SearchTelemetry.disabled());
+        try (var thread = Executors.newSingleThreadExecutor()) {
+            var response =
+                    thread.submit(
+                            () -> service.search(new SearchQuery("Query", SearchScope.all())));
+            try {
+                assertThat(ranked.await(10, TimeUnit.SECONDS)).isTrue();
+                switch (change) {
+                    case DELETED -> update(changed, "deleted_at = updated_at");
+                    case REMOVED ->
+                            jdbc.sql("DELETE FROM documents WHERE document_id = :id")
+                                    .param("id", changed)
+                                    .update();
+                    case SOURCE_CHANGED -> update(changed, "processing_version = 2");
+                    case REPLACED -> {
+                        fixture(changed, 8, false, new float[][] {{1, 0}});
+                        update(changed, "active_indexing_version = 8");
+                    }
+                    case INCOMPLETE ->
+                            jdbc.sql("DELETE FROM document_embeddings WHERE document_id = :id")
+                                    .param("id", changed)
+                                    .update();
+                }
+            } finally {
+                // Independent auto-commit writer finished before the fresh validation statement.
+                committed.countDown();
+            }
+            var visible = response.get(10, TimeUnit.SECONDS);
+            assertThat(visible.matches())
+                    .extracting(SearchResult.Match::documentId)
+                    .containsExactly(survivor);
+            assertThat(visible.matches().getFirst().score()).isCloseTo(0.8, within(0.00001));
+            verify(provider).embed(List.of("Query"));
+        }
     }
 
     @Test
@@ -224,7 +316,11 @@ class JdbcPassageSearchIT {
         var provider = mock(EmbeddingProvider.class);
         when(provider.model()).thenReturn(MODEL);
         var service =
-                new SearchService(new QueryEmbedding(provider), search, new SearchProperties(0.3));
+                new SearchService(
+                        new QueryEmbedding(provider),
+                        search,
+                        new SearchProperties(0.3),
+                        SearchTelemetry.disabled());
         var query = new SearchQuery("Query", SearchScope.all());
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.search(query))
                 .isInstanceOfSatisfying(
@@ -262,7 +358,11 @@ class JdbcPassageSearchIT {
                             return List.of(vector(1, 0));
                         });
         var service =
-                new SearchService(new QueryEmbedding(provider), search, new SearchProperties(0.3));
+                new SearchService(
+                        new QueryEmbedding(provider),
+                        search,
+                        new SearchProperties(0.3),
+                        SearchTelemetry.disabled());
         assertThat(service.search(new SearchQuery("Query", SearchScope.all())).matches()).isEmpty();
     }
 
@@ -352,6 +452,14 @@ class JdbcPassageSearchIT {
         values[0] = x;
         values[1] = y;
         return new EmbeddingVector(MODEL, values);
+    }
+
+    enum VisibilityChange {
+        DELETED,
+        REMOVED,
+        SOURCE_CHANGED,
+        REPLACED,
+        INCOMPLETE
     }
 
     enum Excluded {
