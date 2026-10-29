@@ -347,7 +347,7 @@ A null active version is expected with embeddings disabled or incomplete process
 
 ## Search query contracts
 
-The `search` feature defines validated Java input/result types, query embedding, and a synchronous `SearchService` Java API for local pgvector retrieval. A basic POST search form connects the browser to that service; it currently displays the match count.
+The `search` feature defines validated Java input/result types, query embedding, and a synchronous `SearchService` Java API for local pgvector retrieval. The POST search form connects the browser to that service and displays located passages with document names.
 
 `SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
 
@@ -410,7 +410,7 @@ Run the focused checks:
 ./mvnw -Dit.test=JdbcPassageSearchIT,SearchWorkflowIT verify
 ```
 
-The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. The browser search form uses this API; excerpt rendering and a document picker are not available yet.
+The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. The browser search form uses this API and displays excerpts alongside a paginated document picker.
 
 `SearchWorkflowIT` starts the application without an HTTP listener, accepts synthetic TXT/Markdown/PDF documents through the public acceptance service, and lets the real durable workers extract, split, embed, and publish them. Queries then use the actual `SearchService` and PostgreSQL reader. It checks filters, empty/no-index/no-match outcomes, source locations, deletion, restart, and timeout/rate/quota failures. Searching must reuse stored vectors without creating delivery jobs or retrying automatically; telemetry must preserve caller context without private text.
 
@@ -418,19 +418,23 @@ These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, p
 
 ## Browser search input
 
-Open `/search` or select **Search documents** in the library. Opening the page performs no inference. With embeddings configured and complete active indexes available, submit a whole-library query to see the matching-passage count. The form states that query text goes to the configured embedding provider. This sends a real query embedding request; the usual provider allowance applies. Without enabled embeddings, the page shows **Search unavailable** and requires no credentials.
+Open `/search` or select **Search documents** in the library. Opening the page reads document choices but performs no inference. With embeddings configured and complete active indexes available, submit a whole-library query to see ranked excerpts, document names and source line ranges. PDF matches also show their physical page number. **Open document** opens the existing document detail page; it is a document link, not a version-specific passage link. Similarity determines ordering; it is not shown as an answer-confidence percentage. Query text goes to the configured embedding provider and consumes the usual allowance. Without enabled embeddings, the page shows **Search unavailable** and requires no credentials.
 
-Queries use a form-urlencoded `POST /search`, with one `q` and one explicit `scope` (`all` or `selected`). Repeated query/scope fields, missing scope, malformed UUIDs, oversized input/selections, and document IDs paired with `all` receive HTTP 400 before retrieval. The server uses the service's default result limit of 5. It preserves valid normalized input and selected IDs after submission. Both page responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the application does not store the query in a session, URL, event, or default diagnostic field. These headers do not erase browser or provider history.
+Choose **Selected documents only** and check documents to restrict retrieval. The picker uses the library's 50-document pages. **Next documents** and **Previous documents** preserve the query, scope, and checked IDs without executing a search, even with a blank query. Selections from other pages stay visible and removable. Choose up to 100 documents; queued/failed/unindexed documents can be selected but cannot contribute results until a complete compatible index exists. A removed selection stays explicit as **Document unavailable** rather than silently becoming a whole-library search. Choosing **Whole library** explicitly searches all eligible documents even if boxes remain checked.
 
-The HTTP boundary accepts up to 100 repeated `documentId` values for `selected`; duplicate UUIDs are deduplicated. An empty explicit selection stays empty. For a check that makes no inference request when the search service is configured, submit that empty selection:
+Queries use a form-urlencoded `POST /search`, with one `q` and one explicit `scope` (`all` or `selected`). Repeated/missing/unknown scope/query fields, malformed UUIDs, oversized text/selections and invalid pages/actions receive safe HTTP 400 before retrieval. Repeated `documentId` values are deduplicated, with a raw 100-value budget. Optional `page` defaults to 0 and `action` to `search`; `previous`/`next` browse choices only. The server uses the service's default result limit of 5. Valid normalized input and selections remain visible after a search. An empty selected scope stays empty.
+
+Both page responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the application creates no query session, URL, history or event. Default diagnostics omit queries, filenames and excerpts. These headers do not erase browser/provider history. Document labels are fetched in bounded batches without loading full extracted text. A result whose document becomes hidden before its label lookup is dropped, with the displayed count adjusted. A metadata failure returns safe 503 feedback without partial results. Retrieval metrics still describe the service's final snapshot; a later metadata visibility check can make the displayed count smaller.
+
+With the search service configured, check an empty selection without making an inference request:
 
 ```sh
 curl -i --data-urlencode 'q=Study notes' --data 'scope=selected' http://127.0.0.1:8080/search
 ```
 
-It should show `Matching passages: 0` without a provider call. A blank query can be checked with `curl -i --data 'q=&scope=all' http://127.0.0.1:8080/search`; expect HTTP 400 and safe feedback. No document picker or passage excerpts are rendered yet. Retrieval failures currently return HTTP 503 with generic safe feedback rather than a misleading zero-match count.
+Expect `Matching passages: 0`. A blank search can be checked with `curl -i --data 'q=&scope=all' http://127.0.0.1:8080/search`; expect safe HTTP 400. Retrieval failures currently use generic HTTP 503 feedback rather than a misleading zero count. For a browser check against your configured provider, search the library, then select a document and repeat; inspect names/excerpts/line or page references and open a document. Browsing picker pages must not increase `secondbrain.search.requests` or embedding-request counts. These are live searches only when you submit **Search** against eligible indexes.
 
-Run `./mvnw -Dtest=SearchControllerTest,SearchDisabledControllerTest,LibraryControllerTest,TelemetryPrivacyTest test` for the HTTP/form mapping and rendered-template checks. These MVC tests need no Docker, model credentials, or actual network requests. They verify input/scope bounds, empty selection, escaped query text, disabled setup, safe failures and diagnostics; they do not establish live relevance. Full `./mvnw verify` remains required.
+Run `./mvnw -Dtest=SearchControllerTest,SearchDisabledControllerTest,DocumentInspectionServiceTest,LibraryControllerTest,TelemetryPrivacyTest test` for the MVC/template and bounded-label API checks. They need no Docker, model credentials, or actual network requests. Run `./mvnw -Dit.test=DocumentRepositoryIT verify` with Docker to check batch label filtering against PostgreSQL, then the full `./mvnw verify`. These tests establish mechanics and privacy, not live semantic relevance.
 
 ## Retrieval telemetry
 
@@ -454,7 +458,7 @@ curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.search.duration?tag=out
 curl http://127.0.0.1:8080/actuator/metrics/secondbrain.search.results
 ```
 
-Request counters and the result summary are registered at startup with embeddings enabled; a duration series appears after an observed call. Reading metrics makes no provider request. The browser search route is still planned, so startup/refreshing the library does not execute a search. `SearchTelemetryEndpointTest` exercises the actual Actuator responses without a listener, database, or live model.
+Request counters and the result summary are registered at startup with embeddings enabled; a duration series appears after an observed call. Reading metrics makes no provider request. Startup, opening the search form and browsing picker pages do not execute a search; submitting a valid Search request does. `SearchTelemetryEndpointTest` exercises the actual Actuator responses without a listener, database, or live model.
 
 ## Embedding request telemetry
 

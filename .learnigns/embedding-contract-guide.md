@@ -1057,7 +1057,7 @@ An empty selection costs no inference. A scope with no compatible index also avo
 
 ## 30. Connecting a browser form to the search service
 
-[SearchController](../src/main/java/dev/secondbrain/web/SearchController.java) is the HTTP adapter. Spring calls its `form()` method for `GET /search` and `submit()` for a form-urlencoded `POST /search`. Opening a page only renders the form. Submitting it creates a validated `SearchQuery` and calls the existing service once.
+[SearchController](../src/main/java/dev/secondbrain/web/SearchController.java) is the HTTP adapter. Spring calls its `form()` method for `GET /search` and `submit()` for a form-urlencoded `POST /search`. Opening a page reads a bounded set of document choices and renders the form without inference. Submitting Search creates a validated `SearchQuery` and calls the existing service once; browsing picker pages does not call it.
 
 ```mermaid
 sequenceDiagram
@@ -1072,7 +1072,7 @@ sequenceDiagram
     Controller->>Controller: Validate HTTP fields and construct SearchQuery
     Controller->>Service: search(query)
     Service-->>Controller: SearchResult or typed SearchFailure
-    Controller->>View: Input, scope and result count or safe feedback
+    Controller->>View: Input, scope and named excerpts or safe feedback
     View-->>Browser: HTML response
 ```
 
@@ -1082,7 +1082,30 @@ An `ObjectProvider<SearchService>` is a Spring handle for an optional bean. Embe
 
 The [template](../src/main/resources/templates/search.html) uses escaped Thymeleaf values to redisplay valid input. Query text travels in a POST body rather than the form action URL. No query session/history is created, and cache/referrer headers restrict unintended browser reuse. Default diagnostics contain fixed HTTP/search outcomes, not form text. Those choices cannot control what a user deliberately saves or what the configured provider receives.
 
-The current page displays the match count. Selected-document IDs are accepted and retained by the HTTP contract; the visible form starts with the whole library. An empty selection remains empty, and provider failures do not become zero matches. MVC tests replace only the service, checking this adapter separately from the real PostgreSQL workflow tests.
+The page displays a match count plus escaped filenames, excerpts, line ranges and physical PDF page numbers. The picker supports explicit whole-library or selected-document scope. An empty selection remains empty, and provider failures do not become zero matches. MVC tests replace search and document-reading services, checking the adapter separately from the real PostgreSQL workflow tests.
+
+## 31. Keeping form state separate from an actual search
+
+[SearchForm](../src/main/java/dev/secondbrain/web/SearchForm.java) represents a browser interaction: text, scope, selected IDs, document page and action. It is an immutable record with copied selections and safe diagnostics. Its text may be blank because browsing documents does not require a query. `SearchQuery` is stricter: it represents a real retrieval request and rejects blank text. That distinction keeps paging from making inference calls or weakening the search contract.
+
+```mermaid
+flowchart TD
+    Form[POST: bounded SearchForm] --> Action{Which action?}
+    Action -->|Previous or next| Choices[Read 50 document choices and selected labels]
+    Choices --> Render[Render form; no query embedding]
+    Action -->|Search| Query[Construct SearchQuery]
+    Query --> Retrieval[SearchService: one interactive retrieval]
+    Retrieval --> Names[Batch visible document-name lookup]
+    Names --> Results[Escaped named excerpts and source locations]
+```
+
+Native form controls carry state between requests. Each document page submits its checked boxes alongside selected documents from other pages. Paging buttons use `formnovalidate` so a blank query can remain blank. No browser framework, JavaScript state store, or server query session is needed. The explicit scope decides retrieval: checked boxes are remembered in whole-library mode, but constrain the query only in selected-document mode. Empty selected mode never means all documents.
+
+[DocumentInspectionService.names](../src/main/java/dev/secondbrain/documents/DocumentInspectionService.java) returns an immutable map of visible IDs to filenames, capped at 100 IDs. The repository selects only those labels and excludes tombstoned rows. It does not load original files, extracted text, progress or vectors. Picker labels and result labels are separate bounded reads; the web controller never accesses SQL itself.
+
+After retrieval, the controller joins result IDs to visible labels and preserves ranking. If a document was hidden before this label read, its excerpt is omitted; a failed lookup produces safe feedback rather than partial evidence. This is another snapshot check, not a lock spanning delivery. Small view records combine a name with a match and redact their diagnostics. Thymeleaf escapes all text; markup in a document remains reference text, not executable HTML.
+
+The page shows source line ranges and physical PDF pages and links to the existing document detail route. That route reads current visible document content. These links identify a document; they do not yet bind an old result to its exact passage generation. The source-access boundary must make that distinction explicit when resolving passage-specific links.
 
 ## References and related notes
 

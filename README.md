@@ -19,7 +19,7 @@ The goal is to turn a personal collection of notes and study materials into a li
 
 Answers should acknowledge when the documents do not contain enough information. For example, you could ask “How do these notes explain photosynthesis?” and check the passages used to answer.
 
-Optional background embeddings send passage batches to Cloudflare, store vectors locally, and activate complete indexes. Saved batches survive restarts, replacements become active only when complete, and document deletion also removes derived indexes. Embeddings are disabled by default; see [embedding configuration](docs/development.md#embedding-configuration). A basic browser search form reports matching-passage counts from completed indexes when embeddings are enabled. Passage display and AI answers are still under development.
+Optional background embeddings send passage batches to Cloudflare, store vectors locally, and activate complete indexes. Saved batches survive restarts, replacements become active only when complete, and document deletion also removes derived indexes. Embeddings are disabled by default; see [embedding configuration](docs/development.md#embedding-configuration). Browser search shows matching passages with document names and line/PDF-page references, across the library or selected documents, when embeddings are enabled. AI answers are still under development.
 
 ## Requirements
 

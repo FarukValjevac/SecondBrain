@@ -13,6 +13,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
+import dev.secondbrain.documents.DocumentInspectionService;
+import dev.secondbrain.documents.DocumentInspectionService.DocumentSummary;
+import dev.secondbrain.documents.DocumentInspectionService.LibraryPage;
+import dev.secondbrain.documents.ExtractionState;
 import dev.secondbrain.search.SearchFailure;
 import dev.secondbrain.search.SearchQuery;
 import dev.secondbrain.search.SearchResult;
@@ -34,7 +38,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -45,10 +51,15 @@ import java.util.stream.IntStream;
 class SearchControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private SearchService search;
+    @MockitoBean private DocumentInspectionService documents;
 
     @BeforeEach
     void emptyResult() {
         when(search.search(any())).thenReturn(new SearchResult(List.of()));
+        when(documents.list(org.mockito.ArgumentMatchers.anyInt()))
+                .thenAnswer(
+                        invocation -> new LibraryPage(List.of(), invocation.getArgument(0), false));
+        when(documents.names(any())).thenReturn(Map.of());
     }
 
     @Test
@@ -103,6 +114,11 @@ class SearchControllerTest {
                                                 1, 0, 1, 5, OptionalInt.empty()),
                                         0.8)));
         when(search.search(any())).thenReturn(result);
+        when(documents.names(Set.of(result.matches().getFirst().documentId())))
+                .thenReturn(
+                        Map.of(
+                                result.matches().getFirst().documentId(),
+                                "sentinel-private-name.md"));
         String html =
                 mvc.perform(submission("  sentinel-private-<script>query</script>  ", "all"))
                         .andExpect(status().isOk())
@@ -120,7 +136,8 @@ class SearchControllerTest {
                 .contains(
                         "Matching passages: 1",
                         "sentinel-private-&lt;script&gt;query&lt;/script&gt;")
-                .doesNotContain("<script>", "sentinel-private-excerpt");
+                .contains("sentinel-private-excerpt", "sentinel-private-name.md")
+                .doesNotContain("<script>");
         assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
 
@@ -213,8 +230,7 @@ class SearchControllerTest {
     }
 
     @Test
-    void rejectsAmbiguousAllScopeAndOverBudgetSelections() throws Exception {
-        reject(submission("notes", "all").param("documentId", UUID.randomUUID().toString()));
+    void rejectsOverBudgetSelections() throws Exception {
         var ids =
                 IntStream.range(0, 101)
                         .mapToObj(i -> UUID.randomUUID().toString())
@@ -256,6 +272,212 @@ class SearchControllerTest {
                 .contains("Search could not be completed", "value=\"sentinel-private-query\"")
                 .doesNotContain("sentinel-private-provider", "Matching passages:");
         assertThat(output.getAll()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void wholeLibraryScopeIsExplicitEvenWhenCheckboxSelectionsRemain() throws Exception {
+        var id = UUID.randomUUID();
+        mvc.perform(submission("notes", "all").param("documentId", id.toString()))
+                .andExpect(status().isOk());
+        verify(search).search(new SearchQuery("notes", SearchScope.all()));
+    }
+
+    @Test
+    void rendersEscapedNamesExcerptsAndPhysicalPageReferencesInRankOrder(CapturedOutput output)
+            throws Exception {
+        var first = UUID.randomUUID();
+        var second = UUID.randomUUID();
+        var pdf =
+                new SearchResult.Match(
+                        UUID.randomUUID(),
+                        first,
+                        1,
+                        1,
+                        "sentinel-private-<script>PDF</script>\nsecond line",
+                        new SearchResult.SourceLocation(3, 2, 4, 6, OptionalInt.of(7)),
+                        0.9);
+        var txt =
+                new SearchResult.Match(
+                        UUID.randomUUID(),
+                        second,
+                        1,
+                        1,
+                        "sentinel-private-<img src=x onerror=bad>",
+                        new SearchResult.SourceLocation(1, 0, 1, 9, OptionalInt.empty()),
+                        0.7);
+        when(search.search(any())).thenReturn(new SearchResult(List.of(pdf, txt)));
+        when(documents.names(Set.of(first, second)))
+                .thenReturn(
+                        Map.of(
+                                first,
+                                "sentinel-private-<b>notes</b>.pdf",
+                                second,
+                                "TXT source.txt"));
+        var html =
+                mvc.perform(submission("sentinel-private-query", "all"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "sentinel-private-&lt;b&gt;notes&lt;/b&gt;.pdf",
+                        "sentinel-private-&lt;script&gt;PDF&lt;/script&gt;\nsecond line",
+                        "Page 7",
+                        "Lines 3–4",
+                        "Lines 1–1",
+                        "href=\"/documents/" + first + "\"",
+                        "&lt;img src=x onerror=bad&gt;")
+                .doesNotContain("<script>", "<img src=x", "<b>notes");
+        assertThat(html.indexOf("PDF&lt;/script&gt;")).isLessThan(html.indexOf("&lt;img src=x"));
+        assertThat(output.getAll()).doesNotContain("sentinel-private");
+        verify(documents, org.mockito.Mockito.never()).find(any());
+    }
+
+    @Test
+    void suppressesAnExcerptWhenItsDocumentHasBecomeHidden() throws Exception {
+        var id = UUID.randomUUID();
+        when(search.search(any()))
+                .thenReturn(
+                        new SearchResult(
+                                List.of(
+                                        new SearchResult.Match(
+                                                UUID.randomUUID(),
+                                                id,
+                                                1,
+                                                1,
+                                                "sentinel-private-hidden",
+                                                new SearchResult.SourceLocation(
+                                                        1, 0, 1, 3, OptionalInt.empty()),
+                                                0.8))));
+        var html =
+                mvc.perform(submission("notes", "all"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains("Matching passages: 0", "No matching passages in this scope.")
+                .doesNotContain("sentinel-private-hidden", "href=\"/documents/" + id);
+    }
+
+    @Test
+    void browsesPagesWithABlankQueryWithoutInferenceAndKeepsCrossPageSelections(
+            CapturedOutput output) throws Exception {
+        var first = UUID.randomUUID();
+        var second = UUID.randomUUID();
+        when(documents.list(1))
+                .thenReturn(
+                        new LibraryPage(
+                                List.of(
+                                        new DocumentSummary(
+                                                second,
+                                                "sentinel-private-<script>choice</script>.md",
+                                                ExtractionState.EXTRACTED,
+                                                Instant.EPOCH)),
+                                1,
+                                false));
+        when(documents.names(Set.of(first))).thenReturn(Map.of(first, "Selected source.txt"));
+        var html =
+                mvc.perform(
+                                submission("", "selected")
+                                        .param("documentId", first.toString())
+                                        .param("page", "0")
+                                        .param("action", "next"))
+                        .andExpect(status().isOk())
+                        .andExpect(model().attributeDoesNotExist("searchResult"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "Page 2",
+                        "Selected on other pages",
+                        "Selected source.txt",
+                        "sentinel-private-&lt;script&gt;choice&lt;/script&gt;.md",
+                        "value=\"previous\"")
+                .doesNotContain("<script>", "value=\"next\"");
+        assertThat(html).contains("name=\"documentId\" value=\"" + first + "\" checked");
+        verifyNoInteractions(search);
+        assertThat(output.getAll()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void removedSelectionsRemainExplicitWithoutExposingOldNames() throws Exception {
+        var id = UUID.randomUUID();
+        String html =
+                mvc.perform(submission("notes", "selected").param("documentId", id.toString()))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html).contains("Document unavailable", "Matching passages: 0");
+        verify(search).search(new SearchQuery("notes", SearchScope.selected(Set.of(id))));
+    }
+
+    @Test
+    void pickerAndNameLookupFailuresReturnSafeFeedbackWithoutPartialExcerpts(CapturedOutput output)
+            throws Exception {
+        when(documents.list(0))
+                .thenThrow(
+                        new org.springframework.dao.DataAccessResourceFailureException(
+                                "sentinel-private-database"));
+        String html =
+                mvc.perform(get("/search"))
+                        .andExpect(status().isServiceUnavailable())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains("Search could not be completed")
+                .doesNotContain("sentinel-private");
+        verifyNoInteractions(search);
+        org.mockito.Mockito.doReturn(new LibraryPage(List.of(), 0, false)).when(documents).list(0);
+        when(documents.names(any()))
+                .thenAnswer(
+                        invocation -> {
+                            if (!((Set<?>) invocation.getArgument(0)).isEmpty())
+                                throw new org.springframework.dao
+                                        .DataAccessResourceFailureException(
+                                        "sentinel-private-labels");
+                            return Map.of();
+                        });
+        when(search.search(any()))
+                .thenReturn(
+                        new SearchResult(
+                                List.of(
+                                        new SearchResult.Match(
+                                                UUID.randomUUID(),
+                                                UUID.randomUUID(),
+                                                1,
+                                                1,
+                                                "sentinel-private-excerpt",
+                                                new SearchResult.SourceLocation(
+                                                        1, 0, 1, 3, OptionalInt.empty()),
+                                                0.8))));
+        html =
+                mvc.perform(submission("notes", "all"))
+                        .andExpect(status().isServiceUnavailable())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains("Search could not be completed")
+                .doesNotContain("sentinel-private-excerpt", "Matching passages:");
+        assertThat(output.getAll()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void rejectsInvalidPagingAndActionsWithoutInference() throws Exception {
+        for (var page : List.of("-1", "sentinel-private-page", "2147483648")) {
+            mvc.perform(get("/search").param("page", page)).andExpect(status().isBadRequest());
+            reject(submission("notes", "selected").param("page", page));
+        }
+        reject(submission("notes", "selected").param("page", "0").param("action", "previous"));
+        reject(submission("notes", "selected").param("page", "2147483647").param("action", "next"));
+        reject(submission("notes", "selected").param("action", "unknown"));
+        reject(submission("notes", "selected").param("page", "0", "1"));
+        reject(submission("notes", "selected").param("action", "search", "next"));
     }
 
     private void reject(MockHttpServletRequestBuilder request) throws Exception {
