@@ -43,6 +43,94 @@ class DocumentInspectionServiceTest {
     }
 
     @Test
+    void sourceReadsUseAFreshBoundedReadOnlyTransactionWithoutOtherContentIo() {
+        var id = UUID.randomUUID();
+        var passage = UUID.randomUUID();
+        var source =
+                new DocumentInspectionService.PassageSource(
+                        id,
+                        passage,
+                        7,
+                        "sentinel-private-name",
+                        "sentinel-private-text",
+                        new DocumentInspectionService.SourceLocation(
+                                1, 0, 1, 4, OptionalInt.empty()));
+        when(documents.source(id, passage)).thenReturn(Optional.of(source));
+        assertThat(service.source(id, passage)).contains(source);
+        var definition =
+                org.mockito.ArgumentCaptor.forClass(
+                        org.springframework.transaction.TransactionDefinition.class);
+        verify(transactions).getTransaction(definition.capture());
+        assertThat(definition.getValue().isReadOnly()).isTrue();
+        assertThat(definition.getValue().getPropagationBehavior())
+                .isEqualTo(
+                        org.springframework.transaction.TransactionDefinition
+                                .PROPAGATION_REQUIRES_NEW);
+        assertThat(definition.getValue().getIsolationLevel())
+                .isEqualTo(
+                        org.springframework.transaction.TransactionDefinition
+                                .ISOLATION_READ_COMMITTED);
+        assertThat(definition.getValue().getTimeout()).isEqualTo(5);
+        verify(documents).source(id, passage);
+        verifyNoInteractions(texts, events);
+        assertThat(source.toString())
+                .doesNotContain("sentinel-private", id.toString(), passage.toString());
+    }
+
+    @Test
+    void unavailableSourceIsExplicitAndNeverLoadsFullText() {
+        var id = UUID.randomUUID();
+        var passage = UUID.randomUUID();
+        when(documents.source(id, passage)).thenReturn(Optional.empty());
+        assertThat(service.source(id, passage)).isEmpty();
+        verifyNoInteractions(texts, events);
+    }
+
+    @Test
+    void missingSourceIdsAreRejectedBeforeAnyIo() {
+        assertThatThrownBy(() -> service.source(null, UUID.randomUUID()))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> service.source(UUID.randomUUID(), null))
+                .isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(documents, texts, events, transactions);
+    }
+
+    @Test
+    void sourceProjectionBoundsTextAndRejectsInvalidCoordinates() {
+        var id = UUID.randomUUID();
+        var passage = UUID.randomUUID();
+        var location =
+                new DocumentInspectionService.SourceLocation(1, 0, 1, 1, OptionalInt.empty());
+        for (var text : List.of("", " ", "x".repeat(1201), "bad\u0000", "\uD800")) {
+            assertThatThrownBy(
+                            () ->
+                                    new DocumentInspectionService.PassageSource(
+                                            id, passage, 1, "name", text, location))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(
+                        () ->
+                                new DocumentInspectionService.PassageSource(
+                                        id, passage, 0, "name", "text", location))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(
+                        () ->
+                                new DocumentInspectionService.SourceLocation(
+                                        0, 0, 1, 1, OptionalInt.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(
+                        () ->
+                                new DocumentInspectionService.SourceLocation(
+                                        1, 2, 1, 2, OptionalInt.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(
+                        () ->
+                                new DocumentInspectionService.SourceLocation(
+                                        1, 0, 1, 1, OptionalInt.of(0)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void namesAreImmutableVisibleLabelsWithoutTextOrProgressReads() {
         var id = UUID.randomUUID();
         var mutable = new java.util.HashMap<UUID, String>();

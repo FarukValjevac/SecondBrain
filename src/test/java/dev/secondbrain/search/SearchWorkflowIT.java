@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentDeletionService;
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.PdfFixtures;
 import dev.secondbrain.embeddings.EmbeddingFailure;
 import dev.secondbrain.embeddings.EmbeddingModel;
@@ -114,6 +115,18 @@ class SearchWorkflowIT {
                 int before = provider.calls.size();
 
                 var found = service.search(query(ALPHA, SearchScope.all()));
+                for (var match : found.matches()) {
+                    var source =
+                            context.getBean(DocumentInspectionService.class)
+                                    .source(match.documentId(), match.passageId())
+                                    .orElseThrow();
+                    assertThat(source.text()).isEqualTo(match.text());
+                    assertThat(source.indexingVersion()).isEqualTo(match.indexingVersion());
+                    assertThat(source.location().startLine())
+                            .isEqualTo(match.location().startLine());
+                    assertThat(source.location().pageNumber())
+                            .isEqualTo(match.location().pageNumber());
+                }
                 int alphaMatches = format == Format.PDF ? 2 : 1;
                 assertThat(found.matches())
                         .hasSize(alphaMatches)
@@ -179,6 +192,11 @@ class SearchWorkflowIT {
                                 context.getBean(DocumentDeletionService.class)
                                         .request(alpha, UUID.randomUUID()))
                         .isTrue();
+                for (var match : found.matches())
+                    assertThat(
+                                    context.getBean(DocumentInspectionService.class)
+                                            .source(match.documentId(), match.passageId()))
+                            .isEmpty();
                 assertFailure(
                         service,
                         query(ALPHA, SearchScope.selected(Set.of(alpha))),
@@ -263,6 +281,14 @@ class SearchWorkflowIT {
                                     .search(query(ALPHA, SearchScope.all()))
                                     .matches())
                     .isEqualTo(original);
+            for (var match : original) {
+                var source =
+                        context.getBean(DocumentInspectionService.class)
+                                .source(match.documentId(), match.passageId())
+                                .orElseThrow();
+                assertThat(source.text()).isEqualTo(match.text());
+                assertThat(source.indexingVersion()).isEqualTo(match.indexingVersion());
+            }
             assertThat(restarted.calls).containsExactly(List.of(ALPHA));
             assertThat(vectors(context)).isEqualTo(vectors);
             assertThat(jobs(context)).isEqualTo(jobs);

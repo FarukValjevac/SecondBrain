@@ -27,7 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -254,23 +254,58 @@ class SearchControllerTest {
     }
 
     @ParameterizedTest
-    @EnumSource(SearchFailure.Reason.class)
+    @CsvSource({
+        "NO_COMPATIBLE_INDEX,200,No searchable documents",
+        "DATABASE_UNAVAILABLE,503,Document storage unavailable",
+        "INCOMPATIBLE_MODEL,503,Search configuration needs attention",
+        "INVALID_EMBEDDING,503,Unusable embedding response",
+        "PROVIDER_UNAVAILABLE,503,Embedding provider unavailable",
+        "RATE_LIMITED,429,Too many requests",
+        "QUOTA_EXHAUSTED,429,Free allowance exhausted",
+        "TIMED_OUT,504,Search timed out",
+        "INTERRUPTED,503,Search interrupted"
+    })
     void handlesTypedSearchFailuresWithoutEchoingExceptionsOrInventingResults(
-            SearchFailure.Reason reason, CapturedOutput output) throws Exception {
+            SearchFailure.Reason reason, int expectedStatus, String title, CapturedOutput output)
+            throws Exception {
         var failure = mock(SearchFailure.class);
+        var id = UUID.randomUUID();
         when(failure.reason()).thenReturn(reason);
+        when(failure.retryAt())
+                .thenReturn(java.util.Optional.of(Instant.parse("2031-01-01T00:00:00Z")));
         when(failure.getMessage()).thenReturn("sentinel-private-provider");
         when(search.search(any())).thenThrow(failure);
         String html =
-                mvc.perform(submission("sentinel-private-query", "all"))
-                        .andExpect(status().isServiceUnavailable())
-                        .andExpect(model().attributeDoesNotExist("searchResult"))
+                mvc.perform(
+                                submission("sentinel-private-query", "selected")
+                                        .param("documentId", id.toString()))
+                        .andExpect(status().is(expectedStatus))
+                        .andExpect(model().attributeDoesNotExist("searchResult", "searchHits"))
+                        .andExpect(model().attribute("scope", "selected"))
+                        .andExpect(model().attribute("documentIds", List.of(id)))
+                        .andExpect(header().string("Cache-Control", "no-store"))
+                        .andExpect(header().string("Referrer-Policy", "no-referrer"))
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
         assertThat(html)
-                .contains("Search could not be completed", "value=\"sentinel-private-query\"")
-                .doesNotContain("sentinel-private-provider", "Matching passages:");
+                .contains(title, "value=\"sentinel-private-query\"")
+                .doesNotContain(
+                        "sentinel-private-provider", "Matching passages:", "No matching passages");
+        if (Set.of(
+                        SearchFailure.Reason.RATE_LIMITED,
+                        SearchFailure.Reason.QUOTA_EXHAUSTED,
+                        SearchFailure.Reason.PROVIDER_UNAVAILABLE)
+                .contains(reason))
+            assertThat(html)
+                    .contains(
+                            "Provider suggests trying again after",
+                            "datetime=\"2031-01-01T00:00:00Z\"");
+        else assertThat(html).doesNotContain("Provider suggests trying again after");
+        verify(search)
+                .search(
+                        new SearchQuery(
+                                "sentinel-private-query", SearchScope.selected(Set.of(id))));
         assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
 
@@ -326,7 +361,7 @@ class SearchControllerTest {
                         "Page 7",
                         "Lines 3–4",
                         "Lines 1–1",
-                        "href=\"/documents/" + first + "\"",
+                        "href=\"/documents/" + first + "/passages/" + pdf.passageId() + "\"",
                         "&lt;img src=x onerror=bad&gt;")
                 .doesNotContain("<script>", "<img src=x", "<b>notes");
         assertThat(html.indexOf("PDF&lt;/script&gt;")).isLessThan(html.indexOf("&lt;img src=x"));
@@ -357,7 +392,7 @@ class SearchControllerTest {
                         .getResponse()
                         .getContentAsString();
         assertThat(html)
-                .contains("Matching passages: 0", "No matching passages in this scope.")
+                .contains("Matching passages: 0", "Search sources changed")
                 .doesNotContain("sentinel-private-hidden", "href=\"/documents/" + id);
     }
 
@@ -429,7 +464,7 @@ class SearchControllerTest {
                         .getResponse()
                         .getContentAsString();
         assertThat(html)
-                .contains("Search could not be completed")
+                .contains("Document storage unavailable")
                 .doesNotContain("sentinel-private");
         verifyNoInteractions(search);
         org.mockito.Mockito.doReturn(new LibraryPage(List.of(), 0, false)).when(documents).list(0);
@@ -462,7 +497,7 @@ class SearchControllerTest {
                         .getResponse()
                         .getContentAsString();
         assertThat(html)
-                .contains("Search could not be completed")
+                .contains("Document storage unavailable")
                 .doesNotContain("sentinel-private-excerpt", "Matching passages:");
         assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
@@ -480,6 +515,149 @@ class SearchControllerTest {
         reject(submission("notes", "selected").param("action", "search", "next"));
     }
 
+    @Test
+    void successfulEmptySearchGivesQueryGuidanceWithoutAnErrorOrSources() throws Exception {
+        var html =
+                mvc.perform(submission("no matching topic", "all"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "No matching passages",
+                        "Try different wording",
+                        "Matching passages: 0",
+                        "role=\"status\"")
+                .doesNotContain(
+                        "role=\"alert\"", "Free allowance exhausted", "Open source passage");
+    }
+
+    @Test
+    void emptySelectionGetsItsOwnActionableFeedbackRatherThanNoEvidence() throws Exception {
+        var html =
+                mvc.perform(submission("notes", "selected"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "No documents selected",
+                        "Select one or more documents",
+                        "Matching passages: 0")
+                .doesNotContain(
+                        "No matching passages", "No searchable documents", "role=\"alert\"");
+        verify(search).search(new SearchQuery("notes", SearchScope.selected(Set.of())));
+    }
+
+    @Test
+    void blankQueryKeepsValidScopeAndSelectionsWithoutAnyIo() throws Exception {
+        var id = UUID.randomUUID();
+        var html =
+                mvc.perform(
+                                submission("  ", "selected")
+                                        .param("documentId", id.toString())
+                                        .param("page", "2"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(model().attribute("queryText", "  "))
+                        .andExpect(model().attribute("scope", "selected"))
+                        .andExpect(model().attribute("documentIds", List.of(id)))
+                        .andExpect(model().attributeDoesNotExist("searchResult"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "Check your query",
+                        "nonblank query",
+                        "aria-invalid=\"true\"",
+                        "Retained selections",
+                        "name=\"documentId\" value=\"" + id + "\" checked",
+                        "name=\"page\" value=\"2\"")
+                .doesNotContain("Invalid form values have been cleared", "No matching passages");
+        verifyNoInteractions(search, documents);
+    }
+
+    @Test
+    void malformedFormClearsUnsafeStateAndCannotDefaultToWholeLibrary(CapturedOutput output)
+            throws Exception {
+        var html =
+                mvc.perform(
+                                submission("sentinel-private-<script>query</script>", "all")
+                                        .param("scope", "selected"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(model().attribute("scope", "selected"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains("Check the search form", "Invalid form values have been cleared")
+                .doesNotContain("sentinel-private", "Matching passages:");
+        verifyNoInteractions(search, documents);
+        assertThat(output.getAll()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void metadataFailureRetainsSafeQueryAndCheckedIdsWithGenericLabels(CapturedOutput output)
+            throws Exception {
+        var id = UUID.randomUUID();
+        when(documents.list(0))
+                .thenThrow(
+                        new org.springframework.dao.DataAccessResourceFailureException(
+                                "sentinel-private-database"));
+        var html =
+                mvc.perform(
+                                submission("sentinel-private-<script>query</script>", "selected")
+                                        .param("documentId", id.toString()))
+                        .andExpect(status().isServiceUnavailable())
+                        .andExpect(model().attribute("scope", "selected"))
+                        .andExpect(model().attribute("documentIds", List.of(id)))
+                        .andExpect(model().attributeDoesNotExist("searchResult", "searchHits"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "Document storage unavailable",
+                        "sentinel-private-&lt;script&gt;query&lt;/script&gt;",
+                        "Retained selections",
+                        "Selected document")
+                .doesNotContain("sentinel-private-database", "<script>", "Matching passages:");
+        verifyNoInteractions(search);
+        assertThat(output.getAll()).doesNotContain("sentinel-private");
+    }
+
+    @Test
+    void quotaRecoveryRequiresAnotherExplicitSubmissionAndDoesNotKeepOldFeedback()
+            throws Exception {
+        var quota = mock(SearchFailure.class);
+        when(quota.reason()).thenReturn(SearchFailure.Reason.QUOTA_EXHAUSTED);
+        when(quota.retryAt()).thenReturn(java.util.Optional.empty());
+        when(search.search(any())).thenThrow(quota).thenReturn(new SearchResult(List.of()));
+        var first =
+                mvc.perform(submission("notes", "all"))
+                        .andExpect(status().isTooManyRequests())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(first)
+                .contains("Free allowance exhausted")
+                .doesNotContain("Provider suggests trying again after");
+        verify(search).search(new SearchQuery("notes", SearchScope.all()));
+        var second =
+                mvc.perform(submission("notes", "all"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(second)
+                .contains("No matching passages")
+                .doesNotContain("Free allowance exhausted");
+        verify(search, org.mockito.Mockito.times(2))
+                .search(new SearchQuery("notes", SearchScope.all()));
+    }
+
     private void reject(MockHttpServletRequestBuilder request) throws Exception {
         String html =
                 mvc.perform(request)
@@ -488,7 +666,7 @@ class SearchControllerTest {
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
-        assertThat(html).contains("Enter a valid query").doesNotContain("sentinel-private");
+        assertThat(html).contains("Enter a").doesNotContain("sentinel-private");
         verifyNoInteractions(search);
     }
 

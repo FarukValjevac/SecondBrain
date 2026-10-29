@@ -1,5 +1,7 @@
 package dev.secondbrain.documents;
 
+import dev.secondbrain.embeddings.EmbeddingModel;
+
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.sql.Timestamp;
@@ -7,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 
@@ -69,6 +72,57 @@ final class JdbcDocumentRepository {
                                                 resultSet.getString("extraction_state")),
                                         resultSet.getTimestamp("created_at").toInstant(),
                                         resultSet.getTimestamp("updated_at").toInstant()))
+                .optional();
+    }
+
+    /** Source access repeats the document-owned active-index eligibility contract at open time. */
+    Optional<DocumentInspectionService.PassageSource> source(UUID documentId, UUID passageId) {
+        return jdbc.sql(
+                        """
+                SELECT d.original_name, p.*
+                FROM documents d
+                JOIN document_index_versions i ON i.document_id = d.document_id
+                    AND i.indexing_version = d.active_indexing_version
+                JOIN document_passages p ON p.document_id = i.document_id
+                    AND p.indexing_version = i.indexing_version AND p.passage_id = :passage
+                JOIN LATERAL (
+                    SELECT count(q.passage_id) AS passages, min(q.sequence_number) AS first_sequence,
+                        max(q.sequence_number) AS last_sequence,
+                        count(v.passage_id) FILTER (WHERE v.model_id = :model AND v.dimensions = 1024
+                            AND vector_dims(v.embedding) = 1024 AND vector_norm(v.embedding) > 0) AS vectors
+                    FROM document_passages q
+                    LEFT JOIN document_embeddings v ON v.passage_id = q.passage_id
+                        AND v.document_id = q.document_id AND v.indexing_version = q.indexing_version
+                    WHERE q.document_id = i.document_id AND q.indexing_version = i.indexing_version
+                ) complete ON complete.passages = i.passage_count AND complete.vectors = i.passage_count
+                    AND complete.first_sequence = 1 AND complete.last_sequence = i.passage_count
+                WHERE d.document_id = :document AND d.deleted_at IS NULL
+                    AND d.extraction_state = 'EXTRACTED' AND i.extraction_version = d.processing_version
+                    AND i.passage_configuration_version = 1 AND i.passage_count > 0
+                    AND i.embedding_model_id = :model AND i.embedding_dimensions = 1024
+                """)
+                .withQueryTimeout(5)
+                .param("document", documentId)
+                .param("passage", passageId)
+                .param("model", EmbeddingModel.BGE_M3_ID)
+                .query(
+                        (row, index) -> {
+                            var page = row.getObject("page_number", Integer.class);
+                            return new DocumentInspectionService.PassageSource(
+                                    row.getObject("document_id", UUID.class),
+                                    row.getObject("passage_id", UUID.class),
+                                    row.getLong("indexing_version"),
+                                    row.getString("original_name"),
+                                    row.getString("passage_text"),
+                                    new DocumentInspectionService.SourceLocation(
+                                            row.getInt("start_line"),
+                                            row.getInt("start_column"),
+                                            row.getInt("end_line"),
+                                            row.getInt("end_column"),
+                                            page == null
+                                                    ? OptionalInt.empty()
+                                                    : OptionalInt.of(page)));
+                        })
                 .optional();
     }
 

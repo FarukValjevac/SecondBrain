@@ -24,7 +24,7 @@
     </form>
     <section th:if="${document.state.name() == 'EXTRACTED'}" aria-labelledby="text-title">
       <h2 id="text-title">Extracted text</h2>
-      <p>Text is extracted. Search indexing is not available yet.</p>
+      <p>Text is extracted. Search uses completed indexes when embeddings are enabled.</p>
       <ol class="source-lines">
         <li th:each="line : ${document.lines}" th:id="${'line-' + line.number}">
           <a th:href="${'#line-' + line.number}"

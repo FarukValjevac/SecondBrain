@@ -1105,7 +1105,63 @@ Native form controls carry state between requests. Each document page submits it
 
 After retrieval, the controller joins result IDs to visible labels and preserves ranking. If a document was hidden before this label read, its excerpt is omitted; a failed lookup produces safe feedback rather than partial evidence. This is another snapshot check, not a lock spanning delivery. Small view records combine a name with a match and redact their diagnostics. Thymeleaf escapes all text; markup in a document remains reference text, not executable HTML.
 
-The page shows source line ranges and physical PDF pages and links to the existing document detail route. That route reads current visible document content. These links identify a document; they do not yet bind an old result to its exact passage generation. The source-access boundary must make that distinction explicit when resolving passage-specific links.
+The page shows source line ranges and physical PDF pages. Each result links to its exact source passage using document and passage IDs. That route rechecks the current active generation and document visibility before displaying text, as described below. The separate full-document link opens the current document detail page.
+
+## 32. Reopening an exact passage safely
+
+A search result is a snapshot, not permanent permission to read its text. A document may be deleted or replaced after a search. [DocumentSourceController](../src/main/java/dev/secondbrain/web/DocumentSourceController.java) therefore takes only document/passage IDs from the link and asks `DocumentInspectionService.source` to resolve them again. The URL supplies no filename or excerpt that could be trusted accidentally.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Web as DocumentSourceController
+    participant Documents as DocumentInspectionService
+    participant DB as PostgreSQL
+    Browser->>Web: Open document ID / passage ID
+    Web->>Web: Validate both UUID strings
+    Web->>Documents: source(documentId, passageId)
+    Documents->>DB: Fresh bounded read-only transaction
+    DB->>DB: Require visible owner, current source, complete active generation
+    alt Exact passage is eligible
+        DB-->>Documents: Immutable located source
+        Documents-->>Web: PassageSource
+        Web-->>Browser: Escaped source page
+    else Missing, deleted, replaced or incomplete
+        DB-->>Documents: No source
+        Web-->>Browser: 404; no old text
+    end
+```
+
+The stored passage ID includes the document, indexing generation and sequence in its stable identity. A different generation has different passage IDs. The lookup requires that exact stored passage to belong to the document's active generation, whose extraction version must still be current. It repeats passage/vector completeness and supported model/configuration checks. An old active generation can remain useful while a replacement is only staged; once replaced, its links stop resolving.
+
+`REQUIRES_NEW` suspends a caller's transaction and opens a fresh one. `READ_COMMITTED` observes the state committed before this SQL statement. This matters if a caller already holds a repeatable-read snapshot from before deletion: ordinary reads in that old transaction can still see old data. The public source operation uses its own read, so it cannot accidentally serve that old snapshot. Read-only policy and five-second limits keep the operation short; no lock spans HTML delivery.
+
+The public `PassageSource` record contains only the filename, bounded passage, source coordinates and identity needed by the view. It is separate from a ranked search match and contains no score/vector/provider response. Required fields, text budget, Unicode and source coordinates are validated; diagnostics omit text, names and IDs. A source page needs no model call and can open an eligible saved link even when embeddings are disabled.
+
+The controller maps absent/stale sources to the same 404, malformed links to 400 and read failures to 503. Error pages contain no old content. The [template](../src/main/resources/templates/document-source.html) escapes all text, and responses disable caching/referrer forwarding. These measures cannot recall content already delivered before a later deletion; they ensure each new request checks again. MVC tests verify rendering and safe responses; PostgreSQL tests check actual ownership, completeness, replacement/deletion and the old-snapshot case.
+
+## 33. Explaining search outcomes without changing retrieval
+
+[SearchFeedback](../src/main/java/dev/secondbrain/web/SearchFeedback.java) is a closed enum of web messages and HTTP statuses. It maps trusted `SearchFailure.Reason` values into useful next actions. Its strings contain no provider body, exception message, filename, query or excerpt. It is presentation policy; `SearchService` still decides eligibility, model calls, ranking and final visibility.
+
+| Meaning | Browser feedback | HTTP |
+|---|---|---|
+| The selected set is empty | Select documents or choose Whole library | 200 |
+| Retrieval ran but found no evidence above the threshold | Change wording or scope | 200 |
+| Nothing in this scope has a compatible completed index | Wait for indexing or choose other documents | 200 |
+| Provider is limiting requests or the allowance is exhausted | Wait and submit explicitly later | 429 |
+| The embedding request timed out | Try again later | 504 |
+| Storage/provider/configuration is unavailable | Follow the specific guidance | 503 |
+
+A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
+
+The controller restores a parsed `SearchForm` before trying retrieval. This preserves valid text, scope, checked IDs and page when a provider or database operation fails. If labels cannot load, the page uses generic checked selection controls rather than losing those IDs or displaying old filenames. This state lives only in the request's view model; it is not query history or a server session.
+
+Blank text is valid while browsing choices but invalid when converted into `SearchQuery`. That failure can preserve the rest of the valid form without any database/provider call. Malformed or ambiguous fields cannot form a trusted `SearchForm`; the page explicitly clears them and chooses selected/empty scope instead of accidentally broadening to all documents.
+
+An optional `Instant` retry hint is rendered as a UTC time for relevant provider failures. No raw message is interpreted to invent a reset date. The application does not wait or automatically resubmit: each explicit search can make at most one service attempt. A new request can succeed without retaining an earlier quota message because feedback is per request, not mutable singleton state.
+
+MVC tests supply controlled service outcomes and render the real Thymeleaf page. They check HTTP statuses, helpful messages, escaped retained input, fixed diagnostics and explicit retry behavior without consuming a real allowance. They establish presentation behavior; evaluating whether a real model finds relevant study material remains a separate task.
 
 ## References and related notes
 
