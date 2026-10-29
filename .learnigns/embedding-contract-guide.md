@@ -1163,6 +1163,79 @@ An optional `Instant` retry hint is rendered as a UTC time for relevant provider
 
 MVC tests supply controlled service outcomes and render the real Thymeleaf page. They check HTTP statuses, helpful messages, escaped retained input, fixed diagnostics and explicit retry behavior without consuming a real allowance. They establish presentation behavior; evaluating whether a real model finds relevant study material remains a separate task.
 
+## 34. Giving retrieval a small answer key
+
+The [reference collection](../src/test/resources/retrieval/reference-v1/collection.json) contains example Java study notes and a hand-labeled answer key. The ArrayList and HashSet notes describe different handling of duplicates and ordering. A personal review-plan example supplies evidence for a question that needs two documents. Other cases ask about facts absent from the notes or excluded by scope/deletion. They are sample uploads for search tests; they introduce no student accounts or library-management feature.
+
+For example, a direct question asks whether ArrayList allows duplicate values. A paraphrase asks whether the same value can be kept more than once. Both should identify the same evidence in the ArrayList note. A comparison asks how ArrayList and HashSet differ, requiring evidence from both notes. The sample collection rules follow the Java 25 [ArrayList](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html), [List](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html), and [HashSet](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/HashSet.html) documentation.
+
+```mermaid
+flowchart LR
+    Files[Example Java study notes] --> Hashes[Verify exact UTF-8 bytes and hashes]
+    Labels[Stable source labels and line ranges] --> Quotes[Verify quotes against source lines]
+    Cases[Queries, scopes, deletions and expected facts] --> Rules[Verify references and evidence consistency]
+    Hashes --> Valid[Consistent reference data]
+    Quotes --> Valid
+    Rules --> Valid
+```
+
+[RetrievalReferenceCollection](../src/test/java/dev/secondbrain/search/RetrievalReferenceCollection.java) is test-only code. Its immutable records describe documents, evidence spans, explicit scopes and query cases. The manifest version and file digests make the input reproducible. A source label has one-based inclusive line bounds and an exact quote. Expected facts are verbatim source statements; an absent-evidence case has no expected source or fact. The validator rejects, for example, an expected source that was deleted or lies outside the selected documents.
+
+A logical label such as `arraylist-behavior` is different from a database UUID. It identifies evidence in the answer key across runs, while actual document/index/passage identities belong to a particular imported run. Several labeled facts can share a single passage after splitting. Counting those aliases as separate retrieved passages would inflate or distort a recall calculation, so the two identities must stay distinct.
+
+The validator does not call `SearchService` or an embedding provider. It proves that the answer key points to real bytes and legal source locations, not that retrieval finds them. It also cannot prove natural-language relevance merely because a fact appears in a quote. The [fixture tests](../src/test/java/dev/secondbrain/search/RetrievalReferenceCollectionTest.java) check declared scenarios and deliberately corrupt labels/hashes/scopes to ensure inconsistent data is rejected without consuming a model allowance.
+
+## 35. Separating a correct search engine from a useful model
+
+The same answer key can test two different things. A controlled-vector test asks whether PostgreSQL returns the right saved passages for known numbers. A real-model evaluation asks whether an embedding model gives useful numbers to natural-language questions. Passing the first does not establish the second.
+
+```mermaid
+flowchart LR
+    Notes[Three Java study notes] --> Bindings[Stable test UUIDs and source locations]
+    Gold[Gold evidence labels] --> Expected[Expected unique passage IDs]
+    Bindings --> DB[Isolated published pgvector rows]
+    Directions[Scripted query and passage vectors] --> DB
+    Directions --> Service[Actual SearchService]
+    DB --> Service
+    Service --> Results[Ranked visible passages]
+    Expected --> Check[Compare IDs, text, facts and locations]
+    Results --> Check
+```
+
+[ReferenceIndex](../src/test/java/dev/secondbrain/search/ReferenceIndex.java) connects logical evidence labels to repeatable database UUIDs. Each short note fits one whole-document passage. The labels `arraylist-behavior` and `arraylist-removal` describe different lines inside the same passage, so they count as one expected passage. The source coordinates cover the complete stored passage; the gold labels retain the narrower evidence ranges. Larger notes need a deliberate multi-passage fixture rather than truncation.
+
+[ReferenceRetrievalIT](../src/test/java/dev/secondbrain/search/ReferenceRetrievalIT.java) gives ArrayList, HashSet and the study plan independent vector directions. A comparison query receives a direction between the first two. A question with absent evidence receives a direction perpendicular to all three. These numbers are explicitly assigned by the test; no model has understood any words. They let the assertions isolate SQL ranking, the score threshold, scope and deletion from model variability.
+
+A useful filter check first lets ArrayList win with result limit one, then restricts the same query to HashSet. HashSet must now win. Filtering after taking the first result would incorrectly leave nothing. For deletion checks, the row and vector remain stored but the document is tombstoned; the search must exclude it immediately.
+
+The test seeds complete published rows in its own disposable container, then calls the real search service with a fake query provider. It requires the original vectors to stay unchanged, no search jobs to appear, and empty selection to avoid inference. Reconstructed reader objects must return the same tied result order from persisted data. This is narrower than restarting the application or exercising the indexing pipeline, which have their own workflow tests.
+
+Search still creates its normal duration observation, outcome counter and result-count measurement. The test connects them to an in-memory registry, checks fixed metric tags and keeps query text and filenames out of captured logs. The measured duration includes the fake provider and database reads; it is not a real-provider latency benchmark or a semantic-quality score.
+
+## 36. Measuring whether the embedding model finds the evidence
+
+The [opt-in evaluation command](../docs/development.md#opt-in-retrieval-evaluation) replaces scripted directions with embeddings from the existing Cloudflare adapter. Its input stays the same small public Java study collection. The application database and personal uploads are not involved.
+
+```mermaid
+flowchart TD
+    Guard[Explicit consent, exported credentials and budgets] --> Fixture[Load and validate the reference collection]
+    Fixture --> Container[Create an isolated pgvector database]
+    Container --> Embed[Embed three passages in one bounded request]
+    Embed --> Publish[Store complete published fixture rows]
+    Publish --> Cases[Search each independent reference case]
+    Cases --> Report[Local JSON report with sources, recall, durations and failures]
+    Cases -->|Provider or budget failure| Stop[Stop; leave remaining cases unmeasured]
+    Stop --> Report
+```
+
+[EvaluationBudget](../src/test/java/dev/secondbrain/search/EvaluationBudget.java) is a per-run wrapper around the normal `EmbeddingProvider`. It reserves an attempt and the exact UTF-8 input bytes before making a call, including attempts whose response later fails. It rejects a request when the next call would exceed those limits. Provider-reported token usage is different: it arrives after inference and may be missing, so its threshold can stop later calls but cannot guarantee an exact pre-request token ceiling.
+
+[LiveRetrievalEvaluation](../src/test/java/dev/secondbrain/search/LiveRetrievalEvaluation.java) is test-source tooling selected only by a dedicated Maven profile. The ordinary build excludes its `live-ai` tag, and the class also requires explicit consent and budgets before it creates a database or provider. It reads exported credentials directly, starts no Spring application context, calls no chat model and has no background worker or retry queue. The normal Cloudflare adapter still controls endpoint, timeouts and response validation.
+
+[RetrievalEvaluation](../src/test/java/dev/secondbrain/search/RetrievalEvaluation.java) records measurements independently from execution status. If a question needs two passages and only one appears in the top five, recall is one divided by two: `0.5`. Two source labels inside the same stored passage count only once. A question expected to have no evidence has no recall denominator; the report checks whether the returned list is empty instead. A provider failure is neither zero recall nor proof of missing evidence: it is a failed measurement, with later cases left not run.
+
+A completed command means the measurements finished. It does not declare the model good enough. Recall measures missing expected passages: a result list containing the expected passage and several irrelevant passages can still have recall 1. Inspect unexpected matches, filters/deletion and the chosen score threshold separately. Compare the same corpus/model/index/settings between runs. The [report field guide](../docs/development.md#opt-in-retrieval-evaluation) explains execution states, null measurements and token-usage coverage. The duration comes from the real search-service observation; passage embedding and fixture setup are outside that timer. The report records configuration and stable source bindings without copying queries, filenames, excerpts or credentials. Available token counts are partial usage evidence; the provider dashboard remains the authority for shared allowance consumption.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

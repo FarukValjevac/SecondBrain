@@ -416,6 +416,87 @@ The integration cases require Docker and use known vectors in an isolated databa
 
 These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, passage configuration 1, indexing generation 1, minimum score 0.3, and default limit 5. They prove application wiring and retrieval mechanics; they do not measure semantic relevance, live provider behavior, or response latency. Existing upload HTTP tests cover multipart/browser behavior separately. Run the command with Docker available; the workflow uses a temporary library and its own container, with no `.env`, model credentials, or external telemetry service.
 
+## Retrieval reference collection
+
+The non-sensitive [reference collection](../src/test/resources/retrieval/reference-v1/collection.json) is `java-study-v1` (manifest schema 1). It contains example notes about [ArrayList](../src/test/resources/retrieval/reference-v1/documents/arraylist-notes.md), [HashSet](../src/test/resources/retrieval/reference-v1/documents/hashset-notes.md), and a [personal Java review plan](../src/test/resources/retrieval/reference-v1/documents/study-plan.txt). The collection facts follow the Java 25 [ArrayList](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html), [List](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html) and [HashSet](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/HashSet.html) contracts; the study plan is an invented personal example.
+
+Four labeled evidence spans and eleven query cases cover direct questions, paraphrases, similar collection types, cross-document evidence, absent evidence, selected-document filters, empty selection and deletion. For example, asking whether duplicate values are allowed should distinguish the ArrayList note from the HashSet note. Another question combines collection behavior with the personal review schedule. These are permanent test inputs, separate from personal uploads and product users.
+
+Each document has a stable logical ID, classpath-relative filename and SHA-256 digest. Each source label points to an exact quote and a one-based inclusive line range. Each case records an explicit all/selected scope, documents to remove for that independent scenario, expected source labels, verbatim expected facts and an expected/absent evidence marker. Cases describe independent scenarios; a deletion in one case is not state carried into the next.
+
+Use the checks in this order: validate the answer key, exercise real database retrieval, then run the complete offline build. The explicit live evaluation is a separate quality measurement.
+
+| Check | Command | Requires | Establishes |
+|---|---|---|---|
+| Reference integrity, budgets and report scoring | `./mvnw -Dtest=EvaluationBudgetTest,RetrievalEvaluationTest,RetrievalReferenceCollectionTest test` | JDK | Consistent fixtures and correct tooling with controlled inputs/results |
+| Reference retrieval | `./mvnw -Dit.test=ReferenceRetrievalIT verify` | JDK and Docker | Real pgvector filtering/ranking with scripted vectors |
+| Full offline build | `./mvnw verify` | JDK and Docker | All required fast/integration checks, packaging and formatting |
+| Real-model quality | Explicit [live command](#opt-in-retrieval-evaluation) | JDK, Docker, exported credentials and consent/budgets | Measured retrieval on this small corpus with the configured hosted model |
+
+A failed Docker or listener setup is an unexecuted check, not a pass or a semantic-quality result. The offline checks require no provider credentials.
+
+To check only reference integrity:
+
+```sh
+./mvnw -Dtest=RetrievalReferenceCollectionTest test
+```
+
+The test-only loader checks bounded resources, strict UTF-8/LF files, hashes, unique labels, source quotes/ranges, query limits, case coverage, evidence/absence consistency and allowed scope/deletion references. Expected facts must appear in their declared evidence quotes. The fixture format uses immutable values and diagnostics omit queries and quotes. The checks need no Spring context, database, credentials, provider request or chat model.
+
+Logical source labels are gold evidence spans, separate from database passage UUIDs. Multiple labels may lie inside one indexed passage; passage comparisons must deduplicate those aliases. The integrity validator does not execute retrieval or establish semantic relevance. Labels still require human review.
+
+Run the collection against real PostgreSQL/pgvector with controlled vectors:
+
+```sh
+./mvnw -Dit.test=ReferenceRetrievalIT verify
+```
+
+[ReferenceRetrievalIT](../src/test/java/dev/secondbrain/search/ReferenceRetrievalIT.java) requires Docker and seeds only its own temporary container. It uses no local library, Compose database, Spring configuration import, credentials, chat model or live embedding request. [ReferenceIndex](../src/test/java/dev/secondbrain/search/ReferenceIndex.java) derives repeatable document/passage UUIDs from the corpus identity and maps gold spans to their containing passages. Each current short note fits one passage; both ArrayList evidence labels map to that same passage. Original hashes include the terminal newline; passage text joins the original lines without that terminal newline. Oversized notes are rejected rather than silently truncated.
+
+All eleven cases run independently through the actual `SearchService` and SQL reader. Assertions check exact expected passage identities, facts, text/line locations, selected scope, absent evidence and tombstone exclusion. A separate top-one case proves the document filter applies before the result limit. Another reconstructs the readers against unchanged saved vectors and checks repeatable tied results. This reader reconstruction is not an application restart; `SearchWorkflowIT` covers automatic indexing and application restart separately.
+
+The fixture uses extraction/indexing/passage-configuration version 1, a BGE-M3/1024-dimensional contract, minimum cosine score 0.3 and default result limit 5; the filter-order case uses limit 1. It assigns symbolic directions by document/case instead of running BGE-M3. The pinned container is `pgvector/pgvector:0.8.7-pg18-bookworm`. These are published read fixtures, not evidence that extraction, splitting or embedding produced those rows.
+
+The checks also require one query-embedding call per nonempty search, none for empty selection, unchanged stored vectors and no interactive event jobs. Real search observations record fixed outcomes, result counts and elapsed time in a local test registry; they use the interactive service boundary and export nothing. No latency target, real model quality, recall percentage, token usage or allowance consumption is established by these scripted directions. A real semantic evaluation uses the explicit command below. Full `./mvnw verify` remains the build gate.
+
+## Opt-in retrieval evaluation
+
+The `retrieval-evaluation` Maven profile runs the same `java-study-v1` cases using actual Cloudflare embeddings and real pgvector retrieval. It is separate from ordinary `test`/`verify`, uses no chat model and never starts the application or touches your document library. It creates a disposable PostgreSQL container, embeds the three reference passages in one batch, publishes only those fixture rows and searches them independently for each case. Deletion scenarios reset only this temporary fixture's tombstones.
+
+Before running it, Docker must be available and `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` must be **exported environment variables** in that terminal. This command does not load `.env`; values stored only in that file are not exported automatically. Keep credentials out of command arguments and Git. It uses the existing fixed Cloudflare endpoint, pinned `@cf/baai/bge-m3`/1024 contract and normal bounded adapter, with a five-second connect timeout and twenty-second request timeout.
+
+Use a Workers Free account with enough remaining allowance. `evaluation.allowLive=true` explicitly authorizes sending these public sample passages/questions and confirms that prerequisite. The command cannot inspect or change your billing plan. Cloudflare documents the free allowance and account-plan behavior in its [pricing guide](https://developers.cloudflare.com/workers-ai/platform/pricing/), and lists the current [BGE-M3 model](https://developers.cloudflare.com/workers-ai/models/bge-m3/); recheck those before live use.
+
+```sh
+./mvnw -Pretrieval-evaluation \
+  -Devaluation.allowLive=true \
+  -Devaluation.maxRequests=11 \
+  -Devaluation.maxInputBytes=4096 \
+  -Devaluation.maxReportedTokens=4096 \
+  test
+```
+
+The profile alone refuses to run without consent and explicit integer budgets. For this exact corpus, a complete run needs eleven provider attempts: one three-passage batch and ten query calls; empty selected scope makes no inference call. It submits 1,258 UTF-8 text bytes in total, excluding JSON metadata. Preflight rejects an insufficient request/byte budget before any provider call. Hard supported ceilings are 32 attempts, 16,384 text bytes and 8,192 reported tokens; the example chooses smaller limits. Failed or ambiguous attempts still consume the local request/byte allowance. Any provider/quota/storage failure stops the run; there is no automatic retry, sleep, fallback or resume.
+
+Request and text-byte budgets are enforced **before** inference. A reported-token ceiling is checked after responses and before later requests: one response can cross it. When usage is absent, the report identifies incomplete usage coverage; it cannot treat unreported tokens as measured zero. These limits are not an exact tokenizer, an account-wide neuron balance or a monetary-cost measurement. Every new invocation re-embeds these fixtures and consumes allowance again.
+
+The console prints the run status and a unique `evaluation-runs/java-study-v1-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
+
+Review the report before drawing a quality conclusion:
+
+| Field | Meaning |
+|---|---|
+| `status` | `COMPLETED` means execution finished. `FAILED` records an interrupted measurement; later cases stay `NOT_RUN`. Maven success alone is not a semantic-quality pass. |
+| `recallAtK` | Fraction of unique expected passage IDs found within the configured top five: 1 means all, 0.5 means one of two, and 0 means none. Extra unrelated passages do not reduce recall, so inspect them separately. |
+| `absenceMatched` | For absent-evidence cases, true means results were empty; recall is null because there is no expected-passage denominator. |
+| `durationSeconds` | Search-service observation time, including query inference and retrieval; excludes passage embedding, fixture setup and tombstone setup. Null means no measured service observation. |
+| `failureCode` / `retryAt` | Safe failure classification and optional UTC retry hint. A hint does not schedule a retry or guarantee a reset time. Failed/not-run cases have no recall or absence measurement. |
+| `usage` | Attempts and submitted UTF-8 text bytes are reserved before calls. `reportedInputTokens` sums only the `usageReports` responses that supplied counts; compare that coverage with `successfulRequests` and `attemptedRequests`. Zero reported tokens with zero usage reports means unknown usage. |
+
+For comparisons, keep corpus hashes, model contract, index/passage versions, top-K and score threshold fixed unless one is the variable under study. Read missing expected evidence, unexpected sources, filters and deletion outcomes case by case; high recall alone does not establish precise ranking or factual support. The small collection, provisional score threshold and hosted model changes limit what one run establishes. Extraction/indexing-pipeline correctness and answer grounding are separate checks.
+
+Use the [offline tooling check](#retrieval-reference-collection) to exercise the runner and scoring with controlled providers/results. The opt-in live command is never needed to make ordinary `./mvnw verify` pass.
+
 ## Browser search input
 
 Open `/search` or select **Search documents** in the library. Opening the page reads document choices but performs no inference. With embeddings configured and complete active indexes available, submit a whole-library query to see ranked excerpts, document names and source line ranges. PDF matches also show their physical page number. **Open source passage** resolves the exact passage from its current eligible active index; the source page also links to the full document. Similarity determines ordering; it is not shown as an answer-confidence percentage. Query text goes to the configured embedding provider and consumes the usual allowance. Without enabled embeddings, the page shows **Search unavailable** and requires no credentials.
