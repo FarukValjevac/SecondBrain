@@ -416,6 +416,24 @@ The integration cases require Docker and use known vectors in an isolated databa
 
 These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, passage configuration 1, indexing generation 1, minimum score 0.3, and default limit 5. They prove application wiring and retrieval mechanics; they do not measure semantic relevance, live provider behavior, or response latency. Existing upload HTTP tests cover multipart/browser behavior separately. Run the command with Docker available; the workflow uses a temporary library and its own container, with no `.env`, model credentials, or external telemetry service.
 
+## Retrieval reference collection
+
+The non-sensitive [reference collection](../src/test/resources/retrieval/reference-v1/collection.json) is `java-study-v1` (manifest schema 1). It contains example notes about [ArrayList](../src/test/resources/retrieval/reference-v1/documents/arraylist-notes.md), [HashSet](../src/test/resources/retrieval/reference-v1/documents/hashset-notes.md), and a [personal Java review plan](../src/test/resources/retrieval/reference-v1/documents/study-plan.txt). The collection facts follow the Java 25 [ArrayList](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html), [List](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html) and [HashSet](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/HashSet.html) contracts; the study plan is an invented personal example.
+
+Four labeled evidence spans and eleven query cases cover direct questions, paraphrases, similar collection types, cross-document evidence, absent evidence, selected-document filters, empty selection and deletion. For example, asking whether duplicate values are allowed should distinguish the ArrayList note from the HashSet note. Another question combines collection behavior with the personal review schedule. These are permanent test inputs, separate from personal uploads and product users.
+
+Each document has a stable logical ID, classpath-relative filename and SHA-256 digest. Each source label points to an exact quote and a one-based inclusive line range. Each case records an explicit all/selected scope, documents to remove for that independent scenario, expected source labels, verbatim expected facts and an expected/absent evidence marker. Cases describe independent scenarios; a deletion in one case is not state carried into the next.
+
+Run the offline integrity checks:
+
+```sh
+./mvnw -Dtest=RetrievalReferenceCollectionTest test
+```
+
+The test-only loader checks bounded resources, strict UTF-8/LF files, hashes, unique labels, source quotes/ranges, query limits, case coverage, evidence/absence consistency and allowed scope/deletion references. Expected facts must appear in their declared evidence quotes. The fixture format uses immutable values and diagnostics omit queries and quotes. The checks need no Spring context, database, credentials, provider request or chat model.
+
+Logical source labels are gold evidence spans, not preassigned database passage UUIDs. Multiple labels may lie inside one indexed passage. Runtime imports/indexes must record their own ID mapping; scoring passage recall must deduplicate actual passage identities rather than counting aliases twice. This validation does not import/index documents, execute retrieval, compute recall, measure latency/usage or establish that a model understands a paraphrase. Labels still require human review for semantic relevance; exact quote consistency is not a semantic-quality score. No live evaluation command is installed by these fixtures. Full `./mvnw verify` remains the build gate.
+
 ## Browser search input
 
 Open `/search` or select **Search documents** in the library. Opening the page reads document choices but performs no inference. With embeddings configured and complete active indexes available, submit a whole-library query to see ranked excerpts, document names and source line ranges. PDF matches also show their physical page number. **Open source passage** resolves the exact passage from its current eligible active index; the source page also links to the full document. Similarity determines ordering; it is not shown as an answer-confidence percentage. Query text goes to the configured embedding provider and consumes the usual allowance. Without enabled embeddings, the page shows **Search unavailable** and requires no credentials.

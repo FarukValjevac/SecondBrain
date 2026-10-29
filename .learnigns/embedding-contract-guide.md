@@ -1163,6 +1163,28 @@ An optional `Instant` retry hint is rendered as a UTC time for relevant provider
 
 MVC tests supply controlled service outcomes and render the real Thymeleaf page. They check HTTP statuses, helpful messages, escaped retained input, fixed diagnostics and explicit retry behavior without consuming a real allowance. They establish presentation behavior; evaluating whether a real model finds relevant study material remains a separate task.
 
+## 34. Giving retrieval a small answer key
+
+The [reference collection](../src/test/resources/retrieval/reference-v1/collection.json) contains example Java study notes and a hand-labeled answer key. The ArrayList and HashSet notes describe different handling of duplicates and ordering. A personal review-plan example supplies evidence for a question that needs two documents. Other cases ask about facts absent from the notes or excluded by scope/deletion. They are sample uploads for search tests; they introduce no student accounts or library-management feature.
+
+For example, a direct question asks whether ArrayList allows duplicate values. A paraphrase asks whether the same value can be kept more than once. Both should identify the same evidence in the ArrayList note. A comparison asks how ArrayList and HashSet differ, requiring evidence from both notes. The sample collection rules follow the Java 25 [ArrayList](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html), [List](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html), and [HashSet](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/HashSet.html) documentation.
+
+```mermaid
+flowchart LR
+    Files[Example Java study notes] --> Hashes[Verify exact UTF-8 bytes and hashes]
+    Labels[Stable source labels and line ranges] --> Quotes[Verify quotes against source lines]
+    Cases[Queries, scopes, deletions and expected facts] --> Rules[Verify references and evidence consistency]
+    Hashes --> Valid[Consistent reference data]
+    Quotes --> Valid
+    Rules --> Valid
+```
+
+[RetrievalReferenceCollection](../src/test/java/dev/secondbrain/search/RetrievalReferenceCollection.java) is test-only code. Its immutable records describe documents, evidence spans, explicit scopes and query cases. The manifest version and file digests make the input reproducible. A source label has one-based inclusive line bounds and an exact quote. Expected facts are verbatim source statements; an absent-evidence case has no expected source or fact. The validator rejects, for example, an expected source that was deleted or lies outside the selected documents.
+
+A logical label such as `arraylist-behavior` is different from a database UUID. It identifies evidence in the answer key across runs, while actual document/index/passage identities belong to a particular imported run. Several labeled facts can share a single passage after splitting. Counting those aliases as separate retrieved passages would inflate or distort a recall calculation, so the two identities must stay distinct.
+
+The validator does not call `SearchService` or an embedding provider. It proves that the answer key points to real bytes and legal source locations, not that retrieval finds them. It also cannot prove natural-language relevance merely because a fact appears in a quote. The [fixture tests](../src/test/java/dev/secondbrain/search/RetrievalReferenceCollectionTest.java) check declared scenarios and deliberately corrupt labels/hashes/scopes to ensure inconsistent data is rejected without consuming a model allowance.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
