@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 
 /** Public document-reading use cases; persistence types stay inside the documents feature. */
@@ -66,6 +67,16 @@ public final class DocumentInspectionService {
         Objects.requireNonNull(id, "id");
         return Objects.requireNonNull(
                 transactions.execute(status -> documents.findById(id).map(this::summarize)));
+    }
+
+    /** Bounded visible labels only; does not load extracted text or processing details. */
+    public Map<UUID, String> names(Set<UUID> documentIds) {
+        var ids = Set.copyOf(documentIds);
+        if (ids.size() > 100)
+            throw new IllegalArgumentException("Too many document names requested");
+        if (ids.isEmpty()) return Map.of();
+        return Map.copyOf(
+                Objects.requireNonNull(transactions.execute(status -> documents.names(ids))));
     }
 
     private DocumentSummary summarize(DocumentMetadata document) {

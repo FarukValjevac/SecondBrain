@@ -188,6 +188,38 @@ class DocumentRepositoryIT {
     }
 
     @Test
+    void batchNamesReturnOnlyRequestedVisibleDocuments() {
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(
+                        status -> {
+                            status.setRollbackOnly();
+                            var visible = insertDocument();
+                            var hidden = insertDocument();
+                            var removed = insertDocument();
+                            insertDocument(); // Visible, but outside the requested IDs.
+                            jdbc.sql(
+                                            "UPDATE documents SET original_name = :name WHERE document_id = :id")
+                                    .param("id", visible)
+                                    .param("name", "Café 📚 <script>.md")
+                                    .update();
+                            repository.requestDeletion(hidden, EXTRACTED_AT);
+                            jdbc.sql("DELETE FROM documents WHERE document_id = :id")
+                                    .param("id", removed)
+                                    .update();
+                            var names =
+                                    repository.names(
+                                            java.util.Set.of(
+                                                    visible, hidden, removed, UUID.randomUUID()));
+                            assertThat(names)
+                                    .containsExactlyEntriesOf(
+                                            java.util.Map.of(visible, "Café 📚 <script>.md"));
+                            assertThat(repository.names(java.util.Set.of())).isEmpty();
+                            assertThatThrownBy(() -> names.clear())
+                                    .isInstanceOf(UnsupportedOperationException.class);
+                        });
+    }
+
+    @Test
     void insertsAndReadsMetadataWithoutLosingValues() {
         var createdAt = Instant.parse("2026-01-01T00:00:00.123456Z");
         var metadata =

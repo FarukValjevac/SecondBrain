@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" th:href="@{/}">SecondBrain</a>
+  </header>
+  <main>
+    <div class="library-heading"><h1>Search documents</h1></div>
+    <section class="notice notice-error" role="alert" th:if="${searchError != null}">
+      <h2>Search could not be completed</h2>
+      <p th:text="${searchError}">Check your query and try again.</p>
+    </section>
+    <section class="library-card" th:unless="${searchEnabled}">
+      <h2>Search unavailable</h2>
+      <p>Search requires configured embeddings and completed document indexes. See the setup documentation.</p>
+    </section>
+    <section class="library-card" th:if="${searchEnabled}">
+      <h2>Find relevant passages</h2>
+      <p th:if="${scope == 'all'}">Search across the whole library.</p>
+      <p th:if="${scope == 'selected'}" th:text="|Selected documents: ${documentIds.size()}|">Selected documents: 0</p>
+      <form method="post" action="/search" th:action="@{/search}">
+        <label for="search-query">What are you looking for?</label>
+        <p id="search-help">Use up to 1,200 characters. Queries are sent to the configured embedding provider.</p>
+        <input type="search" id="search-query" name="q" th:value="${queryText}" aria-describedby="search-help" required>
+        <fieldset class="search-scope">
+          <legend>Where to search</legend>
+          <label><input type="radio" name="scope" value="all" th:checked="${scope == 'all'}"> Whole library</label>
+          <label><input type="radio" name="scope" value="selected" th:checked="${scope == 'selected'}"> Selected documents only</label>
+          <p>Choose up to 100 documents. Checked documents only restrict results when selected-document scope is chosen. Only documents with a completed search index can return passages.</p>
+          <ul class="search-choices">
+            <li th:each="document : ${documentPage.documents}">
+              <label><input type="checkbox" name="documentId" th:value="${document.documentId}"
+                            th:checked="${documentIds.contains(document.documentId)}">
+                <span th:text="${document.name}">Document name</span>
+                <small th:text="${document.state}">EXTRACTED</small>
+              </label>
+            </li>
+          </ul>
+          <p th:if="${documentPage.documents.isEmpty()}">No documents on this page.</p>
+          <div th:unless="${otherSelections.isEmpty()}">
+            <h3>Selected on other pages</h3>
+            <ul class="search-choices">
+              <li th:each="document : ${otherSelections}">
+                <label><input type="checkbox" name="documentId" th:value="${document.documentId}" checked>
+                  <span th:text="${document.name}">Document name</span>
+                </label>
+              </li>
+            </ul>
+          </div>
+          <input type="hidden" name="page" th:value="${documentPage.page}">
+          <nav class="library-pages" aria-label="Search document pages" th:if="${documentPage.page > 0 or documentPage.hasNext}">
+            <button type="submit" name="action" value="previous" formnovalidate th:if="${documentPage.page > 0}">Previous documents</button>
+            <span th:text="|Page ${documentPage.page + 1L}|">Page 1</span>
+            <button type="submit" name="action" value="next" formnovalidate th:if="${documentPage.hasNext}">Next documents</button>
+          </nav>
+        </fieldset>
+        <button type="submit" name="action" value="search">Search</button>
+      </form>
+      <p><a href="/search" th:href="@{/search}">Start a new whole-library search</a></p>
+    </section>
+    <section class="notice notice-success" role="status" th:if="${searchResult != null}">
+      <h2>Search completed</h2>
+      <p th:text="|Matching passages: ${searchResult.matches.size()}|">Matching passages: 0</p>
+    </section>
+    <section class="library-card search-results" aria-labelledby="results-title" th:if="${searchResult != null}">
+      <h2 id="results-title">Matching passages</h2>
+      <p th:if="${searchHits.isEmpty()}">No matching passages in this scope.</p>
+      <ol class="search-hits" th:unless="${searchHits.isEmpty()}">
+        <li th:each="hit : ${searchHits}">
+          <h3 th:text="${hit.name}">Document name</h3>
+          <p class="source-location">
+            <span th:if="${hit.match.location.pageNumber.isPresent()}"
+                  th:text="|Page ${hit.match.location.pageNumber.asInt} · |">Page 1 · </span>
+            <span th:text="|Lines ${hit.match.location.startLine}–${hit.match.location.endLine}|">Lines 1–2</span>
+          </p>
+          <pre class="search-excerpt" th:text="${hit.match.text}">Passage text</pre>
+          <a th:href="@{/documents/{id}(id=${hit.match.documentId})}">Open document</a>
+        </li>
+      </ol>
+    </section>
+    <p><a href="/" th:href="@{/}">Back to document library</a></p>
+  </main>
+</body>
+</html>

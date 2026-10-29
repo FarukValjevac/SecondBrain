@@ -345,6 +345,121 @@ ORDER BY d.created_at DESC;
 
 A null active version is expected with embeddings disabled or incomplete processing. An extracted document can still be waiting for embeddings. Do not set the active pointer manually. The offline tests prove deterministic processing boundaries; they do not establish live account permissions, remaining allowance, model quality, or semantic search quality. The separate [live embedding smoke check](#embedding-request-telemetry) remains explicitly invoked within its documented budget.
 
+## Search query contracts
+
+The `search` feature defines validated Java input/result types, query embedding, and a synchronous `SearchService` Java API for local pgvector retrieval. The POST search form connects the browser to that service and displays located passages with document names.
+
+`SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
+
+`SearchScope.all()` explicitly selects the library. `SearchScope.selected(Set<UUID>)` accepts up to 100 IDs and keeps an empty set as an empty selection. It never converts that selection into all documents. The input set is copied and cannot change through later caller mutation.
+
+`SearchResult` holds an immutable list of up to 20 distinct passage matches. Each match has stable passage/document IDs, index version, sequence, text, source coordinates, and a finite cosine score in [-1,1]. A score is similarity, not answer confidence. Lines/pages are one-based, columns count Unicode code points from zero, and the range end is exclusive. Optional PDF page numbers preserve physical page identity. Query/result/match diagnostics omit private text and IDs.
+
+Run the focused checks without Docker or credentials:
+
+```sh
+./mvnw -Dtest=SearchContractsTest test
+```
+
+When `secondbrain.embeddings.enabled=true`, `SearchConfiguration` supplies `QueryEmbedding` with the same `EmbeddingProvider` used by document indexing. Construction performs no inference. Query preparation is independent of event polling and background-indexing enablement. It skips inference for an explicit empty document selection, checks the supplied index model against the provider model, and otherwise requests exactly one vector for the normalized query. It never sends document passages or calls chat.
+
+Provider I/O is refused inside a database transaction. The existing client supplies bounded connection/full-response timeouts and input/response budgets. Query preparation adds no retries, fallback, sleeps, durable jobs, or query storage. An interruption preserves the thread flag and discards a late response. Responses must contain exactly one non-null model-compatible vector; the shared vector type validates dimensions, finite components, and nonzero magnitude.
+
+`SearchFailure` exposes fixed reasons for incompatible models, invalid vectors, provider unavailability, rate limits, daily quota, timeout, and interruption. Optional retry eligibility is a hint for a later user request. Failure messages/printable cause chains omit query/provider details. An empty preparation result means only an explicit empty selection; failures do not masquerade as an empty search result. The retrieval service checks whether a compatible eligible stored index exists before making an inference request. Existing adapter telemetry measures actual provider attempts without private query text; retrieval-level observations come with the later retrieval service.
+
+Check query preparation with fake vectors and errors, without credentials or network calls:
+
+```sh
+./mvnw -Dtest=QueryEmbeddingTest,SearchConfigurationTest test
+```
+
+These tests use the shared provider boundary; the existing `CloudflareEmbeddingHttpIT` suite remains the transport/timeout contract gate. Passing fake-provider tests does not establish live account/model availability or ranking quality.
+
+For a small Java console check after compilation:
+
+```sh
+jshell --execution local --class-path target/classes
+```
+
+```java
+import dev.secondbrain.search.*;
+import java.util.Set;
+var selected = SearchScope.selected(Set.of());
+new SearchQuery("Study notes", selected);
+new SearchQuery(" ", SearchScope.all());
+```
+
+The first query prints a safe summary with `SelectedDocuments[count=0]` and limit 5. The blank query throws an `IllegalArgumentException` without echoing its text. Use `/exit` to leave JShell. No provider call or database access is involved. Default `./mvnw verify` remains the completion gate.
+
+## Local passage retrieval
+
+When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A nonempty scope with no compatible complete active index raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
+
+The read-only projection joins the selected active index to its current extracted source, passages, and vectors. It excludes deleted/queued/processing/failed documents, stale extraction sources, unsupported/unbound model/configuration metadata, and generations with missing vectors/passages or sequence gaps. A compatible old active generation remains eligible while a replacement is staged; desired does not have to equal active. Selected-document filtering happens before ranking/limits.
+
+Ranking uses exact cosine similarity (`1 - cosine distance`). Scores outside [-1,1], including undefined/nonfinite values, are excluded before thresholding and ordering; they are never clamped into a perfect match. Results sort by descending score, then document UUID, passage sequence, and passage UUID for stable ties. The inclusive minimum score defaults to 0.3 and can be configured with `secondbrain.search.minimum-score` in [-1,1], for example `--secondbrain.search.minimum-score=0.65`. This is provisional policy for later evaluation, not a measured quality guarantee. The query limits results to at most 20 (default 5). No approximate-search index or migration is added. See [pgvector's distance documentation](https://github.com/pgvector/pgvector#distances) for the operator convention.
+
+Availability, ranking, and final candidate validation use separate read-only transactions with five-second transaction/query timeouts; no transaction spans provider I/O. The final read uses a fresh snapshot for at most the 20 candidate documents/passages, intersects the original scope, and repeats active/source/model/completeness checks. Deletion or a source/active-index change committed before that final check prevents the affected passage from being returned. Removed candidates are dropped without reranking, refilling, or another provider request, so the result can contain fewer matches or become empty. No final database read is needed for an already empty candidate list.
+
+This is a check-time guarantee: a deletion committed after the final snapshot cannot recall previously selected or delivered text. Source links and later answer generation must perform their own visibility checks. A failed validation read returns a safe database failure instead of serving the earlier candidates. Interruption is checked around the final read. No search query history, durable job, document mutation, or chat request is created.
+
+Run the focused checks:
+
+```sh
+./mvnw -Dtest=SearchServiceTest,SearchTelemetryTest,SearchTelemetryEndpointTest,SearchConfigurationTest,TelemetryPrivacyTest test
+./mvnw -Dit.test=JdbcPassageSearchIT,SearchWorkflowIT verify
+```
+
+The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. The browser search form uses this API and displays excerpts alongside a paginated document picker.
+
+`SearchWorkflowIT` starts the application without an HTTP listener, accepts synthetic TXT/Markdown/PDF documents through the public acceptance service, and lets the real durable workers extract, split, embed, and publish them. Queries then use the actual `SearchService` and PostgreSQL reader. It checks filters, empty/no-index/no-match outcomes, source locations, deletion, restart, and timeout/rate/quota failures. Searching must reuse stored vectors without creating delivery jobs or retrying automatically; telemetry must preserve caller context without private text.
+
+These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, passage configuration 1, indexing generation 1, minimum score 0.3, and default limit 5. They prove application wiring and retrieval mechanics; they do not measure semantic relevance, live provider behavior, or response latency. Existing upload HTTP tests cover multipart/browser behavior separately. Run the command with Docker available; the workflow uses a temporary library and its own container, with no `.env`, model credentials, or external telemetry service.
+
+## Browser search input
+
+Open `/search` or select **Search documents** in the library. Opening the page reads document choices but performs no inference. With embeddings configured and complete active indexes available, submit a whole-library query to see ranked excerpts, document names and source line ranges. PDF matches also show their physical page number. **Open document** opens the existing document detail page; it is a document link, not a version-specific passage link. Similarity determines ordering; it is not shown as an answer-confidence percentage. Query text goes to the configured embedding provider and consumes the usual allowance. Without enabled embeddings, the page shows **Search unavailable** and requires no credentials.
+
+Choose **Selected documents only** and check documents to restrict retrieval. The picker uses the library's 50-document pages. **Next documents** and **Previous documents** preserve the query, scope, and checked IDs without executing a search, even with a blank query. Selections from other pages stay visible and removable. Choose up to 100 documents; queued/failed/unindexed documents can be selected but cannot contribute results until a complete compatible index exists. A removed selection stays explicit as **Document unavailable** rather than silently becoming a whole-library search. Choosing **Whole library** explicitly searches all eligible documents even if boxes remain checked.
+
+Queries use a form-urlencoded `POST /search`, with one `q` and one explicit `scope` (`all` or `selected`). Repeated/missing/unknown scope/query fields, malformed UUIDs, oversized text/selections and invalid pages/actions receive safe HTTP 400 before retrieval. Repeated `documentId` values are deduplicated, with a raw 100-value budget. Optional `page` defaults to 0 and `action` to `search`; `previous`/`next` browse choices only. The server uses the service's default result limit of 5. Valid normalized input and selections remain visible after a search. An empty selected scope stays empty.
+
+Both page responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the application creates no query session, URL, history or event. Default diagnostics omit queries, filenames and excerpts. These headers do not erase browser/provider history. Document labels are fetched in bounded batches without loading full extracted text. A result whose document becomes hidden before its label lookup is dropped, with the displayed count adjusted. A metadata failure returns safe 503 feedback without partial results. Retrieval metrics still describe the service's final snapshot; a later metadata visibility check can make the displayed count smaller.
+
+With the search service configured, check an empty selection without making an inference request:
+
+```sh
+curl -i --data-urlencode 'q=Study notes' --data 'scope=selected' http://127.0.0.1:8080/search
+```
+
+Expect `Matching passages: 0`. A blank search can be checked with `curl -i --data 'q=&scope=all' http://127.0.0.1:8080/search`; expect safe HTTP 400. Retrieval failures currently use generic HTTP 503 feedback rather than a misleading zero count. For a browser check against your configured provider, search the library, then select a document and repeat; inspect names/excerpts/line or page references and open a document. Browsing picker pages must not increase `secondbrain.search.requests` or embedding-request counts. These are live searches only when you submit **Search** against eligible indexes.
+
+Run `./mvnw -Dtest=SearchControllerTest,SearchDisabledControllerTest,DocumentInspectionServiceTest,LibraryControllerTest,TelemetryPrivacyTest test` for the MVC/template and bounded-label API checks. They need no Docker, model credentials, or actual network requests. Run `./mvnw -Dit.test=DocumentRepositoryIT verify` with Docker to check batch label filtering against PostgreSQL, then the full `./mvnw verify`. These tests establish mechanics and privacy, not live semantic relevance.
+
+## Retrieval telemetry
+
+The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:
+
+| Metric | Meaning | Labels |
+|---|---|---|
+| `secondbrain.search.requests` | Completed search operations, including failures and empty scopes | Fixed `outcome` |
+| `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
+| `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
+
+Outcomes are `success`, `no_results`, `empty_scope`, `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
+
+The result summary records only final returned counts from 0 through 20. Completed empty selections/no-matches contribute zero; failed requests contribute no sample. It therefore does not interpret a provider/database outage as absent evidence. Counters/timers/summary reset per process and are best effort. Metrics, observations, and safe logging fail independently without changing a successful result or an original error.
+
+The `search.retrieval` observation inherits an active caller/request trace without replacing its scope. Provider request observations retain that caller context too; this layer does not open an extra scope around them. A direct API call without a parent can create a standalone span. Safe logs use `operation=search_retrieval`, fixed outcome, and bounded result count on completion, plus any existing caller correlation context. No query, filename, excerpt, vector, selection IDs, raw exception, or result IDs become metric labels or telemetry payloads. The exporter retains the fixed span name/outcome and drops unknown fields/events.
+
+```sh
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.search.requests
+curl 'http://127.0.0.1:8080/actuator/metrics/secondbrain.search.duration?tag=outcome:success'
+curl http://127.0.0.1:8080/actuator/metrics/secondbrain.search.results
+```
+
+Request counters and the result summary are registered at startup with embeddings enabled; a duration series appears after an observed call. Reading metrics makes no provider request. Startup, opening the search form and browsing picker pages do not execute a search; submitting a valid Search request does. `SearchTelemetryEndpointTest` exercises the actual Actuator responses without a listener, database, or live model.
+
 ## Embedding request telemetry
 
 The enabled Cloudflare adapter records each attempted request after local input validation. Invalid input or an already-interrupted caller rejected before transport is not counted as a provider request. An attempt includes receiving and validating the response; it is independent of saving vectors or acknowledging a delivery. A repeated request after a crash counts again.

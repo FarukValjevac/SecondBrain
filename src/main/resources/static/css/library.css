@@ -94,7 +94,7 @@ label {
   font-size: 0.875rem;
 }
 
-input[type="file"] {
+input[type="file"], input[type="search"] {
   display: block;
   width: 100%;
   margin: 0.75rem 0 1.25rem;
@@ -199,3 +199,23 @@ button:hover {
 .deletion-actions a { color: #205c48; }
 .danger-button { background: #87342c; border-color: #87342c; }
 .danger-button:hover { background: #68271f; }
+
+
+.search-scope {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid #bacbc2;
+  border-radius: 0.5rem;
+  min-width: 0;
+}
+
+.search-scope > label { display: block; margin: 0.5rem 0; }
+.search-choices { list-style: none; padding: 0; }
+.search-choices li { margin: 0.5rem 0; overflow-wrap: anywhere; }
+.search-choices small { font-weight: normal; color: #52665d; }
+.search-results { margin-top: 1.25rem; }
+.search-hits { padding-left: 1.5rem; }
+.search-hits li + li { margin-top: 1.75rem; }
+.search-hits h3 { overflow-wrap: anywhere; }
+.search-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.source-location { color: #52665d; }

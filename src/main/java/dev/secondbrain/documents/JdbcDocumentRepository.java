@@ -5,7 +5,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 final class JdbcDocumentRepository {
@@ -101,6 +103,30 @@ final class JdbcDocumentRepository {
                                         row.getTimestamp("created_at").toInstant(),
                                         row.getString("delivery_state")))
                 .list();
+    }
+
+    Map<UUID, String> names(Set<UUID> documentIds) {
+        if (documentIds.size() > 100)
+            throw new IllegalArgumentException("Too many document names requested");
+        if (documentIds.isEmpty()) return Map.of();
+        var names =
+                jdbc.sql(
+                                """
+                        SELECT document_id, original_name FROM documents
+                        WHERE document_id IN (:ids) AND deleted_at IS NULL
+                        """)
+                        .withQueryTimeout(5)
+                        .param("ids", documentIds)
+                        .query(
+                                (row, index) ->
+                                        Map.entry(
+                                                row.getObject("document_id", UUID.class),
+                                                row.getString("original_name")))
+                        .list();
+        return names.stream()
+                .collect(
+                        java.util.stream.Collectors.toUnmodifiableMap(
+                                Map.Entry::getKey, Map.Entry::getValue));
     }
 
     record LibraryRow(

@@ -21,8 +21,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 
 class DocumentInspectionServiceTest {
@@ -38,6 +40,41 @@ class DocumentInspectionServiceTest {
     void transaction() {
         when(transactions.getTransaction(any()))
                 .thenAnswer(invocation -> new SimpleTransactionStatus());
+    }
+
+    @Test
+    void namesAreImmutableVisibleLabelsWithoutTextOrProgressReads() {
+        var id = UUID.randomUUID();
+        var mutable = new java.util.HashMap<UUID, String>();
+        mutable.put(id, "Notes.md");
+        when(documents.names(Set.of(id))).thenReturn(mutable);
+        var names = service.names(Set.of(id));
+        mutable.clear();
+        assertThat(names).containsExactlyEntriesOf(Map.of(id, "Notes.md"));
+        assertThatThrownBy(() -> names.clear()).isInstanceOf(UnsupportedOperationException.class);
+        verify(documents).names(Set.of(id));
+        verifyNoInteractions(texts, events);
+    }
+
+    @Test
+    void emptyNamesNeedNoTransactionOrRepository() {
+        assertThat(service.names(Set.of())).isEmpty();
+        verifyNoInteractions(documents, texts, events, transactions);
+    }
+
+    @Test
+    void nameLookupAccepts100IdsAndRejectsLargerBatchesBeforeIo() {
+        var ids =
+                java.util.stream.IntStream.range(0, 100)
+                        .mapToObj(i -> new UUID(0, i))
+                        .collect(java.util.stream.Collectors.toSet());
+        when(documents.names(ids)).thenReturn(Map.of());
+        assertThat(service.names(ids)).isEmpty();
+        verify(documents).names(ids);
+        ids.add(UUID.randomUUID());
+        assertThatThrownBy(() -> service.names(ids)).isInstanceOf(IllegalArgumentException.class);
+        org.mockito.Mockito.verifyNoMoreInteractions(documents);
+        verifyNoInteractions(texts, events);
     }
 
     @Test
