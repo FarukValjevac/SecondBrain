@@ -424,7 +424,18 @@ Four labeled evidence spans and eleven query cases cover direct questions, parap
 
 Each document has a stable logical ID, classpath-relative filename and SHA-256 digest. Each source label points to an exact quote and a one-based inclusive line range. Each case records an explicit all/selected scope, documents to remove for that independent scenario, expected source labels, verbatim expected facts and an expected/absent evidence marker. Cases describe independent scenarios; a deletion in one case is not state carried into the next.
 
-Run the offline integrity checks:
+Use the checks in this order: validate the answer key, exercise real database retrieval, then run the complete offline build. The explicit live evaluation is a separate quality measurement.
+
+| Check | Command | Requires | Establishes |
+|---|---|---|---|
+| Reference integrity, budgets and report scoring | `./mvnw -Dtest=EvaluationBudgetTest,RetrievalEvaluationTest,RetrievalReferenceCollectionTest test` | JDK | Consistent fixtures and correct tooling with controlled inputs/results |
+| Reference retrieval | `./mvnw -Dit.test=ReferenceRetrievalIT verify` | JDK and Docker | Real pgvector filtering/ranking with scripted vectors |
+| Full offline build | `./mvnw verify` | JDK and Docker | All required fast/integration checks, packaging and formatting |
+| Real-model quality | Explicit [live command](#opt-in-retrieval-evaluation) | JDK, Docker, exported credentials and consent/budgets | Measured retrieval on this small corpus with the configured hosted model |
+
+A failed Docker or listener setup is an unexecuted check, not a pass or a semantic-quality result. The offline checks require no provider credentials.
+
+To check only reference integrity:
 
 ```sh
 ./mvnw -Dtest=RetrievalReferenceCollectionTest test
@@ -471,15 +482,20 @@ Request and text-byte budgets are enforced **before** inference. A reported-toke
 
 The console prints the run status and a unique `evaluation-runs/java-study-v1-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
 
-`COMPLETED` means every case executed, not that semantic quality passed. For evidence cases, inspect `recallAtK`: 1 means every unique expected passage was returned, 0.5 means one of two, and 0 means none. Extra passages do not increase recall. For absent-evidence cases, recall is null and `absenceMatched` states whether results were empty. `FAILED` records a safe error code and optional retry hint; remaining cases are `NOT_RUN` with no invented measurement. The small collection, provisional score threshold and hosted model changes limit what one run establishes. Extraction/indexing-pipeline correctness and answer grounding are separate checks.
+Review the report before drawing a quality conclusion:
 
-The runner and scoring can be verified without credentials or Docker:
+| Field | Meaning |
+|---|---|
+| `status` | `COMPLETED` means execution finished. `FAILED` records an interrupted measurement; later cases stay `NOT_RUN`. Maven success alone is not a semantic-quality pass. |
+| `recallAtK` | Fraction of unique expected passage IDs found within the configured top five: 1 means all, 0.5 means one of two, and 0 means none. Extra unrelated passages do not reduce recall, so inspect them separately. |
+| `absenceMatched` | For absent-evidence cases, true means results were empty; recall is null because there is no expected-passage denominator. |
+| `durationSeconds` | Search-service observation time, including query inference and retrieval; excludes passage embedding, fixture setup and tombstone setup. Null means no measured service observation. |
+| `failureCode` / `retryAt` | Safe failure classification and optional UTC retry hint. A hint does not schedule a retry or guarantee a reset time. Failed/not-run cases have no recall or absence measurement. |
+| `usage` | Attempts and submitted UTF-8 text bytes are reserved before calls. `reportedInputTokens` sums only the `usageReports` responses that supplied counts; compare that coverage with `successfulRequests` and `attemptedRequests`. Zero reported tokens with zero usage reports means unknown usage. |
 
-```sh
-./mvnw -Dtest=EvaluationBudgetTest,RetrievalEvaluationTest,RetrievalReferenceCollectionTest test
-```
+For comparisons, keep corpus hashes, model contract, index/passage versions, top-K and score threshold fixed unless one is the variable under study. Read missing expected evidence, unexpected sources, filters and deletion outcomes case by case; high recall alone does not establish precise ranking or factual support. The small collection, provisional score threshold and hosted model changes limit what one run establishes. Extraction/indexing-pipeline correctness and answer grounding are separate checks.
 
-These use controlled providers/results and do not establish semantic quality. The opt-in live command is never needed to make ordinary `./mvnw verify` pass.
+Use the [offline tooling check](#retrieval-reference-collection) to exercise the runner and scoring with controlled providers/results. The opt-in live command is never needed to make ordinary `./mvnw verify` pass.
 
 ## Browser search input
 
