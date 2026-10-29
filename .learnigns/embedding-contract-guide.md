@@ -1212,6 +1212,30 @@ The test seeds complete published rows in its own disposable container, then cal
 
 Search still creates its normal duration observation, outcome counter and result-count measurement. The test connects them to an in-memory registry, checks fixed metric tags and keeps query text and filenames out of captured logs. The measured duration includes the fake provider and database reads; it is not a real-provider latency benchmark or a semantic-quality score.
 
+## 36. Measuring whether the embedding model finds the evidence
+
+The [opt-in evaluation command](../docs/development.md#opt-in-retrieval-evaluation) replaces scripted directions with embeddings from the existing Cloudflare adapter. Its input stays the same small public Java study collection. The application database and personal uploads are not involved.
+
+```mermaid
+flowchart TD
+    Guard[Explicit consent, exported credentials and budgets] --> Fixture[Load and validate the reference collection]
+    Fixture --> Container[Create an isolated pgvector database]
+    Container --> Embed[Embed three passages in one bounded request]
+    Embed --> Publish[Store complete published fixture rows]
+    Publish --> Cases[Search each independent reference case]
+    Cases --> Report[Local JSON report with sources, recall, durations and failures]
+    Cases -->|Provider or budget failure| Stop[Stop; leave remaining cases unmeasured]
+    Stop --> Report
+```
+
+[EvaluationBudget](../src/test/java/dev/secondbrain/search/EvaluationBudget.java) is a per-run wrapper around the normal `EmbeddingProvider`. It reserves an attempt and the exact UTF-8 input bytes before making a call, including attempts whose response later fails. It rejects a request when the next call would exceed those limits. Provider-reported token usage is different: it arrives after inference and may be missing, so its threshold can stop later calls but cannot guarantee an exact pre-request token ceiling.
+
+[LiveRetrievalEvaluation](../src/test/java/dev/secondbrain/search/LiveRetrievalEvaluation.java) is test-source tooling selected only by a dedicated Maven profile. The ordinary build excludes its `live-ai` tag, and the class also requires explicit consent and budgets before it creates a database or provider. It reads exported credentials directly, starts no Spring application context, calls no chat model and has no background worker or retry queue. The normal Cloudflare adapter still controls endpoint, timeouts and response validation.
+
+[RetrievalEvaluation](../src/test/java/dev/secondbrain/search/RetrievalEvaluation.java) records measurements independently from execution status. If a question needs two passages and only one appears in the top five, recall is one divided by two: `0.5`. Two source labels inside the same stored passage count only once. A question expected to have no evidence has no recall denominator; the report checks whether the returned list is empty instead. A provider failure is neither zero recall nor proof of missing evidence: it is a failed measurement, with later cases left not run.
+
+A completed command means the measurements finished. It does not declare the model good enough. Inspect missed evidence, unexpected matches and the chosen score threshold before drawing a quality conclusion. The duration comes from the real search-service observation; passage embedding and fixture setup are outside that timer. The report records configuration and stable source bindings without copying queries, filenames, excerpts or credentials. Available token counts are partial usage evidence; the provider dashboard remains the authority for shared allowance consumption.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

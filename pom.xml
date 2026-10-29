@@ -136,6 +136,26 @@
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>retrieval-evaluation</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <!-- Select only this opt-in command and replace the default live-ai exclusion. -->
+                        <configuration combine.self="override">
+                            <groups>live-ai</groups>
+                            <includes>
+                                <include>**/LiveRetrievalEvaluation.java</include>
+                            </includes>
+                            <reportsDirectory>${project.build.directory}/retrieval-evaluation-reports</reportsDirectory>
+                            <failIfNoTests>true</failIfNoTests>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <build>

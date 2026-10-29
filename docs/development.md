@@ -446,7 +446,40 @@ All eleven cases run independently through the actual `SearchService` and SQL re
 
 The fixture uses extraction/indexing/passage-configuration version 1, a BGE-M3/1024-dimensional contract, minimum cosine score 0.3 and default result limit 5; the filter-order case uses limit 1. It assigns symbolic directions by document/case instead of running BGE-M3. The pinned container is `pgvector/pgvector:0.8.7-pg18-bookworm`. These are published read fixtures, not evidence that extraction, splitting or embedding produced those rows.
 
-The checks also require one query-embedding call per nonempty search, none for empty selection, unchanged stored vectors and no interactive event jobs. Real search observations record fixed outcomes, result counts and elapsed time in a local test registry; they use the interactive service boundary and export nothing. No latency target, real model quality, recall percentage, token usage or allowance consumption is established by these scripted directions. A real semantic evaluation remains separate; no live evaluation command is installed yet. Full `./mvnw verify` remains the build gate.
+The checks also require one query-embedding call per nonempty search, none for empty selection, unchanged stored vectors and no interactive event jobs. Real search observations record fixed outcomes, result counts and elapsed time in a local test registry; they use the interactive service boundary and export nothing. No latency target, real model quality, recall percentage, token usage or allowance consumption is established by these scripted directions. A real semantic evaluation uses the explicit command below. Full `./mvnw verify` remains the build gate.
+
+## Opt-in retrieval evaluation
+
+The `retrieval-evaluation` Maven profile runs the same `java-study-v1` cases using actual Cloudflare embeddings and real pgvector retrieval. It is separate from ordinary `test`/`verify`, uses no chat model and never starts the application or touches your document library. It creates a disposable PostgreSQL container, embeds the three reference passages in one batch, publishes only those fixture rows and searches them independently for each case. Deletion scenarios reset only this temporary fixture's tombstones.
+
+Before running it, Docker must be available and `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` must be **exported environment variables** in that terminal. This command does not load `.env`; values stored only in that file are not exported automatically. Keep credentials out of command arguments and Git. It uses the existing fixed Cloudflare endpoint, pinned `@cf/baai/bge-m3`/1024 contract and normal bounded adapter, with a five-second connect timeout and twenty-second request timeout.
+
+Use a Workers Free account with enough remaining allowance. `evaluation.allowLive=true` explicitly authorizes sending these public sample passages/questions and confirms that prerequisite. The command cannot inspect or change your billing plan. Cloudflare documents the free allowance and account-plan behavior in its [pricing guide](https://developers.cloudflare.com/workers-ai/platform/pricing/), and lists the current [BGE-M3 model](https://developers.cloudflare.com/workers-ai/models/bge-m3/); recheck those before live use.
+
+```sh
+./mvnw -Pretrieval-evaluation \
+  -Devaluation.allowLive=true \
+  -Devaluation.maxRequests=11 \
+  -Devaluation.maxInputBytes=4096 \
+  -Devaluation.maxReportedTokens=4096 \
+  test
+```
+
+The profile alone refuses to run without consent and explicit integer budgets. For this exact corpus, a complete run needs eleven provider attempts: one three-passage batch and ten query calls; empty selected scope makes no inference call. It submits 1,258 UTF-8 text bytes in total, excluding JSON metadata. Preflight rejects an insufficient request/byte budget before any provider call. Hard supported ceilings are 32 attempts, 16,384 text bytes and 8,192 reported tokens; the example chooses smaller limits. Failed or ambiguous attempts still consume the local request/byte allowance. Any provider/quota/storage failure stops the run; there is no automatic retry, sleep, fallback or resume.
+
+Request and text-byte budgets are enforced **before** inference. A reported-token ceiling is checked after responses and before later requests: one response can cross it. When usage is absent, the report identifies incomplete usage coverage; it cannot treat unreported tokens as measured zero. These limits are not an exact tokenizer, an account-wide neuron balance or a monetary-cost measurement. Every new invocation re-embeds these fixtures and consumes allowance again.
+
+The console prints the run status and a unique `evaluation-runs/java-study-v1-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
+
+`COMPLETED` means every case executed, not that semantic quality passed. For evidence cases, inspect `recallAtK`: 1 means every unique expected passage was returned, 0.5 means one of two, and 0 means none. Extra passages do not increase recall. For absent-evidence cases, recall is null and `absenceMatched` states whether results were empty. `FAILED` records a safe error code and optional retry hint; remaining cases are `NOT_RUN` with no invented measurement. The small collection, provisional score threshold and hosted model changes limit what one run establishes. Extraction/indexing-pipeline correctness and answer grounding are separate checks.
+
+The runner and scoring can be verified without credentials or Docker:
+
+```sh
+./mvnw -Dtest=EvaluationBudgetTest,RetrievalEvaluationTest,RetrievalReferenceCollectionTest test
+```
+
+These use controlled providers/results and do not establish semantic quality. The opt-in live command is never needed to make ordinary `./mvnw verify` pass.
 
 ## Browser search input
 
