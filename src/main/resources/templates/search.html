@@ -12,13 +12,15 @@
   </header>
   <main>
     <div class="library-heading"><h1>Search documents</h1></div>
-    <section class="notice notice-error" role="alert" th:if="${searchError != null}">
-      <h2>Search could not be completed</h2>
-      <p th:text="${searchError}">Check your query and try again.</p>
-    </section>
-    <section class="library-card" th:unless="${searchEnabled}">
-      <h2>Search unavailable</h2>
-      <p>Search requires configured embeddings and completed document indexes. See the setup documentation.</p>
+    <section class="notice" th:if="${searchFeedback != null}"
+             th:classappend="${searchFeedback.error ? 'notice-error' : 'notice-info'}"
+             th:role="${searchFeedback.error ? 'alert' : 'status'}">
+      <h2 th:text="${searchFeedback.title}">Search feedback</h2>
+      <p th:text="${searchFeedback.message}">Check your query and try again.</p>
+      <p th:if="${retryAt.isPresent()}">Provider suggests trying again after:
+        <time th:datetime="${retryAt.orElseThrow()}" th:text="${retryAt.orElseThrow()}">Retry hint</time> (UTC).
+      </p>
+      <p th:if="${searchResult != null}" th:text="|Matching passages: ${searchResult.matches.size()}|">Matching passages: 0</p>
     </section>
     <section class="library-card" th:if="${searchEnabled}">
       <h2>Find relevant passages</h2>
@@ -27,12 +29,13 @@
       <form method="post" action="/search" th:action="@{/search}">
         <label for="search-query">What are you looking for?</label>
         <p id="search-help">Use up to 1,200 characters. Queries are sent to the configured embedding provider.</p>
-        <input type="search" id="search-query" name="q" th:value="${queryText}" aria-describedby="search-help" required>
+        <input type="search" id="search-query" name="q" th:value="${queryText}" aria-describedby="search-help" th:aria-invalid="${searchFeedback != null and searchFeedback.queryInvalid ? 'true' : 'false'}" required>
         <fieldset class="search-scope">
           <legend>Where to search</legend>
           <label><input type="radio" name="scope" value="all" th:checked="${scope == 'all'}"> Whole library</label>
           <label><input type="radio" name="scope" value="selected" th:checked="${scope == 'selected'}"> Selected documents only</label>
           <p>Choose up to 100 documents. Checked documents only restrict results when selected-document scope is chosen. Only documents with a completed search index can return passages.</p>
+          <div th:if="${pickerAvailable}">
           <ul class="search-choices">
             <li th:each="document : ${documentPage.documents}">
               <label><input type="checkbox" name="documentId" th:value="${document.documentId}"
@@ -43,8 +46,10 @@
             </li>
           </ul>
           <p th:if="${documentPage.documents.isEmpty()}">No documents on this page.</p>
+          </div>
+          <p th:unless="${pickerAvailable}">Reopen this page to load document choices. Your checked selections are retained below.</p>
           <div th:unless="${otherSelections.isEmpty()}">
-            <h3>Selected on other pages</h3>
+            <h3 th:text="${pickerAvailable ? 'Selected on other pages' : 'Retained selections'}">Retained selections</h3>
             <ul class="search-choices">
               <li th:each="document : ${otherSelections}">
                 <label><input type="checkbox" name="documentId" th:value="${document.documentId}" checked>
@@ -64,13 +69,8 @@
       </form>
       <p><a href="/search" th:href="@{/search}">Start a new whole-library search</a></p>
     </section>
-    <section class="notice notice-success" role="status" th:if="${searchResult != null}">
-      <h2>Search completed</h2>
-      <p th:text="|Matching passages: ${searchResult.matches.size()}|">Matching passages: 0</p>
-    </section>
-    <section class="library-card search-results" aria-labelledby="results-title" th:if="${searchResult != null}">
+    <section class="library-card search-results" aria-labelledby="results-title" th:if="${searchHits != null and !searchHits.isEmpty()}">
       <h2 id="results-title">Matching passages</h2>
-      <p th:if="${searchHits.isEmpty()}">No matching passages in this scope.</p>
       <ol class="search-hits" th:unless="${searchHits.isEmpty()}">
         <li th:each="hit : ${searchHits}">
           <h3 th:text="${hit.name}">Document name</h3>

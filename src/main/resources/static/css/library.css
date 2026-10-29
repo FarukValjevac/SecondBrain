@@ -219,3 +219,9 @@ button:hover {
 .search-hits h3 { overflow-wrap: anywhere; }
 .search-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .source-location { color: #52665d; }
+
+
+.notice-info {
+  background: #eef5f2;
+  border-color: #b8cec2;
+}

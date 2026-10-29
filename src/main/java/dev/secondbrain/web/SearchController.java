@@ -11,18 +11,17 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
 import org.springframework.transaction.TransactionException;
 import org.springframework.ui.Model;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -52,9 +51,13 @@ class SearchController {
         model.addAttribute("documentIds", List.of());
         model.addAttribute("documentPage", new LibraryPage(List.of(), 0, false));
         model.addAttribute("otherSelections", List.of());
+        model.addAttribute("pickerAvailable", false);
+        model.addAttribute("retryAt", Optional.empty());
         model.addAttribute(
                 "searchEnabled",
                 search.getIfAvailable() != null && documents.getIfAvailable() != null);
+        if (!Boolean.TRUE.equals(model.getAttribute("searchEnabled")))
+            model.addAttribute("searchFeedback", SearchFeedback.DISABLED);
     }
 
     @GetMapping("/search")
@@ -70,8 +73,14 @@ class SearchController {
         } catch (IllegalArgumentException invalid) {
             return invalid(model, response);
         }
-        if (Boolean.TRUE.equals(model.getAttribute("searchEnabled")))
-            populatePicker(SearchForm.blank(page), model);
+        if (Boolean.TRUE.equals(model.getAttribute("searchEnabled"))) {
+            restoreForm(SearchForm.blank(page), model);
+            try {
+                populatePicker(SearchForm.blank(page), model);
+            } catch (DataAccessException | TransactionException unavailable) {
+                return feedback(model, response, SearchFeedback.DATABASE, Optional.empty());
+            }
+        }
         return "search";
     }
 
@@ -81,29 +90,30 @@ class SearchController {
             Model model,
             HttpServletResponse response) {
         final SearchForm form;
-        final Optional<SearchQuery> query;
         try {
             form = SearchForm.read(fields);
+        } catch (IllegalArgumentException invalid) {
+            return invalid(model, response);
+        }
+        restoreForm(form, model);
+        final Optional<SearchQuery> query;
+        try {
             query =
                     form.action() == SearchForm.Action.SEARCH
                             ? Optional.of(form.toQuery())
                             : Optional.empty();
-        } catch (IllegalArgumentException invalid) {
-            return invalid(model, response);
+        } catch (IllegalArgumentException invalidQuery) {
+            return feedback(model, response, SearchFeedback.INVALID_QUERY, Optional.empty());
         }
-        model.addAttribute("queryText", form.text());
-        model.addAttribute("scope", form.scope() == SearchForm.Scope.ALL ? "all" : "selected");
-        model.addAttribute("documentIds", form.documentIds().stream().sorted().toList());
         var service = search.getIfAvailable();
         if (service == null || documents.getIfAvailable() == null) {
-            response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
-            return "search";
+            return feedback(model, response, SearchFeedback.DISABLED, Optional.empty());
         }
-        populatePicker(form, model);
-        if (form.action() == SearchForm.Action.BROWSE) return "search";
-        var request = query.orElseThrow();
-        model.addAttribute("queryText", request.text());
         try {
+            populatePicker(form, model);
+            if (form.action() == SearchForm.Action.BROWSE) return "search";
+            var request = query.orElseThrow();
+            model.addAttribute("queryText", request.text());
             var result = service.search(request);
             var ids =
                     result.matches().stream()
@@ -120,11 +130,27 @@ class SearchController {
             model.addAttribute(
                     "searchResult", new SearchResult(hits.stream().map(Hit::match).toList()));
             model.addAttribute("searchHits", List.copyOf(hits));
+            model.addAttribute("searchFeedback", completedFeedback(form, result, hits));
         } catch (SearchFailure unavailable) {
-            response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
-            model.addAttribute("searchError", "Search could not be completed. Try again later.");
+            return feedback(
+                    model,
+                    response,
+                    SearchFeedback.from(unavailable.reason()),
+                    unavailable.retryAt());
+        } catch (DataAccessException | TransactionException unavailable) {
+            return feedback(model, response, SearchFeedback.DATABASE, Optional.empty());
         }
         return "search";
+    }
+
+    private static SearchFeedback completedFeedback(
+            SearchForm form, SearchResult result, List<Hit> hits) {
+        if (!hits.isEmpty()) return SearchFeedback.SUCCESS;
+        if (form.scope() == SearchForm.Scope.SELECTED && form.documentIds().isEmpty())
+            return SearchFeedback.EMPTY_SELECTION;
+        return result.matches().isEmpty()
+                ? SearchFeedback.NO_MATCHES
+                : SearchFeedback.SOURCES_CHANGED;
     }
 
     private void populatePicker(SearchForm form, Model model) {
@@ -146,24 +172,39 @@ class SearchController {
                         .toList();
         model.addAttribute("documentPage", page);
         model.addAttribute("otherSelections", others);
+        model.addAttribute("pickerAvailable", true);
     }
 
-    @ExceptionHandler({DataAccessException.class, TransactionException.class})
-    String unavailable(Model model, HttpServletResponse response) {
-        prepare(model, response);
-        response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+    private static void restoreForm(SearchForm form, Model model) {
+        model.addAttribute("queryText", form.text());
+        model.addAttribute("scope", form.scope() == SearchForm.Scope.ALL ? "all" : "selected");
+        model.addAttribute("documentIds", form.documentIds().stream().sorted().toList());
+        model.addAttribute("documentPage", new LibraryPage(List.of(), form.page(), false));
+        model.addAttribute(
+                "otherSelections",
+                form.documentIds().stream()
+                        .sorted()
+                        .map(id -> new Choice(id, "Selected document"))
+                        .toList());
+    }
+
+    private static String feedback(
+            Model model,
+            HttpServletResponse response,
+            SearchFeedback feedback,
+            Optional<Instant> retryAt) {
+        response.setStatus(feedback.getStatus().value());
         model.asMap().remove("searchResult");
         model.asMap().remove("searchHits");
-        model.addAttribute("searchError", "Search could not be completed. Try again later.");
+        model.addAttribute("searchFeedback", feedback);
+        model.addAttribute("retryAt", feedback.acceptsRetryHint() ? retryAt : Optional.empty());
         return "search";
     }
 
     private static String invalid(Model model, HttpServletResponse response) {
-        response.setStatus(HttpStatus.BAD_REQUEST.value());
-        model.addAttribute(
-                "searchError",
-                "Enter a valid query (up to 1,200 characters), document scope and page.");
-        return "search";
+        // Ambiguous/malformed state cannot silently reset to a whole-library search.
+        model.addAttribute("scope", "selected");
+        return feedback(model, response, SearchFeedback.INVALID_FORM, Optional.empty());
     }
 
     record Hit(String name, SearchResult.Match match) {

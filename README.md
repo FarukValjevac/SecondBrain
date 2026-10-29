@@ -26,6 +26,7 @@ Optional background embeddings send passage batches to Cloudflare, store vectors
 - Java 25 JDK, available through `JAVA_HOME` or `PATH`.
 - Docker with Docker Compose and a running Docker-compatible engine, such as Docker Desktop.
 - Internet access for the initial Maven and Docker image downloads.
+- For semantic search, Cloudflare Workers AI account credentials; uploads and text inspection work without them.
 - On macOS/Linux, `curl` or `wget` and `unzip` for Maven Wrapper.
 
 The included Maven Wrapper downloads Maven automatically; a separate Maven installation is not required.
@@ -38,7 +39,7 @@ Run these commands from the repository root. Create the local configuration:
 cp .env.example .env
 ```
 
-Edit `.env` and replace the password placeholder. Use plain `KEY=value` entries without quotes or shell exports. Keep this file private; it is ignored by Git. No AI credentials are required.
+Edit `.env` and replace the password placeholder. Use plain `KEY=value` entries without quotes or shell exports. Keep this file private; it is ignored by Git. Uploads and text inspection need no AI credentials. For semantic search, configure and enable [embeddings](docs/development.md#embedding-configuration).
 
 Start PostgreSQL, then the application:
 

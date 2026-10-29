@@ -1140,6 +1140,29 @@ The public `PassageSource` record contains only the filename, bounded passage, s
 
 The controller maps absent/stale sources to the same 404, malformed links to 400 and read failures to 503. Error pages contain no old content. The [template](../src/main/resources/templates/document-source.html) escapes all text, and responses disable caching/referrer forwarding. These measures cannot recall content already delivered before a later deletion; they ensure each new request checks again. MVC tests verify rendering and safe responses; PostgreSQL tests check actual ownership, completeness, replacement/deletion and the old-snapshot case.
 
+## 33. Explaining search outcomes without changing retrieval
+
+[SearchFeedback](../src/main/java/dev/secondbrain/web/SearchFeedback.java) is a closed enum of web messages and HTTP statuses. It maps trusted `SearchFailure.Reason` values into useful next actions. Its strings contain no provider body, exception message, filename, query or excerpt. It is presentation policy; `SearchService` still decides eligibility, model calls, ranking and final visibility.
+
+| Meaning | Browser feedback | HTTP |
+|---|---|---|
+| The selected set is empty | Select documents or choose Whole library | 200 |
+| Retrieval ran but found no evidence above the threshold | Change wording or scope | 200 |
+| Nothing in this scope has a compatible completed index | Wait for indexing or choose other documents | 200 |
+| Provider is limiting requests or the allowance is exhausted | Wait and submit explicitly later | 429 |
+| The embedding request timed out | Try again later | 504 |
+| Storage/provider/configuration is unavailable | Follow the specific guidance | 503 |
+
+A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
+
+The controller restores a parsed `SearchForm` before trying retrieval. This preserves valid text, scope, checked IDs and page when a provider or database operation fails. If labels cannot load, the page uses generic checked selection controls rather than losing those IDs or displaying old filenames. This state lives only in the request's view model; it is not query history or a server session.
+
+Blank text is valid while browsing choices but invalid when converted into `SearchQuery`. That failure can preserve the rest of the valid form without any database/provider call. Malformed or ambiguous fields cannot form a trusted `SearchForm`; the page explicitly clears them and chooses selected/empty scope instead of accidentally broadening to all documents.
+
+An optional `Instant` retry hint is rendered as a UTC time for relevant provider failures. No raw message is interpreted to invent a reset date. The application does not wait or automatically resubmit: each explicit search can make at most one service attempt. A new request can succeed without retaining an earlier quota message because feedback is per request, not mutable singleton state.
+
+MVC tests supply controlled service outcomes and render the real Thymeleaf page. They check HTTP statuses, helpful messages, escaped retained input, fixed diagnostics and explicit retry behavior without consuming a real allowance. They establish presentation behavior; evaluating whether a real model finds relevant study material remains a separate task.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

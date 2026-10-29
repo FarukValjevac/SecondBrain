@@ -422,9 +422,9 @@ Open `/search` or select **Search documents** in the library. Opening the page r
 
 Choose **Selected documents only** and check documents to restrict retrieval. The picker uses the library's 50-document pages. **Next documents** and **Previous documents** preserve the query, scope, and checked IDs without executing a search, even with a blank query. Selections from other pages stay visible and removable. Choose up to 100 documents; queued/failed/unindexed documents can be selected but cannot contribute results until a complete compatible index exists. A removed selection stays explicit as **Document unavailable** rather than silently becoming a whole-library search. Choosing **Whole library** explicitly searches all eligible documents even if boxes remain checked.
 
-Queries use a form-urlencoded `POST /search`, with one `q` and one explicit `scope` (`all` or `selected`). Repeated/missing/unknown scope/query fields, malformed UUIDs, oversized text/selections and invalid pages/actions receive safe HTTP 400 before retrieval. Repeated `documentId` values are deduplicated, with a raw 100-value budget. Optional `page` defaults to 0 and `action` to `search`; `previous`/`next` browse choices only. The server uses the service's default result limit of 5. Valid normalized input and selections remain visible after a search. An empty selected scope stays empty.
+Queries use a form-urlencoded `POST /search`, with one `q` and one explicit `scope` (`all` or `selected`). Repeated/missing/unknown scope/query fields, malformed UUIDs, oversized text/selections and invalid pages/actions receive safe HTTP 400 before retrieval. Malformed form state is cleared with an explanation and defaults to empty selected scope; it never silently broadens to the library. A valid form with blank search text retains its selections and page while asking for a nonblank query. Repeated `documentId` values are deduplicated, with a raw 100-value budget. Optional `page` defaults to 0 and `action` to `search`; `previous`/`next` browse choices only. The server uses the service's default result limit of 5. Valid normalized input and selections remain visible after a search. An empty selected scope stays empty.
 
-Both page responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the application creates no query session, URL, history or event. Default diagnostics omit queries, filenames and excerpts. These headers do not erase browser/provider history. Document labels are fetched in bounded batches without loading full extracted text. A result whose document becomes hidden before its label lookup is dropped, with the displayed count adjusted. A metadata failure returns safe 503 feedback without partial results. Retrieval metrics still describe the service's final snapshot; a later metadata visibility check can make the displayed count smaller.
+Both page responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the application creates no query session, URL, history or event. Default diagnostics omit queries, filenames and excerpts. These headers do not erase browser/provider history. Document labels are fetched in bounded batches without loading full extracted text. A result whose document becomes hidden before its label lookup is dropped, with the displayed count adjusted. A metadata failure returns safe 503 feedback without partial results; valid query/scope/checked IDs are retained, using generic selected-document labels if the picker could not load. Retrieval metrics still describe the service's final snapshot; a later metadata visibility check can make the displayed count smaller.
 
 With the search service configured, check an empty selection without making an inference request:
 
@@ -432,9 +432,37 @@ With the search service configured, check an empty selection without making an i
 curl -i --data-urlencode 'q=Study notes' --data 'scope=selected' http://127.0.0.1:8080/search
 ```
 
-Expect `Matching passages: 0`. A blank search can be checked with `curl -i --data 'q=&scope=all' http://127.0.0.1:8080/search`; expect safe HTTP 400. Retrieval failures currently use generic HTTP 503 feedback rather than a misleading zero count. For a browser check against your configured provider, search the library, then select a document and repeat; inspect names/excerpts/line or page references and open a document. Browsing picker pages must not increase `secondbrain.search.requests` or embedding-request counts. These are live searches only when you submit **Search** against eligible indexes.
+Expect `Matching passages: 0`. A blank search can be checked with `curl -i --data 'q=&scope=all' http://127.0.0.1:8080/search`; expect safe HTTP 400. Provider and index states have distinct feedback and HTTP statuses, listed below, without fabricating a zero-match result on failure. For a browser check against your configured provider, search the library, then select a document and repeat; inspect names/excerpts/line or page references and open a document. Browsing picker pages does not initiate a search or query embedding; background indexing can independently increase embedding-request counts. These are live searches only when you submit **Search** against eligible indexes.
 
 Run `./mvnw -Dtest=SearchControllerTest,SearchDisabledControllerTest,DocumentInspectionServiceTest,LibraryControllerTest,TelemetryPrivacyTest test` for the MVC/template and bounded-label API checks. They need no Docker, model credentials, or actual network requests. Run `./mvnw -Dit.test=DocumentRepositoryIT verify` with Docker to check batch label filtering against PostgreSQL, then the full `./mvnw verify`. These tests establish mechanics and privacy, not live semantic relevance.
+
+### Search feedback and recovery
+
+| Situation | HTTP status | What to do |
+|---|---|---|
+| Empty selected scope | 200 | **No documents selected**: select documents or explicitly choose Whole library; no inference occurs. |
+| Successful retrieval with no matches | 200 | **No matching passages**: change the wording or scope. |
+| No compatible completed index in scope | 200 | **No searchable documents**: wait for indexing or choose other documents; inference is avoided. |
+| Ranked sources disappear before display | 200 | **Search sources changed**: submit a new search for current passages. |
+| Blank query or malformed form | 400 | Correct the input. Valid blank-query selections remain; malformed state is cleared explicitly. |
+| Provider rate limit | 429 | **Too many requests**: wait before another explicit submission. |
+| Shared free allowance exhausted | 429 | **Free allowance exhausted**: wait for the allowance to reset. |
+| Provider request timeout | 504 | **Search timed out**: try a new request later. |
+| Provider, model/response, storage or interruption failure | 503 | Follow the specific configuration/connection/storage guidance; no old results are served. |
+
+Valid query text, scope and checked IDs remain visible after provider/storage failures. If document labels cannot be read, checked IDs use generic **Selected document** labels instead of losing the selection or displaying old private names. Blank-query feedback marks the input invalid for accessibility. Malformed inputs are not echoed or silently truncated, and the reset scope is selected/empty so retrying cannot accidentally search the whole library.
+
+A provider-supplied retry hint may appear for rate limiting, quota exhaustion or provider unavailability as an ISO UTC timestamp. It is a suggestion, not a guaranteed reset time or remaining account balance. The page does not wait, poll, retry automatically, queue a search, switch providers or request an upgrade. A later explicit **Search** submission is a new request and may consume allowance. HTTP status and application outcome differ: no-index feedback is HTTP 200 while the search metric still records `no_compatible_index`.
+
+For manual review with your configured provider and a disposable indexed note:
+
+1. Search the whole library, then select that document and repeat. Confirm escaped excerpts, source references and retained query/selection.
+2. Choose selected scope with no boxes checked and submit a nonblank query. Expect **No documents selected**, with no embedding request.
+3. Submit spaces as the query to exercise server validation; expect **Check your query** and retained selections. An actually empty browser field is also guarded by native form validation.
+4. Browse picker pages without submitting Search; the search-request count must not increase. Open a source and use the deletion check below to confirm an old link becomes unavailable.
+5. Review no-match/no-index and controlled provider-failure responses through the MVC tests. They simulate rate/quota/timeout without live calls; do not deliberately exhaust a real allowance to create an error. A live irrelevant query is not guaranteed to return no matches because relevance depends on the model and provisional threshold.
+
+`./mvnw -Dtest=SearchControllerTest,SearchDisabledControllerTest,DocumentSourceControllerTest,TelemetryPrivacyTest test` renders all controlled feedback through the actual templates without Docker or credentials. The tests require one service call per explicit submission, retained safe state, no result object on failure, safe retry-hint rendering and clean logs. A second explicit submission can recover without stale quota feedback. Full `./mvnw verify` remains the completion gate; these presentation checks do not measure semantic quality.
 
 ## Source passage links
 
