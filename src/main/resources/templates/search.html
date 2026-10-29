@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" th:href="@{/}">SecondBrain</a>
+  </header>
+  <main>
+    <div class="library-heading"><h1>Search documents</h1></div>
+    <section class="notice notice-error" role="alert" th:if="${searchError != null}">
+      <h2>Search could not be completed</h2>
+      <p th:text="${searchError}">Check your query and try again.</p>
+    </section>
+    <section class="library-card" th:unless="${searchEnabled}">
+      <h2>Search unavailable</h2>
+      <p>Search requires configured embeddings and completed document indexes. See the setup documentation.</p>
+    </section>
+    <section class="library-card" th:if="${searchEnabled}">
+      <h2>Find relevant passages</h2>
+      <p th:if="${scope == 'all'}">Search across the whole library.</p>
+      <p th:if="${scope == 'selected'}" th:text="|Selected documents: ${documentIds.size()}|">Selected documents: 0</p>
+      <form method="post" action="/search" th:action="@{/search}">
+        <label for="search-query">What are you looking for?</label>
+        <p id="search-help">Use up to 1,200 characters. Queries are sent to the configured embedding provider.</p>
+        <input type="search" id="search-query" name="q" th:value="${queryText}" aria-describedby="search-help" required>
+        <input type="hidden" name="scope" th:value="${scope}">
+        <input th:each="id : ${documentIds}" type="hidden" name="documentId" th:value="${id}">
+        <button type="submit">Search</button>
+      </form>
+      <p><a href="/search" th:href="@{/search}">Start a new whole-library search</a></p>
+    </section>
+    <section class="notice notice-success" role="status" th:if="${searchResult != null}">
+      <h2>Search completed</h2>
+      <p th:text="|Matching passages: ${searchResult.matches.size()}|">Matching passages: 0</p>
+    </section>
+    <p><a href="/" th:href="@{/}">Back to document library</a></p>
+  </main>
+</body>
+</html>

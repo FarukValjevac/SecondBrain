@@ -42,7 +42,9 @@ class TelemetryPrivacyTest {
                         });
         request.setMethod("POST");
         for (String route :
-                new String[] {"/documents", "/documents/upload", "/documents/{id}/delete"}) {
+                new String[] {
+                    "/search", "/documents", "/documents/upload", "/documents/{id}/delete"
+                }) {
             context.setPathPattern(route);
             Assertions.assertThat(convention.getLowCardinalityKeyValues(context))
                     .anySatisfy(

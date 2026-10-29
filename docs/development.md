@@ -347,7 +347,7 @@ A null active version is expected with embeddings disabled or incomplete process
 
 ## Search query contracts
 
-The `search` feature defines validated Java input/result types, query embedding, and a synchronous `SearchService` Java API for local pgvector retrieval. A search endpoint/form is not yet connected.
+The `search` feature defines validated Java input/result types, query embedding, and a synchronous `SearchService` Java API for local pgvector retrieval. A basic POST search form connects the browser to that service; it currently displays the match count.
 
 `SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
 
@@ -410,11 +410,27 @@ Run the focused checks:
 ./mvnw -Dit.test=JdbcPassageSearchIT,SearchWorkflowIT verify
 ```
 
-The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. This API prepares search behavior for the upcoming web feature; no browser search control is available yet.
+The integration cases require Docker and use known vectors in an isolated database. They test ranking, inclusive threshold, stable ties, undefined numerical scores, result bounds, source locations, selected scopes, active replacements, incomplete/hidden/source-changed data, preflight provider avoidance, deletion during inference, and coordinated deletion/source/replacement/completeness changes after ranking but before final validation. No credentials or live API calls are needed. Full `./mvnw verify` remains the gate. The browser search form uses this API; excerpt rendering and a document picker are not available yet.
 
 `SearchWorkflowIT` starts the application without an HTTP listener, accepts synthetic TXT/Markdown/PDF documents through the public acceptance service, and lets the real durable workers extract, split, embed, and publish them. Queries then use the actual `SearchService` and PostgreSQL reader. It checks filters, empty/no-index/no-match outcomes, source locations, deletion, restart, and timeout/rate/quota failures. Searching must reuse stored vectors without creating delivery jobs or retrying automatically; telemetry must preserve caller context without private text.
 
 These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, passage configuration 1, indexing generation 1, minimum score 0.3, and default limit 5. They prove application wiring and retrieval mechanics; they do not measure semantic relevance, live provider behavior, or response latency. Existing upload HTTP tests cover multipart/browser behavior separately. Run the command with Docker available; the workflow uses a temporary library and its own container, with no `.env`, model credentials, or external telemetry service.
+
+## Browser search input
+
+Open `/search` or select **Search documents** in the library. Opening the page performs no inference. With embeddings configured and complete active indexes available, submit a whole-library query to see the matching-passage count. The form states that query text goes to the configured embedding provider. This sends a real query embedding request; the usual provider allowance applies. Without enabled embeddings, the page shows **Search unavailable** and requires no credentials.
+
+Queries use a form-urlencoded `POST /search`, with one `q` and one explicit `scope` (`all` or `selected`). Repeated query/scope fields, missing scope, malformed UUIDs, oversized input/selections, and document IDs paired with `all` receive HTTP 400 before retrieval. The server uses the service's default result limit of 5. It preserves valid normalized input and selected IDs after submission. Both page responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the application does not store the query in a session, URL, event, or default diagnostic field. These headers do not erase browser or provider history.
+
+The HTTP boundary accepts up to 100 repeated `documentId` values for `selected`; duplicate UUIDs are deduplicated. An empty explicit selection stays empty. For a check that makes no inference request when the search service is configured, submit that empty selection:
+
+```sh
+curl -i --data-urlencode 'q=Study notes' --data 'scope=selected' http://127.0.0.1:8080/search
+```
+
+It should show `Matching passages: 0` without a provider call. A blank query can be checked with `curl -i --data 'q=&scope=all' http://127.0.0.1:8080/search`; expect HTTP 400 and safe feedback. No document picker or passage excerpts are rendered yet. Retrieval failures currently return HTTP 503 with generic safe feedback rather than a misleading zero-match count.
+
+Run `./mvnw -Dtest=SearchControllerTest,SearchDisabledControllerTest,LibraryControllerTest,TelemetryPrivacyTest test` for the HTTP/form mapping and rendered-template checks. These MVC tests need no Docker, model credentials, or actual network requests. They verify input/scope bounds, empty selection, escaped query text, disabled setup, safe failures and diagnostics; they do not establish live relevance. Full `./mvnw verify` remains required.
 
 ## Retrieval telemetry
 

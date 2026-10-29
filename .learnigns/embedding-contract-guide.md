@@ -1055,6 +1055,35 @@ The workflow snapshots saved vectors and delivery records before searching and c
 
 An empty selection costs no inference. A scope with no compatible index also avoids inference but reports that distinct problem. Deleting a document immediately excludes it; cleanup can continue in the background. A successful search can still return no matches above the threshold. These different outcomes give the web layer enough information to explain what happened.
 
+## 30. Connecting a browser form to the search service
+
+[SearchController](../src/main/java/dev/secondbrain/web/SearchController.java) is the HTTP adapter. Spring calls its `form()` method for `GET /search` and `submit()` for a form-urlencoded `POST /search`. Opening a page only renders the form. Submitting it creates a validated `SearchQuery` and calls the existing service once.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Controller as SearchController
+    participant Service as SearchService
+    participant View as Thymeleaf
+    Browser->>Controller: GET /search
+    Controller->>View: Blank form model
+    View-->>Browser: Search form
+    Browser->>Controller: POST q, scope and optional documentId values
+    Controller->>Controller: Validate HTTP fields and construct SearchQuery
+    Controller->>Service: search(query)
+    Service-->>Controller: SearchResult or typed SearchFailure
+    Controller->>View: Input, scope and result count or safe feedback
+    View-->>Browser: HTML response
+```
+
+`@RequestParam MultiValueMap<String, String>` preserves every value for each form field. That lets the adapter reject two different `scope` values instead of silently choosing one. It maps UUID strings into an immutable application scope; `SearchQuery` still owns text/result limits, and the service still owns eligibility, inference, ranking and visibility. The controller contains no SQL or provider calls.
+
+An `ObjectProvider<SearchService>` is a Spring handle for an optional bean. Embeddings are disabled by default, so there may be no search service to inject. `getIfAvailable()` lets the page explain that state instead of preventing default application startup. It does not create a second service or inference provider.
+
+The [template](../src/main/resources/templates/search.html) uses escaped Thymeleaf values to redisplay valid input. Query text travels in a POST body rather than the form action URL. No query session/history is created, and cache/referrer headers restrict unintended browser reuse. Default diagnostics contain fixed HTTP/search outcomes, not form text. Those choices cannot control what a user deliberately saves or what the configured provider receives.
+
+The current page displays the match count. Selected-document IDs are accepted and retained by the HTTP contract; the visible form starts with the whole library. An empty selection remains empty, and provider failures do not become zero matches. MVC tests replace only the service, checking this adapter separately from the real PostgreSQL workflow tests.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
