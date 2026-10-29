@@ -77,6 +77,53 @@ class RetrievalReferenceCollectionTest {
                 .doesNotContain(query.query(), source.quote(), query.expectedFacts().getFirst());
     }
 
+    @Test
+    void bindsRepeatableRuntimeIdentitiesAndDeduplicatesGoldSpanAliases() throws Exception {
+        var collection = RetrievalReferenceCollection.load();
+        var first = ReferenceIndex.prepare(collection);
+        var second = ReferenceIndex.prepare(collection);
+        assertThat(first).isEqualTo(second);
+        var arrayList = first.document("arraylist");
+        var lastLine =
+                collection.content(collection.documents().getFirst()).lines().toList().getLast();
+        assertThat(first.passagesForSources(List.of("arraylist-behavior", "arraylist-removal")))
+                .containsExactly(arrayList.passageId());
+        assertThat(arrayList.location())
+                .isEqualTo(
+                        new SearchResult.SourceLocation(
+                                1,
+                                0,
+                                6,
+                                lastLine.codePointCount(0, lastLine.length()),
+                                java.util.OptionalInt.empty()));
+        assertThat(first.toString() + arrayList)
+                .doesNotContain(
+                        arrayList.text(), arrayList.name(), arrayList.documentId().toString());
+        assertThatThrownBy(() -> first.documents().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> first.sourcePassages().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> first.passagesForSources(List.of("missing-source")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void mapsLogicalScopeWithoutExpandingEmptyOrUnknownSelections() throws Exception {
+        var index = ReferenceIndex.prepare(RetrievalReferenceCollection.load());
+        assertThat(index.scopeFor(new Scope(Mode.ALL, List.of()))).isEqualTo(SearchScope.all());
+        assertThat(index.scopeFor(new Scope(Mode.SELECTED, List.of())))
+                .isEqualTo(SearchScope.selected(java.util.Set.of()));
+        assertThat(index.scopeFor(new Scope(Mode.SELECTED, List.of("hashset"))))
+                .isEqualTo(
+                        SearchScope.selected(
+                                java.util.Set.of(index.document("hashset").documentId())));
+        assertThatThrownBy(
+                        () -> index.scopeFor(new Scope(Mode.SELECTED, List.of("missing-document"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> index.scopeFor(new Scope(Mode.ALL, List.of("hashset"))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @ParameterizedTest
     @EnumSource(Fault.class)
     void rejectsInconsistentGoldDataBeforeAnyRetrieval(Fault fault) throws Exception {

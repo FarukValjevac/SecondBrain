@@ -1185,6 +1185,33 @@ A logical label such as `arraylist-behavior` is different from a database UUID. 
 
 The validator does not call `SearchService` or an embedding provider. It proves that the answer key points to real bytes and legal source locations, not that retrieval finds them. It also cannot prove natural-language relevance merely because a fact appears in a quote. The [fixture tests](../src/test/java/dev/secondbrain/search/RetrievalReferenceCollectionTest.java) check declared scenarios and deliberately corrupt labels/hashes/scopes to ensure inconsistent data is rejected without consuming a model allowance.
 
+## 35. Separating a correct search engine from a useful model
+
+The same answer key can test two different things. A controlled-vector test asks whether PostgreSQL returns the right saved passages for known numbers. A real-model evaluation asks whether an embedding model gives useful numbers to natural-language questions. Passing the first does not establish the second.
+
+```mermaid
+flowchart LR
+    Notes[Three Java study notes] --> Bindings[Stable test UUIDs and source locations]
+    Gold[Gold evidence labels] --> Expected[Expected unique passage IDs]
+    Bindings --> DB[Isolated published pgvector rows]
+    Directions[Scripted query and passage vectors] --> DB
+    Directions --> Service[Actual SearchService]
+    DB --> Service
+    Service --> Results[Ranked visible passages]
+    Expected --> Check[Compare IDs, text, facts and locations]
+    Results --> Check
+```
+
+[ReferenceIndex](../src/test/java/dev/secondbrain/search/ReferenceIndex.java) connects logical evidence labels to repeatable database UUIDs. Each short note fits one whole-document passage. The labels `arraylist-behavior` and `arraylist-removal` describe different lines inside the same passage, so they count as one expected passage. The source coordinates cover the complete stored passage; the gold labels retain the narrower evidence ranges. Larger notes need a deliberate multi-passage fixture rather than truncation.
+
+[ReferenceRetrievalIT](../src/test/java/dev/secondbrain/search/ReferenceRetrievalIT.java) gives ArrayList, HashSet and the study plan independent vector directions. A comparison query receives a direction between the first two. A question with absent evidence receives a direction perpendicular to all three. These numbers are explicitly assigned by the test; no model has understood any words. They let the assertions isolate SQL ranking, the score threshold, scope and deletion from model variability.
+
+A useful filter check first lets ArrayList win with result limit one, then restricts the same query to HashSet. HashSet must now win. Filtering after taking the first result would incorrectly leave nothing. For deletion checks, the row and vector remain stored but the document is tombstoned; the search must exclude it immediately.
+
+The test seeds complete published rows in its own disposable container, then calls the real search service with a fake query provider. It requires the original vectors to stay unchanged, no search jobs to appear, and empty selection to avoid inference. Reconstructed reader objects must return the same tied result order from persisted data. This is narrower than restarting the application or exercising the indexing pipeline, which have their own workflow tests.
+
+Search still creates its normal duration observation, outcome counter and result-count measurement. The test connects them to an in-memory registry, checks fixed metric tags and keeps query text and filenames out of captured logs. The measured duration includes the fake provider and database reads; it is not a real-provider latency benchmark or a semantic-quality score.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

@@ -432,7 +432,21 @@ Run the offline integrity checks:
 
 The test-only loader checks bounded resources, strict UTF-8/LF files, hashes, unique labels, source quotes/ranges, query limits, case coverage, evidence/absence consistency and allowed scope/deletion references. Expected facts must appear in their declared evidence quotes. The fixture format uses immutable values and diagnostics omit queries and quotes. The checks need no Spring context, database, credentials, provider request or chat model.
 
-Logical source labels are gold evidence spans, not preassigned database passage UUIDs. Multiple labels may lie inside one indexed passage. Runtime imports/indexes must record their own ID mapping; scoring passage recall must deduplicate actual passage identities rather than counting aliases twice. This validation does not import/index documents, execute retrieval, compute recall, measure latency/usage or establish that a model understands a paraphrase. Labels still require human review for semantic relevance; exact quote consistency is not a semantic-quality score. No live evaluation command is installed by these fixtures. Full `./mvnw verify` remains the build gate.
+Logical source labels are gold evidence spans, separate from database passage UUIDs. Multiple labels may lie inside one indexed passage; passage comparisons must deduplicate those aliases. The integrity validator does not execute retrieval or establish semantic relevance. Labels still require human review.
+
+Run the collection against real PostgreSQL/pgvector with controlled vectors:
+
+```sh
+./mvnw -Dit.test=ReferenceRetrievalIT verify
+```
+
+[ReferenceRetrievalIT](../src/test/java/dev/secondbrain/search/ReferenceRetrievalIT.java) requires Docker and seeds only its own temporary container. It uses no local library, Compose database, Spring configuration import, credentials, chat model or live embedding request. [ReferenceIndex](../src/test/java/dev/secondbrain/search/ReferenceIndex.java) derives repeatable document/passage UUIDs from the corpus identity and maps gold spans to their containing passages. Each current short note fits one passage; both ArrayList evidence labels map to that same passage. Original hashes include the terminal newline; passage text joins the original lines without that terminal newline. Oversized notes are rejected rather than silently truncated.
+
+All eleven cases run independently through the actual `SearchService` and SQL reader. Assertions check exact expected passage identities, facts, text/line locations, selected scope, absent evidence and tombstone exclusion. A separate top-one case proves the document filter applies before the result limit. Another reconstructs the readers against unchanged saved vectors and checks repeatable tied results. This reader reconstruction is not an application restart; `SearchWorkflowIT` covers automatic indexing and application restart separately.
+
+The fixture uses extraction/indexing/passage-configuration version 1, a BGE-M3/1024-dimensional contract, minimum cosine score 0.3 and default result limit 5; the filter-order case uses limit 1. It assigns symbolic directions by document/case instead of running BGE-M3. The pinned container is `pgvector/pgvector:0.8.7-pg18-bookworm`. These are published read fixtures, not evidence that extraction, splitting or embedding produced those rows.
+
+The checks also require one query-embedding call per nonempty search, none for empty selection, unchanged stored vectors and no interactive event jobs. Real search observations record fixed outcomes, result counts and elapsed time in a local test registry; they use the interactive service boundary and export nothing. No latency target, real model quality, recall percentage, token usage or allowance consumption is established by these scripted directions. A real semantic evaluation remains separate; no live evaluation command is installed yet. Full `./mvnw verify` remains the build gate.
 
 ## Browser search input
 
