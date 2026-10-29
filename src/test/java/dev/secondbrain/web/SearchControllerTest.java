@@ -326,7 +326,7 @@ class SearchControllerTest {
                         "Page 7",
                         "Lines 3–4",
                         "Lines 1–1",
-                        "href=\"/documents/" + first + "\"",
+                        "href=\"/documents/" + first + "/passages/" + pdf.passageId() + "\"",
                         "&lt;img src=x onerror=bad&gt;")
                 .doesNotContain("<script>", "<img src=x", "<b>notes");
         assertThat(html.indexOf("PDF&lt;/script&gt;")).isLessThan(html.indexOf("&lt;img src=x"));

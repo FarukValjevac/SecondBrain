@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @SpringBootTest(
         properties = {
+            "spring.config.import=",
+            "secondbrain.embeddings.enabled=false",
             "secondbrain.events.enabled=false",
             "management.tracing.sampling.probability=1"
         })

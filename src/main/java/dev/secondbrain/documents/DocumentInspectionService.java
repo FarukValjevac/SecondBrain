@@ -4,6 +4,7 @@ import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventPublisher;
 
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
@@ -25,6 +26,7 @@ public final class DocumentInspectionService {
     private final EventPublisher events;
     private final Clock clock;
     private final TransactionTemplate transactions;
+    private final TransactionTemplate sourceReads;
 
     DocumentInspectionService(
             JdbcDocumentRepository documents,
@@ -38,6 +40,11 @@ public final class DocumentInspectionService {
         this.clock = Objects.requireNonNull(clock, "clock");
         transactions = new TransactionTemplate(Objects.requireNonNull(manager, "manager"));
         transactions.setTimeout(5);
+        sourceReads = new TransactionTemplate(manager);
+        sourceReads.setReadOnly(true);
+        sourceReads.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        sourceReads.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        sourceReads.setTimeout(5);
     }
 
     public LibraryPage list(int page) {
@@ -77,6 +84,14 @@ public final class DocumentInspectionService {
         if (ids.isEmpty()) return Map.of();
         return Map.copyOf(
                 Objects.requireNonNull(transactions.execute(status -> documents.names(ids))));
+    }
+
+    /** Re-resolve stable passage identity against a fresh committed visibility snapshot. */
+    public Optional<PassageSource> source(UUID documentId, UUID passageId) {
+        Objects.requireNonNull(documentId, "documentId");
+        Objects.requireNonNull(passageId, "passageId");
+        return Objects.requireNonNull(
+                sourceReads.execute(status -> documents.source(documentId, passageId)));
     }
 
     private DocumentSummary summarize(DocumentMetadata document) {
@@ -156,6 +171,43 @@ public final class DocumentInspectionService {
                                             Map.of()));
                             return true;
                         }));
+    }
+
+    /** Public source projection; independent of search ranking and provider responses. */
+    public record PassageSource(
+            UUID documentId,
+            UUID passageId,
+            long indexingVersion,
+            String name,
+            String text,
+            SourceLocation location) {
+        public PassageSource {
+            Objects.requireNonNull(documentId, "documentId");
+            Objects.requireNonNull(passageId, "passageId");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(text, "text");
+            Objects.requireNonNull(location, "location");
+            if (indexingVersion < 1
+                    || text.isBlank()
+                    || text.length() > 2400
+                    || text.codePointCount(0, text.length()) > PassageSplitter.MAXIMUM_CODE_POINTS
+                    || text.indexOf('\0') >= 0
+                    || !java.nio.charset.StandardCharsets.UTF_8.newEncoder().canEncode(text))
+                throw new IllegalArgumentException("Invalid passage source");
+        }
+
+        @Override
+        public String toString() {
+            return "PassageSource[indexingVersion=" + indexingVersion + "]";
+        }
+    }
+
+    public record SourceLocation(
+            int startLine, int startColumn, int endLine, int endColumn, OptionalInt pageNumber) {
+        public SourceLocation {
+            // Share document location invariants without exposing staging types.
+            new PreparedPassages.Location(startLine, startColumn, endLine, endColumn, pageNumber);
+        }
     }
 
     public record DocumentSummary(

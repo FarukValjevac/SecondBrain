@@ -1105,7 +1105,40 @@ Native form controls carry state between requests. Each document page submits it
 
 After retrieval, the controller joins result IDs to visible labels and preserves ranking. If a document was hidden before this label read, its excerpt is omitted; a failed lookup produces safe feedback rather than partial evidence. This is another snapshot check, not a lock spanning delivery. Small view records combine a name with a match and redact their diagnostics. Thymeleaf escapes all text; markup in a document remains reference text, not executable HTML.
 
-The page shows source line ranges and physical PDF pages and links to the existing document detail route. That route reads current visible document content. These links identify a document; they do not yet bind an old result to its exact passage generation. The source-access boundary must make that distinction explicit when resolving passage-specific links.
+The page shows source line ranges and physical PDF pages. Each result links to its exact source passage using document and passage IDs. That route rechecks the current active generation and document visibility before displaying text, as described below. The separate full-document link opens the current document detail page.
+
+## 32. Reopening an exact passage safely
+
+A search result is a snapshot, not permanent permission to read its text. A document may be deleted or replaced after a search. [DocumentSourceController](../src/main/java/dev/secondbrain/web/DocumentSourceController.java) therefore takes only document/passage IDs from the link and asks `DocumentInspectionService.source` to resolve them again. The URL supplies no filename or excerpt that could be trusted accidentally.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Web as DocumentSourceController
+    participant Documents as DocumentInspectionService
+    participant DB as PostgreSQL
+    Browser->>Web: Open document ID / passage ID
+    Web->>Web: Validate both UUID strings
+    Web->>Documents: source(documentId, passageId)
+    Documents->>DB: Fresh bounded read-only transaction
+    DB->>DB: Require visible owner, current source, complete active generation
+    alt Exact passage is eligible
+        DB-->>Documents: Immutable located source
+        Documents-->>Web: PassageSource
+        Web-->>Browser: Escaped source page
+    else Missing, deleted, replaced or incomplete
+        DB-->>Documents: No source
+        Web-->>Browser: 404; no old text
+    end
+```
+
+The stored passage ID includes the document, indexing generation and sequence in its stable identity. A different generation has different passage IDs. The lookup requires that exact stored passage to belong to the document's active generation, whose extraction version must still be current. It repeats passage/vector completeness and supported model/configuration checks. An old active generation can remain useful while a replacement is only staged; once replaced, its links stop resolving.
+
+`REQUIRES_NEW` suspends a caller's transaction and opens a fresh one. `READ_COMMITTED` observes the state committed before this SQL statement. This matters if a caller already holds a repeatable-read snapshot from before deletion: ordinary reads in that old transaction can still see old data. The public source operation uses its own read, so it cannot accidentally serve that old snapshot. Read-only policy and five-second limits keep the operation short; no lock spans HTML delivery.
+
+The public `PassageSource` record contains only the filename, bounded passage, source coordinates and identity needed by the view. It is separate from a ranked search match and contains no score/vector/provider response. Required fields, text budget, Unicode and source coordinates are validated; diagnostics omit text, names and IDs. A source page needs no model call and can open an eligible saved link even when embeddings are disabled.
+
+The controller maps absent/stale sources to the same 404, malformed links to 400 and read failures to 503. Error pages contain no old content. The [template](../src/main/resources/templates/document-source.html) escapes all text, and responses disable caching/referrer forwarding. These measures cannot recall content already delivered before a later deletion; they ensure each new request checks again. MVC tests verify rendering and safe responses; PostgreSQL tests check actual ownership, completeness, replacement/deletion and the old-snapshot case.
 
 ## References and related notes
 

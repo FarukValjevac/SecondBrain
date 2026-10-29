@@ -18,6 +18,8 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
+            "spring.config.import=",
+            "secondbrain.embeddings.enabled=false",
             "secondbrain.events.enabled=false",
             // This smoke test deliberately has no database to include in readiness.
             "management.endpoint.health.group.readiness.include=readinessState"
@@ -37,6 +39,14 @@ class SecondBrainApplicationTest {
     @Test
     void startsWithDatabaseAutoConfigurationExcluded() {
         Assertions.assertThat(applicationContext.isActive()).isTrue();
+        Assertions.assertThat(
+                        applicationContext.getBeansOfType(
+                                dev.secondbrain.embeddings.EmbeddingProvider.class))
+                .isEmpty();
+        Assertions.assertThat(
+                        applicationContext.getBeansOfType(
+                                dev.secondbrain.search.SearchService.class))
+                .isEmpty();
     }
 
     @Test

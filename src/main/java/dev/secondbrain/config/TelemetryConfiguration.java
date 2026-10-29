@@ -84,6 +84,7 @@ class TelemetryConfiguration {
                                                                 "/documents",
                                                                 "/documents/upload",
                                                                 "/documents/{id}",
+                                                                "/documents/{documentId}/passages/{passageId}",
                                                                 "/documents/{id}/retry",
                                                                 "/documents/{id}/delete",
                                                                 "NOT_FOUND",

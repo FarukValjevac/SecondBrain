@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Passage source | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
+  <main>
+    <p><a href="/search" th:href="@{/search}">Back to search</a></p>
+    <section class="notice notice-error" role="alert" th:if="${sourceError != null}">
+      <h1>Source unavailable</h1>
+      <p th:text="${sourceError}">Search again for current sources.</p>
+    </section>
+    <section class="library-card" th:if="${source != null}">
+      <h1 th:text="${source.name}">Document name</h1>
+      <h2>Source passage</h2>
+      <p class="source-location">
+        <span th:if="${source.location.pageNumber.isPresent()}"
+              th:text="|Page ${source.location.pageNumber.asInt} · |">Page 1 · </span>
+        <span th:text="|Lines ${source.location.startLine}–${source.location.endLine}|">Lines 1–2</span>
+      </p>
+      <pre class="search-excerpt" th:text="${source.text}">Passage text</pre>
+      <p><a th:href="@{/documents/{id}(id=${source.documentId})}">Open full document</a></p>
+    </section>
+    <p><a href="/" th:href="@{/}">Back to library</a></p>
+  </main>
+</body>
+</html>

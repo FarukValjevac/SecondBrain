@@ -80,7 +80,7 @@
             <span th:text="|Lines ${hit.match.location.startLine}–${hit.match.location.endLine}|">Lines 1–2</span>
           </p>
           <pre class="search-excerpt" th:text="${hit.match.text}">Passage text</pre>
-          <a th:href="@{/documents/{id}(id=${hit.match.documentId})}">Open document</a>
+          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${hit.match.documentId},passageId=${hit.match.passageId})}">Open source passage</a>
         </li>
       </ol>
     </section>
