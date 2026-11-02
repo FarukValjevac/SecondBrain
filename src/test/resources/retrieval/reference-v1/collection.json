@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "java-study-v1",
+  "documents": [
+    {
+      "id": "arraylist",
+      "file": "documents/arraylist-notes.md",
+      "sha256": "cc5637f864e2d3dec2b8ba9e073c17a9c345855557e96866eeebaafc92f7afbd"
+    },
+    {
+      "id": "hashset",
+      "file": "documents/hashset-notes.md",
+      "sha256": "d94269fe275f38a56ac0fd605e95ed641b1f4fad08eb89deb759bc1680dcdca0"
+    },
+    {
+      "id": "study-plan",
+      "file": "documents/study-plan.txt",
+      "sha256": "3453f51adcbef5727a7a75d08c9e45cffc6a834ba79c04cda99edc1b77171e54"
+    }
+  ],
+  "sources": [
+    {
+      "id": "arraylist-behavior",
+      "document": "arraylist",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "ArrayList keeps values in list order and permits duplicates.\nArrayList supports reading a value by its zero-based index."
+    },
+    {
+      "id": "arraylist-removal",
+      "document": "arraylist",
+      "startLine": 6,
+      "endLine": 6,
+      "quote": "An ArrayList remove(index) call deletes the value at that position."
+    },
+    {
+      "id": "hashset-behavior",
+      "document": "hashset",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "HashSet stores each distinct value only once.\nHashSet iteration has no guaranteed ordering."
+    },
+    {
+      "id": "review-schedule",
+      "document": "study-plan",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "I review Java collection notes one, three and seven days after a lesson.\nDuring each review, I recall the main ideas before checking my notes."
+    }
+  ],
+  "cases": [
+    {
+      "id": "duplicates-direct",
+      "kind": "DIRECT",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior"
+      ],
+      "expectedFacts": [
+        "ArrayList keeps values in list order and permits duplicates."
+      ]
+    },
+    {
+      "id": "duplicates-paraphrase",
+      "kind": "PARAPHRASE",
+      "query": "Can I keep the same value more than once in an ArrayList?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior"
+      ],
+      "expectedFacts": [
+        "ArrayList keeps values in list order and permits duplicates."
+      ]
+    },
+    {
+      "id": "removal-direct",
+      "kind": "DIRECT",
+      "query": "How do I remove an ArrayList element by its position?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-removal"
+      ],
+      "expectedFacts": [
+        "An ArrayList remove(index) call deletes the value at that position."
+      ]
+    },
+    {
+      "id": "duplicate-comparison",
+      "kind": "SIMILAR_DOCUMENTS",
+      "query": "How do ArrayList and HashSet differ in handling duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior",
+        "hashset-behavior"
+      ],
+      "expectedFacts": [
+        "ArrayList keeps values in list order and permits duplicates.",
+        "HashSet stores each distinct value only once."
+      ]
+    },
+    {
+      "id": "collections-and-review",
+      "kind": "CROSS_DOCUMENT",
+      "query": "Can ArrayList contain duplicate values, and when should I review my Java collection notes?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior",
+        "review-schedule"
+      ],
+      "expectedFacts": [
+        "ArrayList keeps values in list order and permits duplicates.",
+        "I review Java collection notes one, three and seven days after a lesson."
+      ]
+    },
+    {
+      "id": "threads-absent",
+      "kind": "ABSENT_EVIDENCE",
+      "query": "How does the operating system schedule Java threads?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "hashset-filter",
+      "kind": "DOCUMENT_FILTER",
+      "query": "Are duplicate values allowed?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": [
+          "hashset"
+        ]
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "hashset-behavior"
+      ],
+      "expectedFacts": [
+        "HashSet stores each distinct value only once."
+      ]
+    },
+    {
+      "id": "wrong-scope",
+      "kind": "DOCUMENT_FILTER",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": [
+          "study-plan"
+        ]
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "empty-selection",
+      "kind": "EMPTY_SELECTION",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "removed-arraylist",
+      "kind": "DELETION",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [
+        "arraylist"
+      ],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "hashset-survives",
+      "kind": "DELETION",
+      "query": "Does HashSet allow duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [
+        "arraylist"
+      ],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "hashset-behavior"
+      ],
+      "expectedFacts": [
+        "HashSet stores each distinct value only once."
+      ]
+    }
+  ]
+}
