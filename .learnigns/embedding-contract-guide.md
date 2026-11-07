@@ -1238,7 +1238,7 @@ A completed command means the measurements finished. It does not declare the mod
 
 ## 37. Giving answer generation a small Java boundary
 
-Search returns saved passages. Answer generation will turn a question plus a bounded selection of those passages into a model response. These are separate operations: a successful search does not create an answer, and a model response is not automatically a trustworthy sourced answer.
+Search returns saved passages. Internal answer generation turns a question plus a bounded selection of those passages into a model response. These are separate operations: a successful search does not create an answer, and a model response is not automatically a trustworthy sourced answer.
 
 ```mermaid
 flowchart LR
@@ -1259,7 +1259,7 @@ The records validate their own values and copy input lists. Java's final record 
 
 A `Reply` is deliberately an untrusted model candidate. It can carry an uncited answer, a foreign citation UUID or repeated citation IDs at this boundary; later local rules must decide whether it can be accepted. By contrast, `INSUFFICIENT_INFORMATION` has an unambiguous empty answer/citation shape. The candidate's `toString()` prints only its outcome/count, so printing the object accidentally does not expose the answer. Valid citation membership will still not prove factual support.
 
-[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The question service and page are still under development.
+[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The internal question service composes retrieval and generation; citation acceptance and the question page are still under development.
 
 The [development guide](../docs/development.md#question-provider-boundary) includes a short JShell example. It shows the interface, nested records and a fake response together, using only compiled classes and the JDK.
 
@@ -1276,8 +1276,10 @@ flowchart TD
     Select --> Request[Chat request: question plus selected UUID and text pairs]
     Select --> Sources[The same selected source records and locations]
     Select -->|No whole passage fits| Empty[No evidence context]
-    Request -. later .-> Generation[Generation and local citation validation]
-    Sources -. later .-> Generation
+    Request --> Generation[QuestionService invokes generation]
+    Sources --> Candidate[Candidate retains exact supplied sources]
+    Generation --> Candidate
+    Candidate -. later .-> Validation[Local citation and visibility validation]
 ```
 
 The selection loop follows the order supplied by retrieval. If a passage fits, it keeps the complete passage and subtracts its UTF-8 byte count. If it cannot fit, the loop tries the next passage. It stops after five accepted passages. Text is never cut in the middle, so the original passage ID and line/page coordinates continue to describe exactly the same text. A shorter later passage can be included after a longer one is skipped; this is a simple greedy budget rule, not a claim about the best semantic combination.
@@ -1293,13 +1295,13 @@ These are text bytes, excluding labels, trusted instructions and JSON framing. T
 
 The context record holds `request` and `sources`. Its constructor checks matching list lengths, passage IDs, text and order, then copies the source list. This matters when twenty passages were retrieved but only five were sent: a real UUID from a skipped passage must not become an accepted citation. Later validation must compare the model's citation IDs against the actual request evidence, with the retained source records providing the corresponding identity and location. Membership will still not prove factual support.
 
-Document scope is also checked here. A nonempty selected scope rejects an out-of-scope candidate instead of forwarding a partial request. An explicit empty selected set always yields no context. `Optional.empty()` also represents no matches or no whole passage fitting the budget; it lets the future caller handle absence without inventing an empty model request. The selector does not decide a final answer or recheck database visibility.
+Document scope is also checked here. A nonempty selected scope rejects an out-of-scope candidate instead of forwarding a partial request. An explicit empty selected set always yields no context. `Optional.empty()` also represents no matches or no whole passage fitting the budget; the question service handles absence without inventing an empty model request. The selector does not decide a final answer or recheck database visibility.
 
 This record is package-private because it is an internal question policy. Its static `select` method is a factory: it constructs a valid context when possible, without needing a mutable service object. Required limits and collaborators come from the existing typed query/result/request values. The focused tests in the [development guide](../docs/development.md#bounded-evidence-selection) exercise it with synthetic passages and preserve instruction-like content strictly as reference data; those tests cannot establish a real model's prompt-injection resistance.
 
 ## 39. Turning the provider contract into a bounded HTTP request
 
-The [Cloudflare HTTP adapter](../src/main/java/dev/secondbrain/questions/CloudflareChatProvider.java) is the concrete implementation of `ChatProvider`. Its constructor creates owned connection resources. `generate(request)` performs the actual inference attempt when explicitly called. Spring can therefore construct and later close the client without spending allowance during startup. The question service that will call it is still under development.
+The [Cloudflare HTTP adapter](../src/main/java/dev/secondbrain/questions/CloudflareChatProvider.java) is the concrete implementation of `ChatProvider`. Its constructor creates owned connection resources. `generate(request)` performs the actual inference attempt when explicitly called. Spring can therefore construct and later close the client without spending allowance during startup. The internal question service calls it only after successful retrieval and selection of fitting evidence.
 
 ```mermaid
 flowchart LR
@@ -1319,6 +1321,37 @@ There are two JSON layers on the return path. The compatible HTTP response conta
 A semaphore coordinates two in-flight HTTP requests. A third caller is rejected immediately instead of waiting in an application queue. This is shared transport capacity, not mutable question state; each request, body and reply stays in local variables. The deadline covers headers and the complete response body, and the body is limited before decoding. `InterruptedException` is preserved so callers can cancel work. Cancelling locally cannot tell us whether the remote service already processed a request, so ambiguous failures are not automatically retried.
 
 [ChatFailure](../src/main/java/dev/secondbrain/questions/ChatFailure.java) carries a small enum and an optional timestamp. The raw provider/transport cause is retained privately instead of becoming a printable exception cause. This matters because a JSON parser's exception can contain part of the response it was reading. Rate limiting and exhausted daily allowance have separate reasons; a retry hint does not create a timer, background job or paid fallback. All unit/stub inputs use synthetic text and credentials. The [development guide](../docs/development.md#structured-answer-http-adapter) lists the fast checks and the loopback-server command; neither requires real inference.
+
+## 40. Connecting search and generation with an application service
+
+[QuestionService](../src/main/java/dev/secondbrain/questions/QuestionService.java) coordinates one use case. Its constructor receives the existing `SearchService` and a `ChatProvider`, then stores them in `private final` fields. It does not implement SQL, rank passages or build HTTP messages. Each collaborator keeps that responsibility. Passing dependencies through the constructor also lets a unit test replace them without starting a database or contacting a model.
+
+```mermaid
+flowchart TD
+    Input[Validated question and document scope] --> Scope{Empty selected scope?}
+    Scope -->|Yes| Absent[Insufficient information, no chat call]
+    Scope -->|No| Search[SearchService retrieves current passages]
+    Search -->|Failure| Error[Safe stage, reason and optional retry hint]
+    Search --> Select[EvidenceContext selects whole fitting passages]
+    Select -->|No context| Absent
+    Select -->|Invalid context| Error
+    Select -->|Context available| Chat[ChatProvider called once]
+    Chat -->|Failure or interruption| Error
+    Chat --> Candidate[Untrusted reply plus exact supplied context]
+    Candidate -. later .-> Accept[Citation and fresh visibility validation]
+```
+
+The service uses an early return for absence. An empty selected-document set skips search and generation. No search matches, or no whole passage fitting the remaining byte budget, returns an insufficient-information reply without a chat request. That is different from a failed search: a database failure, incompatible index or exhausted allowance must remain a failure. Otherwise an outage could look like the documents simply contained no answer.
+
+When evidence is present, `chat.generate(...)` is called once. Its reply and the exact selected context travel together in the nested `Candidate` record. A model can itself report insufficient information after reading the evidence; that result keeps its context. An answered candidate can still contain invalid citation IDs because membership validation is a separate responsibility. The service and its result remain package-private, so the web layer cannot accidentally render this unfinished answer contract.
+
+`Optional<EvidenceContext>` explicitly describes whether any evidence was supplied. It avoids a misleading empty provider request or an unexplained `null`. The nested record belongs to this use case, while the existing search and provider records keep their separate purposes. Source snapshots are immutable and preserve passage identity and locations. They are snapshots, so they do not replace checking whether a document was deleted while the model was responding.
+
+[QuestionFailure](../src/main/java/dev/secondbrain/questions/QuestionFailure.java) adds context to safe errors: `stage` says where the operation failed, and `reason` says why. For example, quota exhaustion during query embedding is `RETRIEVAL/QUOTA_EXHAUSTED`; the same problem during chat is `GENERATION/QUOTA_EXHAUSTED`. A retry timestamp suggests when a later user request might work. It does not schedule a retry. Unexpected collaborator exceptions are retained privately and become safe unavailable failures; printing the public exception cannot reveal their private messages.
+
+The service runs synchronously on its caller and refuses an active caller transaction. Search owns its short database reads, which finish before chat starts. The question, context and reply remain local variables, rather than mutable singleton fields. Interruption is checked before and after collaborator calls, and a provider's `InterruptedException` restores the thread's interrupt flag before returning a safe cancellation failure. No question queue or automatic retry is created.
+
+[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. The browser question page and generation telemetry are still under development.
 
 ## References and related notes
 

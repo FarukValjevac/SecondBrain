@@ -215,7 +215,7 @@ Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub
 
 ## Question provider boundary
 
-Question generation is under development. Provider settings/contracts, bounded evidence selection and the HTTP chat adapter are implemented. Question orchestration and the question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
+Question generation is under development. Provider settings/contracts, bounded evidence selection, the HTTP chat adapter and internal retrieval/generation orchestration are implemented. Citation acceptance, fresh source validation and the question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
 
 | Setting | Current behavior |
 |---|---|
@@ -259,7 +259,7 @@ Expect `ChatReply[outcome=ANSWERED, citations=1]`. This calls a Java fake, with 
 
 The returned context contains the exact chat request plus matching immutable source records, including document ID, generation and line/PDF locations. IDs, text and order must match between the two lists. Later citation validation must use this **selected** set, which can be smaller than the retrieved set.
 
-An explicit empty selected-document scope produces no context. For a nonempty selected scope, any candidate from another document is rejected, including candidates beyond the five-passage limit. A result set larger than the query's requested limit is also rejected. No matches or no whole passage fitting the remaining byte budget returns `Optional.empty()`; deciding the user-facing outcome belongs to the later question service. Selection makes no retrieval, database or provider call and adds no settings.
+An explicit empty selected-document scope produces no context. For a nonempty selected scope, any candidate from another document is rejected, including candidates beyond the five-passage limit. A result set larger than the query's requested limit is also rejected. No matches or no whole passage fitting the remaining byte budget returns `Optional.empty()`; the question service turns that absence into insufficient information without a chat call. Selection itself makes no retrieval, database or provider call and adds no settings.
 
 Run the focused selection checks:
 
@@ -267,7 +267,7 @@ Run the focused selection checks:
 ./mvnw -Dtest=EvidenceContextTest,ChatProviderTest,ChatConfigurationTest test
 ```
 
-These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while orchestration and the question page are being built.
+These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while citation acceptance and the question page are being built.
 
 ### Structured answer HTTP adapter
 
@@ -291,7 +291,25 @@ The local HTTP tests require permission to open a loopback listener, but need no
 ./mvnw -Dit.test=CloudflareChatHttpIT verify
 ```
 
-Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until the question flow is composed; the adapter does not add a browser endpoint or accept replies as sourced answers.
+Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until citation acceptance and the question page are available; the adapter does not add a browser endpoint or accept replies as sourced answers.
+
+### Retrieval and answer orchestration
+
+[QuestionService](../src/main/java/dev/secondbrain/questions/QuestionService.java) composes the existing search API, evidence selector and chat provider in one synchronous call. It passes the validated question, scope and result limit unchanged to search, selects bounded evidence, then calls chat once. It retains the exact supplied source snapshots alongside the untrusted model reply. This is an internal candidate, not a public answer ready for display: citation membership, substantive-answer citation rules and fresh source visibility still need validation.
+
+An explicit empty selected scope uses neither search nor chat. Empty retrieval or no whole passage fitting the context budget returns `INSUFFICIENT_INFORMATION` with no answer, citations or chat call. A model may also return insufficient information after seeing evidence; in that case the supplied context is retained. Missing compatible indexes and failed retrieval remain failures, rather than being treated as successful searches with no evidence.
+
+Failures expose a fixed stage (`RETRIEVAL`, `CONTEXT`, `GENERATION`), reason and optional retry timestamp. Quota/rate/timeout/model/database/invalid-output reasons remain distinguishable. Unexpected collaborator diagnostics stay private, inconsistent evidence never reaches chat, and interruption stops the flow with the thread's interrupt flag preserved. The service rejects caller database transactions. It creates no background question job, retry, wait or fallback; each lower-level adapter still owns its bounded I/O.
+
+Spring wires this internal service only when both questions and embeddings are enabled, using the existing `SearchService` and `ChatProvider`. Construction calls neither collaborator. No new configuration, endpoint, schema or provider dependency is needed. Generation telemetry is the next implementation step.
+
+Run the deterministic orchestration checks:
+
+```sh
+./mvnw -Dtest=QuestionServiceTest,QuestionConfigurationTest,EvidenceContextTest test
+```
+
+They need no Docker, socket listener, credentials or live allowance. They verify the supplied passage set/budget, empty scope/evidence, model-declared absence, safe failures, cancellation and wiring. They do not establish SQL durability, real-model quality or final citation acceptance. Full `./mvnw verify` remains the completion gate.
 
 ## Staged vector storage
 
