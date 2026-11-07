@@ -213,6 +213,133 @@ Failures expose fixed reasons: access denial, unavailable model, invalid input/r
 
 Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub with synthetic credentials/text. It needs local socket permission, but no Docker or Cloudflare account. It covers request/response ordering, bounds, status/quota errors, redirect refusal, slow headers/body, interruption, and connection failure. Full `./mvnw verify` remains the completion gate. No live BGE-M3 response or retrieval quality is established by the stub.
 
+## Question provider boundary
+
+Question generation is under development. Provider settings/contracts, bounded evidence selection, the HTTP chat adapter and internal retrieval/generation orchestration are implemented. Citation acceptance, fresh source validation and the question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
+
+| Setting | Current behavior |
+|---|---|
+| `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in validates settings and creates the chat client; construction makes no inference request. |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Same external account/token keys as embeddings; required when settings are enabled. |
+| `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; model quality remains unmeasured. |
+| `CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS` | Defaults to 512; permitted range 1–2,048. |
+| `secondbrain.questions.connect-timeout` / `request-timeout` | Default 2s / 30s. Connect range 100ms–10s; request range connect-timeout–60s. |
+
+Cloudflare lists this candidate with a 24,000-token context and [JSON Mode support](https://developers.cloudflare.com/workers-ai/features/json-mode/). Model/account eligibility and the shared free allowance follow [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/); code cannot verify an account's billing plan. The [model page](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/) links its terms. Documentation compatibility was checked on 2026-11-02; live protocol behavior, language quality and grounding were not evaluated. No automatic model choice, paid upgrade or fallback is configured.
+
+`ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and trusted instructions; it is not an exact token budget. Evidence keeps its original text. The selector described below chooses whole retrieved passages that fit this envelope.
+
+`ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; citation identities and duplicates remain for later local validation. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
+
+An explicit call to the HTTP adapter sends the question, application instructions and bounded evidence text to Cloudflare using the same account as query embeddings. Read the provider's [data policy](https://developers.cloudflare.com/workers-ai/platform/data-usage/) before live use. The current configuration/contract checks use only synthetic inputs:
+
+```sh
+./mvnw -Dtest=ChatProviderTest,ChatConfigurationTest test
+```
+
+For a console example after compilation, launch `jshell --execution local --class-path target/classes` and enter:
+
+```java
+import dev.secondbrain.questions.ChatProvider;
+import java.util.List;
+import java.util.UUID;
+var id = UUID.randomUUID();
+ChatProvider fake = request -> new ChatProvider.Reply(
+    ChatProvider.Outcome.ANSWERED, "The sample note says yes.", List.of(id));
+fake.generate(new ChatProvider.Request("Are duplicates allowed?",
+    List.of(new ChatProvider.Passage(id, "ArrayList permits duplicates."))));
+/exit
+```
+
+Expect `ChatReply[outcome=ANSWERED, citations=1]`. This calls a Java fake, with no database or model request. `./mvnw verify` remains the full completion check.
+
+### Bounded evidence selection
+
+[EvidenceContext](../src/main/java/dev/secondbrain/questions/EvidenceContext.java) is an internal, pure selection rule. Given the validated `SearchQuery` and its `SearchResult`, it preserves retrieval order and stable passage UUIDs, takes at most five whole passages and includes the question in the 8,000-byte UTF-8 text budget. It skips a passage that cannot fit and tries later candidates; it never truncates evidence or recomputes source coordinates. This greedy policy preserves the order of accepted passages and does not claim to find an optimal combination for answer quality.
+
+The returned context contains the exact chat request plus matching immutable source records, including document ID, generation and line/PDF locations. IDs, text and order must match between the two lists. Later citation validation must use this **selected** set, which can be smaller than the retrieved set.
+
+An explicit empty selected-document scope produces no context. For a nonempty selected scope, any candidate from another document is rejected, including candidates beyond the five-passage limit. A result set larger than the query's requested limit is also rejected. No matches or no whole passage fitting the remaining byte budget returns `Optional.empty()`; the question service turns that absence into insufficient information without a chat call. Selection itself makes no retrieval, database or provider call and adds no settings.
+
+Run the focused selection checks:
+
+```sh
+./mvnw -Dtest=EvidenceContextTest,ChatProviderTest,ChatConfigurationTest test
+```
+
+These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while citation acceptance and the question page are being built.
+
+### Structured answer HTTP adapter
+
+[CloudflareChatProvider](../src/main/java/dev/secondbrain/questions/CloudflareChatProvider.java) implements `ChatProvider` using the existing JDK HTTP client and Jackson dependencies. It sends one nonstreaming application attempt to the fixed account-scoped `/ai/v1/chat/completions` endpoint. The body requests JSON Schema output, one choice, temperature zero and the configured output-token cap; it supplies trusted instructions separately from a JSON-encoded user message containing the question and labeled evidence. No tools or functions are enabled. Endpoint/schema/error documentation was rechecked on 2026-11-07; real-account compatibility and answer quality remain unmeasured.
+
+The adapter follows Cloudflare's documented [JSON Mode schema format](https://developers.cloudflare.com/workers-ai/features/json-mode/) and [compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/). Combining that schema form with the compatible endpoint is inferred from those documents and remains unverified against a live account. Structured generation still needs local validation. The protocol requires one assistant choice ending with `stop`, then parses its content as an object with exactly `outcome`, `answer` and `citations`. It checks types, closed outcomes, canonical UUID shape, text/count limits, duplicate JSON keys and trailing data. Truncated output (`length`) becomes `OUTPUT_LIMIT`; refusal/tool-call payloads, malformed JSON and unexpected content types fail safely. Citation membership, duplicate/uncited-answer policy, factual support and fresh source visibility remain later local checks. A shape-valid reply is still an untrusted candidate.
+
+Requests and responses are capped at 64 KiB. Response parsing requires UTF-8 and bounded nesting/string/token sizes. The deadline includes complete body reception, so sending headers or a partial body cannot hold the caller indefinitely. Two in-flight requests are allowed; a third is rejected without waiting for a slot. Internal HTTP work uses two threads and a bounded task queue. Interruption cancels the local pending request and preserves the caller flag. Calls inside a database transaction are refused. The Spring-owned client is closed with the application context; no health/startup probe invokes generation.
+
+`ChatFailure` exposes a fixed reason and optional retry hint. Authentication, model availability, invalid input/response, output limit, rate limiting, daily quota, timeout and unavailability are distinct. Numeric Cloudflare error `3036` identifies daily quota and `5035` identifies a paid-plan model restriction; [provider error documentation](https://developers.cloudflare.com/workers-ai/platform/errors/) owns those meanings. Retry/reset hints are information for a later explicit request: this adapter has no application retry, sleep, fallback or billing upgrade. Cancellation/timeout cannot establish whether the remote server already processed the request. Private parser/transport causes are retained internally outside the printable cause chain; no request, response, answer or credential body is logged. Safe generation metrics/observations are described below.
+
+Fast protocol/configuration/guard checks:
+
+```sh
+./mvnw -Dtest=CloudflareChatProtocolTest,CloudflareChatProviderTest,ChatConfigurationTest test
+```
+
+The local HTTP tests require permission to open a loopback listener, but need no Docker or Cloudflare account. They use synthetic credentials and a package-local loopback seam unavailable through application settings:
+
+```sh
+./mvnw -Dit.test=CloudflareChatHttpIT verify
+```
+
+Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until citation acceptance and the question page are available; the adapter does not add a browser endpoint or accept replies as sourced answers.
+
+### Retrieval and answer orchestration
+
+[QuestionService](../src/main/java/dev/secondbrain/questions/QuestionService.java) composes the existing search API, evidence selector and chat provider in one synchronous call. It passes the validated question, scope and result limit unchanged to search, selects bounded evidence, then calls chat once. It retains the exact supplied source snapshots alongside the untrusted model reply. This is an internal candidate, not a public answer ready for display: citation membership, substantive-answer citation rules and fresh source visibility still need validation.
+
+An explicit empty selected scope uses neither search nor chat. Empty retrieval or no whole passage fitting the context budget returns `INSUFFICIENT_INFORMATION` with no answer, citations or chat call. A model may also return insufficient information after seeing evidence; in that case the supplied context is retained. Missing compatible indexes and failed retrieval remain failures, rather than being treated as successful searches with no evidence.
+
+Failures expose a fixed stage (`RETRIEVAL`, `CONTEXT`, `GENERATION`), reason and optional retry timestamp. Quota/rate/timeout/model/database/invalid-output reasons remain distinguishable. Unexpected collaborator diagnostics stay private, inconsistent evidence never reaches chat, and interruption stops the flow with the thread's interrupt flag preserved. The service rejects caller database transactions. It creates no background question job, retry, wait or fallback; each lower-level adapter still owns its bounded I/O.
+
+Spring wires this internal service only when both questions and embeddings are enabled, using the existing `SearchService` and `ChatProvider`. Construction calls neither collaborator. No new configuration, endpoint, schema or provider dependency is needed. Safe observations measure the whole operation separately from individual chat calls.
+
+Run the deterministic orchestration checks:
+
+```sh
+./mvnw -Dtest=QuestionServiceTest,QuestionConfigurationTest,EvidenceContextTest test
+```
+
+They need no Docker, socket listener, credentials or live allowance. They verify the supplied passage set/budget, empty scope/evidence, model-declared absence, safe failures, cancellation and wiring. They do not establish SQL durability, real-model quality or final citation acceptance. Full `./mvnw verify` remains the completion gate.
+
+### Question and chat telemetry
+
+[QuestionTelemetry](../src/main/java/dev/secondbrain/questions/QuestionTelemetry.java) receives only fixed outcomes and validated numeric usage. It measures the internal question flow and the Cloudflare chat adapter separately:
+
+| Meter | Meaning | Labels |
+|---|---|---|
+| `secondbrain.question.requests` | Completed internal question operations, including failures and early returns | Fixed `outcome` |
+| `secondbrain.question.duration` | Whole operation duration in seconds, including retrieval and generation | Fixed `outcome`; framework `error=none` |
+| `secondbrain.chat.requests` | Adapter invocations, including local input/transaction/capacity rejection | Fixed `outcome` |
+| `secondbrain.chat.request.duration` | Adapter duration through response validation, in seconds | Fixed `outcome`; framework `error=none` |
+| `secondbrain.chat.tokens` | Sum of accepted provider-reported token counts | `kind=input`, `output`, or `total` |
+| `secondbrain.chat.usage.reports` | Number of valid reports for that token kind | Same fixed `kind` |
+
+An answered reply is labeled `candidate_answer`, which does not imply accepted citations or factual support. `insufficient_information` means the model reported absence after receiving evidence. `no_evidence` and `empty_scope` are question-only early returns with no chat invocation. Failures retain the fixed reason (`quota_exhausted`, `rate_limited`, `timed_out`, `output_limit`, and the other typed reasons). Active caller transactions produce `rejected`; interruption remains `interrupted`. A chat counter measures adapter calls, not guaranteed remote execution or allowance consumption.
+
+Cloudflare's [AI response schema](https://developers.cloudflare.com/api/resources/ai/) documents optional `usage.prompt_tokens`, `completion_tokens` and `total_tokens`; the adapter reads those names from its compatible response envelope. Each field must be an integer from zero through 1,000,000. Missing, null, nonnumeric, fractional, negative or oversized fields are unknown and ignored independently. If all three valid fields contradict `input + output = total`, all usage is ignored. Invalid optional accounting does not invalidate a valid reply. Compatibility and actual reporting remain unmeasured against a live account.
+
+The application never estimates a missing count or adds input/output to invent total usage. A reported zero increments the corresponding reports counter, whereas unknown usage changes neither counter. Filter by `kind`; adding all three token series would double-count a fully reported response. Failed, malformed and truncated responses do not contribute usage even if the remote request consumed allowance. These process-local, best-effort totals reset at restart and are neither a billing ledger nor the account's remaining allowance.
+
+The `question.generate` and `chat.request` observations inherit the current caller trace without replacing its scope or forwarding baggage to Cloudflare. Logs contain fixed operation/outcome fields and the existing safe caller correlation context. Questions, prompts, passage/document text, filenames, answers, IDs, credentials, endpoint URLs, raw exceptions and retry timestamps are never passed into these feature telemetry fields. No private exception is attached to an observation. The trace export allowlist retains only the fixed names/outcomes and its existing safe fields, dropping private attributes and events. Counter/handler/logging failures cannot replace a candidate or its safe failure.
+
+With questions enabled, Spring supplies shared registries for both the adapter and orchestration, including fake-provider contexts. Without a meter registry, telemetry is disabled. Standalone constructors keep disabled telemetry unless explicitly supplied. Startup registers zero counters but performs no inference; duration series appear only after operations. Reading Actuator metrics makes no provider call. There is no question UI yet, so keep the ordinary-use question flag false; no `.env` changes are needed for these tests:
+
+```sh
+./mvnw -Dtest=QuestionTelemetryTest,QuestionTelemetryEndpointTest,QuestionConfigurationTest,ChatConfigurationTest,CloudflareChatProtocolTest,TelemetryPrivacyTest test
+```
+
+These checks use synthetic data, fake collaborators, in-memory meters/traces and MockMvc Actuator calls, without Docker or live models. The additional transport-to-usage check is part of `./mvnw -Dit.test=CloudflareChatHttpIT verify` and requires local listener permission. Full `./mvnw verify` also requires Docker. Citation acceptance, final source visibility and real-model grounding remain separate checks.
+
 ## Staged vector storage
 
 `document_embeddings` stores one vector per stable passage ID, tied to its document, index generation, and model/dimensions. The first batch binds the model on `document_index_versions`. The storage adapter accepts up to 32 vectors in a caller-owned transaction, rechecks current document/source/desired-version eligibility, preserves identical retries, and rejects conflicting values. Foreign keys cascade physical cleanup; partial or old generations remain staged.

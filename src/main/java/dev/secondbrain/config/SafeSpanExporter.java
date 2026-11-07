@@ -52,7 +52,12 @@ final class SafeSpanExporter implements SpanExporter {
                     "database_unavailable",
                     "incompatible_model",
                     "invalid_embedding",
-                    "provider_unavailable");
+                    "provider_unavailable",
+                    "candidate_answer",
+                    "insufficient_information",
+                    "no_evidence",
+                    "invalid_evidence",
+                    "output_limit");
     private static final Set<String> NAMES =
             Set.of(
                     "event.delivery",
@@ -61,7 +66,9 @@ final class SafeSpanExporter implements SpanExporter {
                     "document.deletion",
                     "document.indexing.request",
                     "embedding.request",
-                    "search.retrieval");
+                    "search.retrieval",
+                    "question.generate",
+                    "chat.request");
     private final SpanExporter delegate;
     private final java.util.concurrent.atomic.AtomicBoolean closed =
             new java.util.concurrent.atomic.AtomicBoolean();

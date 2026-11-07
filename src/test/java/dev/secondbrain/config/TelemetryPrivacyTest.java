@@ -150,7 +150,17 @@ class TelemetryPrivacyTest {
                         {"search.retrieval", "empty_scope"},
                         {"search.retrieval", "database_unavailable"},
                         {"search.retrieval", "no_compatible_index"},
-                        {"search.retrieval", "quota_exhausted"}
+                        {"search.retrieval", "quota_exhausted"},
+                        {"question.generate", "candidate_answer"},
+                        {"question.generate", "insufficient_information"},
+                        {"question.generate", "no_evidence"},
+                        {"question.generate", "invalid_evidence"},
+                        {"question.generate", "empty_scope"},
+                        {"question.generate", "quota_exhausted"},
+                        {"chat.request", "candidate_answer"},
+                        {"chat.request", "insufficient_information"},
+                        {"chat.request", "output_limit"},
+                        {"chat.request", "quota_exhausted"}
                     }) {
                 var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
                 span.setAttribute("outcome", operation[1]);
@@ -158,6 +168,9 @@ class TelemetryPrivacyTest {
                 span.setAttribute("query", "sentinel-private-query");
                 span.setAttribute("passage", "sentinel-private-passage");
                 span.setAttribute("vector", "sentinel-private-vector");
+                span.setAttribute("answer", "sentinel-private-answer");
+                span.setAttribute("prompt", "sentinel-private-prompt");
+                span.setAttribute("Authorization", "sentinel-private-token");
                 span.recordException(new IllegalStateException("sentinel-private-storage-error"));
                 span.end();
                 var exported = capture.getFinishedSpanItems().getLast();
