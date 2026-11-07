@@ -160,7 +160,13 @@ class TelemetryPrivacyTest {
                         {"chat.request", "candidate_answer"},
                         {"chat.request", "insufficient_information"},
                         {"chat.request", "output_limit"},
-                        {"chat.request", "quota_exhausted"}
+                        {"chat.request", "quota_exhausted"},
+                        {"question.answer", "answered"},
+                        {"question.answer", "insufficient_information"},
+                        {"question.answer", "missing_citations"},
+                        {"question.answer", "invalid_citation"},
+                        {"question.answer", "duplicate_citation"},
+                        {"question.answer", "source_unavailable"}
                     }) {
                 var span = sdk.get("test").spanBuilder(operation[0]).startSpan();
                 span.setAttribute("outcome", operation[1]);

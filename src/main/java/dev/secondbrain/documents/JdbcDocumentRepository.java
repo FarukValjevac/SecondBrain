@@ -6,6 +6,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,14 +79,31 @@ final class JdbcDocumentRepository {
 
     /** Source access repeats the document-owned active-index eligibility contract at open time. */
     Optional<DocumentInspectionService.PassageSource> source(UUID documentId, UUID passageId) {
-        return jdbc.sql(
-                        """
+        return Optional.ofNullable(sources(Map.of(passageId, documentId)).get(passageId));
+    }
+
+    Map<UUID, DocumentInspectionService.PassageSource> sources(Map<UUID, UUID> passageOwners) {
+        if (passageOwners.size() > 5)
+            throw new IllegalArgumentException("Too many passage sources requested");
+        if (passageOwners.isEmpty()) return Map.of();
+        var references = new ArrayList<>(passageOwners.entrySet());
+        var predicates = new ArrayList<String>();
+        for (int index = 0; index < references.size(); index++)
+            predicates.add(
+                    "(d.document_id = :document"
+                            + index
+                            + " AND p.passage_id = :passage"
+                            + index
+                            + ")");
+        var statement =
+                jdbc.sql(
+                                """
                 SELECT d.original_name, p.*
                 FROM documents d
                 JOIN document_index_versions i ON i.document_id = d.document_id
                     AND i.indexing_version = d.active_indexing_version
                 JOIN document_passages p ON p.document_id = i.document_id
-                    AND p.indexing_version = i.indexing_version AND p.passage_id = :passage
+                    AND p.indexing_version = i.indexing_version
                 JOIN LATERAL (
                     SELECT count(q.passage_id) AS passages, min(q.sequence_number) AS first_sequence,
                         max(q.sequence_number) AS last_sequence,
@@ -96,34 +115,42 @@ final class JdbcDocumentRepository {
                     WHERE q.document_id = i.document_id AND q.indexing_version = i.indexing_version
                 ) complete ON complete.passages = i.passage_count AND complete.vectors = i.passage_count
                     AND complete.first_sequence = 1 AND complete.last_sequence = i.passage_count
-                WHERE d.document_id = :document AND d.deleted_at IS NULL
+                WHERE (%s) AND d.deleted_at IS NULL
                     AND d.extraction_state = 'EXTRACTED' AND i.extraction_version = d.processing_version
                     AND i.passage_configuration_version = 1 AND i.passage_count > 0
                     AND i.embedding_model_id = :model AND i.embedding_dimensions = 1024
-                """)
-                .withQueryTimeout(5)
-                .param("document", documentId)
-                .param("passage", passageId)
-                .param("model", EmbeddingModel.BGE_M3_ID)
-                .query(
-                        (row, index) -> {
-                            var page = row.getObject("page_number", Integer.class);
-                            return new DocumentInspectionService.PassageSource(
-                                    row.getObject("document_id", UUID.class),
-                                    row.getObject("passage_id", UUID.class),
-                                    row.getLong("indexing_version"),
-                                    row.getString("original_name"),
-                                    row.getString("passage_text"),
-                                    new DocumentInspectionService.SourceLocation(
-                                            row.getInt("start_line"),
-                                            row.getInt("start_column"),
-                                            row.getInt("end_line"),
-                                            row.getInt("end_column"),
-                                            page == null
-                                                    ? OptionalInt.empty()
-                                                    : OptionalInt.of(page)));
-                        })
-                .optional();
+                """
+                                        .formatted(String.join(" OR ", predicates)))
+                        .withQueryTimeout(5)
+                        .param("model", EmbeddingModel.BGE_M3_ID);
+        for (int index = 0; index < references.size(); index++) {
+            statement.param("document" + index, references.get(index).getValue());
+            statement.param("passage" + index, references.get(index).getKey());
+        }
+        var rows =
+                statement
+                        .query(
+                                (row, index) -> {
+                                    var page = row.getObject("page_number", Integer.class);
+                                    return new DocumentInspectionService.PassageSource(
+                                            row.getObject("document_id", UUID.class),
+                                            row.getObject("passage_id", UUID.class),
+                                            row.getLong("indexing_version"),
+                                            row.getString("original_name"),
+                                            row.getString("passage_text"),
+                                            new DocumentInspectionService.SourceLocation(
+                                                    row.getInt("start_line"),
+                                                    row.getInt("start_column"),
+                                                    row.getInt("end_line"),
+                                                    row.getInt("end_column"),
+                                                    page == null
+                                                            ? OptionalInt.empty()
+                                                            : OptionalInt.of(page)));
+                                })
+                        .list();
+        var sources = new LinkedHashMap<UUID, DocumentInspectionService.PassageSource>();
+        for (var row : rows) sources.put(row.passageId(), row);
+        return Map.copyOf(sources);
     }
 
     List<LibraryRow> list(int limit, long offset) {

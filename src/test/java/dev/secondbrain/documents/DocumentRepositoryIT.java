@@ -26,6 +26,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
 import java.util.UUID;
 
@@ -312,6 +313,10 @@ class DocumentRepositoryIT {
                                 .isPresent();
                         assertThat(service.source(fixture.documentId(), fixture.passageId()))
                                 .isEmpty();
+                        assertThat(
+                                        service.sources(
+                                                Map.of(fixture.passageId(), fixture.documentId())))
+                                .isEmpty();
                         assertThat(repository.source(fixture.documentId(), fixture.passageId()))
                                 .isPresent();
                     });
@@ -320,6 +325,43 @@ class DocumentRepositoryIT {
                     .param("id", fixture.documentId())
                     .update();
         }
+    }
+
+    @Test
+    void batchSourceReadsKeepOwnerPairsAndExcludeUnavailableMembers() {
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(
+                        status -> {
+                            status.setRollbackOnly();
+                            var first = sourceFixture(false);
+                            var second = sourceFixture(true);
+                            var requested =
+                                    Map.of(
+                                            first.passageId(),
+                                            first.documentId(),
+                                            second.passageId(),
+                                            second.documentId());
+                            var sources = repository.sources(requested);
+                            assertThat(sources).hasSize(2);
+                            assertThat(sources.get(first.passageId()).documentId())
+                                    .isEqualTo(first.documentId());
+                            assertThat(sources.get(second.passageId()).location().pageNumber())
+                                    .hasValue(7);
+                            assertThat(
+                                            repository.sources(
+                                                    Map.of(
+                                                            first.passageId(),
+                                                            second.documentId(),
+                                                            second.passageId(),
+                                                            first.documentId())))
+                                    .isEmpty();
+                            jdbc.sql(
+                                            "UPDATE documents SET deleted_at = now() WHERE document_id = :id")
+                                    .param("id", first.documentId())
+                                    .update();
+                            assertThat(repository.sources(requested))
+                                    .containsOnlyKeys(second.passageId());
+                        });
     }
 
     @Test
