@@ -1263,6 +1263,40 @@ A `Reply` is deliberately an untrusted model candidate. It can carry an uncited 
 
 The [development guide](../docs/development.md#question-provider-boundary) includes a short JShell example. It shows the interface, nested records and a fake response together, using only compiled classes and the JDK.
 
+## 38. Choosing which retrieved passages fit an answer request
+
+Retrieval can return more text than we want to send to a chat model. [EvidenceContext](../src/main/java/dev/secondbrain/questions/EvidenceContext.java) turns the supplied retrieval result into one bounded provider request, while keeping the matching source records for later citation checks. It does not perform another search or call a model.
+
+```mermaid
+flowchart TD
+    Query[Validated question and document scope] --> Check[Check result count and selected document membership]
+    Results[Passages in retrieval order] --> Check
+    Check --> Budget[Reserve the question's UTF-8 bytes]
+    Budget --> Select[Take whole passages that fit, up to five]
+    Select --> Request[Chat request: question plus selected UUID and text pairs]
+    Select --> Sources[The same selected source records and locations]
+    Select -->|No whole passage fits| Empty[No evidence context]
+    Request -. later .-> Generation[Generation and local citation validation]
+    Sources -. later .-> Generation
+```
+
+The selection loop follows the order supplied by retrieval. If a passage fits, it keeps the complete passage and subtracts its UTF-8 byte count. If it cannot fit, the loop tries the next passage. It stops after five accepted passages. Text is never cut in the middle, so the original passage ID and line/page coordinates continue to describe exactly the same text. A shorter later passage can be included after a longer one is skipped; this is a simple greedy budget rule, not a claim about the best semantic combination.
+
+For example, each passage containing 1,200 `é` characters occupies 2,400 UTF-8 bytes:
+
+| Question | Three candidate passages | Selection within 8,000 bytes |
+|---|---|---|
+| 800 ASCII characters: 800 bytes | 7,200 bytes total | All three: exactly 8,000 bytes |
+| 801 ASCII characters: 801 bytes | 7,200 bytes total | First two: 5,601 bytes; third does not fit |
+
+These are text bytes, excluding labels, trusted instructions and JSON framing. They are different from Java character counts and the provider's token accounting. The existing `ChatProvider.Request` constructor independently enforces the final envelope after selection.
+
+The context record holds `request` and `sources`. Its constructor checks matching list lengths, passage IDs, text and order, then copies the source list. This matters when twenty passages were retrieved but only five were sent: a real UUID from a skipped passage must not become an accepted citation. Later validation must compare the model's citation IDs against the actual request evidence, with the retained source records providing the corresponding identity and location. Membership will still not prove factual support.
+
+Document scope is also checked here. A nonempty selected scope rejects an out-of-scope candidate instead of forwarding a partial request. An explicit empty selected set always yields no context. `Optional.empty()` also represents no matches or no whole passage fitting the budget; it lets the future caller handle absence without inventing an empty model request. The selector does not decide a final answer or recheck database visibility.
+
+This record is package-private because it is an internal question policy. Its static `select` method is a factory: it constructs a valid context when possible, without needing a mutable service object. Required limits and collaborators come from the existing typed query/result/request values. The focused tests in the [development guide](../docs/development.md#bounded-evidence-selection) exercise it with synthetic passages and preserve instruction-like content strictly as reference data; those tests cannot establish a real model's prompt-injection resistance.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.

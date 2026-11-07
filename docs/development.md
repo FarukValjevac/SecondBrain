@@ -215,7 +215,7 @@ Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub
 
 ## Question provider boundary
 
-Question generation is under development. The implemented boundary validates configuration and immutable request/reply values; it does not yet create an HTTP chat client, retrieve evidence for questions or expose a question page. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. No generation request is made during startup or these checks.
+Question generation is under development. Provider settings/contracts and bounded evidence selection from supplied retrieval results are implemented. The HTTP chat adapter, question orchestration and question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. No generation request is made during startup or these checks.
 
 | Setting | Current behavior |
 |---|---|
@@ -227,7 +227,7 @@ Question generation is under development. The implemented boundary validates con
 
 Cloudflare lists this candidate with a 24,000-token context and [JSON Mode support](https://developers.cloudflare.com/workers-ai/features/json-mode/). Model/account eligibility and the shared free allowance follow [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/); code cannot verify an account's billing plan. The [model page](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/) links its terms. Documentation compatibility was checked on 2026-11-02; live protocol behavior, language quality and grounding were not evaluated. No automatic model choice, paid upgrade or fallback is configured.
 
-`ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and future trusted instructions; it is not an exact token budget. Evidence keeps its original text. Selecting which retrieved passages fit this envelope is the next step.
+`ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and future trusted instructions; it is not an exact token budget. Evidence keeps its original text. The selector described below chooses whole retrieved passages that fit this envelope.
 
 `ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; citation identities and duplicates remain for later local validation. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
 
@@ -252,6 +252,22 @@ fake.generate(new ChatProvider.Request("Are duplicates allowed?",
 ```
 
 Expect `ChatReply[outcome=ANSWERED, citations=1]`. This calls a Java fake, with no database or model request. `./mvnw verify` remains the full completion check.
+
+### Bounded evidence selection
+
+[EvidenceContext](../src/main/java/dev/secondbrain/questions/EvidenceContext.java) is an internal, pure selection rule. Given the validated `SearchQuery` and its `SearchResult`, it preserves retrieval order and stable passage UUIDs, takes at most five whole passages and includes the question in the 8,000-byte UTF-8 text budget. It skips a passage that cannot fit and tries later candidates; it never truncates evidence or recomputes source coordinates. This greedy policy preserves the order of accepted passages and does not claim to find an optimal combination for answer quality.
+
+The returned context contains the exact chat request plus matching immutable source records, including document ID, generation and line/PDF locations. IDs, text and order must match between the two lists. Later citation validation must use this **selected** set, which can be smaller than the retrieved set.
+
+An explicit empty selected-document scope produces no context. For a nonempty selected scope, any candidate from another document is rejected, including candidates beyond the five-passage limit. A result set larger than the query's requested limit is also rejected. No matches or no whole passage fitting the remaining byte budget returns `Optional.empty()`; deciding the user-facing outcome belongs to the later question service. Selection makes no retrieval, database or provider call and adds no settings.
+
+Run the focused selection checks:
+
+```sh
+./mvnw -Dtest=EvidenceContextTest,ChatProviderTest,ChatConfigurationTest test
+```
+
+These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while the HTTP adapter and orchestration are being built.
 
 ## Staged vector storage
 

@@ -1,8 +1,5 @@
 Work in progress...! 
 
-## Note 
-This side project was inspired by my desire to support my girlfriend through her studies. Moral support now comes with version control. 😜
-
 # SecondBrain
 
 SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts TXT, Markdown, and selectable-text PDF files through a browser form or HTTP endpoint, stores originals privately, and extracts text and prepares source-linked passages through durable background processing. The library lists uploads with processing status and links to document pages, which show numbered source lines, PDF page references, safe failure messages, retry controls, and deletion controls. Health checks, local metrics, and JSON console logs support diagnostics.
