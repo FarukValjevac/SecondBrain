@@ -1,8 +1,10 @@
 package dev.secondbrain.config;
 
 import dev.secondbrain.questions.ChatProvider;
+import dev.secondbrain.questions.CloudflareChatProvider;
 import dev.secondbrain.questions.CloudflareChatSettings;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.convert.DurationStyle;
@@ -10,13 +12,20 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 
+import java.time.Clock;
 import java.time.Duration;
 
-/** Settings only until the HTTP adapter is implemented; startup never performs inference. */
+/** Opt-in provider wiring; construction and startup never perform inference. */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "secondbrain.questions.enabled", havingValue = "true")
 @ConditionalOnMissingBean(ChatProvider.class)
 class ChatConfiguration {
+    @Bean(destroyMethod = "close")
+    CloudflareChatProvider cloudflareChatProvider(
+            CloudflareChatSettings settings, ObjectProvider<Clock> clocks) {
+        return new CloudflareChatProvider(settings, clocks.getIfAvailable(Clock::systemUTC));
+    }
+
     @Bean
     CloudflareChatSettings cloudflareChatSettings(Environment environment) {
         // Read secrets directly, outside value-binding diagnostics that could print their contents.

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import dev.secondbrain.questions.ChatProvider;
+import dev.secondbrain.questions.CloudflareChatProvider;
 import dev.secondbrain.questions.CloudflareChatSettings;
 
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class ChatConfigurationTest {
     }
 
     @Test
-    void explicitConfigurationValidatesSharedCredentialsAndLimitsWithoutCreatingATransport(
+    void explicitConfigurationValidatesSharedCredentialsAndLimitsWithoutMakingARequest(
             CapturedOutput output) {
         configured()
                 .run(
@@ -58,7 +59,9 @@ class ChatConfigurationTest {
                             assertThat(context)
                                     .hasNotFailed()
                                     .hasSingleBean(CloudflareChatSettings.class)
-                                    .doesNotHaveBean(ChatProvider.class);
+                                    .hasSingleBean(ChatProvider.class);
+                            assertThat(context.getBean(ChatProvider.class))
+                                    .isInstanceOf(CloudflareChatProvider.class);
                             var settings = context.getBean(CloudflareChatSettings.class);
                             assertThat(settings.endpoint().toString())
                                     .isEqualTo(
@@ -93,7 +96,7 @@ class ChatConfigurationTest {
                                             context.getBean(CloudflareChatSettings.class)
                                                     .maximumOutputTokens())
                                     .isEqualTo(256);
-                            assertThat(context).doesNotHaveBean(ChatProvider.class);
+                            assertThat(context).hasSingleBean(ChatProvider.class);
                         });
     }
 

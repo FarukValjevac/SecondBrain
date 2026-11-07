@@ -1242,16 +1242,16 @@ Search returns saved passages. Answer generation will turn a question plus a bou
 
 ```mermaid
 flowchart LR
-    Settings[Validated chat settings] --> Future[Future HTTP adapter]
+    Settings[Validated chat settings] --> Adapter[Cloudflare HTTP adapter]
     Request[Question and bounded labeled evidence] --> Contract[ChatProvider interface]
     Contract --> Fake[Java fake used by tests]
-    Contract -. later .-> Future
+    Contract --> Adapter
     Fake --> Candidate[Untrusted Reply]
-    Future -. later .-> Candidate
+    Adapter --> Candidate
     Candidate -. later .-> Validation[Citation membership and source visibility]
 ```
 
-[ChatProvider](../src/main/java/dev/secondbrain/questions/ChatProvider.java) declares one operation: `Reply generate(Request request)`. An interface says what a collaborator must do, without implementing the HTTP request. A test can supply a lambda that immediately returns a fixed reply; a future Cloudflare adapter will implement the same method. This lets the business code and tests depend on the contract instead of a particular network client. The method exposes `InterruptedException` so cancellation cannot quietly become an answer.
+[ChatProvider](../src/main/java/dev/secondbrain/questions/ChatProvider.java) declares one operation: `Reply generate(Request request)`. An interface says what a collaborator must do, without implementing the HTTP request. A test can supply a lambda that immediately returns a fixed reply; the Cloudflare HTTP adapter implements the same method. This lets the business code and tests depend on the contract instead of a particular network client. The method exposes `InterruptedException` so cancellation cannot quietly become an answer.
 
 `Request`, `Passage`, `Reply` and `Outcome` are nested types that belong to this provider contract. Write `ChatProvider.Request` from another class, or import that nested type directly. Types defined inside an interface are implicitly public and static; they do not need an instance of the interface. A nested enum is useful here because its allowed outcomes belong to this particular boundary, rather than a project-wide enum directory.
 
@@ -1259,7 +1259,7 @@ The records validate their own values and copy input lists. Java's final record 
 
 A `Reply` is deliberately an untrusted model candidate. It can carry an uncited answer, a foreign citation UUID or repeated citation IDs at this boundary; later local rules must decide whether it can be accepted. By contrast, `INSUFFICIENT_INFORMATION` has an unambiguous empty answer/citation shape. The candidate's `toString()` prints only its outcome/count, so printing the object accidentally does not expose the answer. Valid citation membership will still not prove factual support.
 
-[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling currently creates settings only. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. No chat client or question page exists at this stage.
+[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The question service and page are still under development.
 
 The [development guide](../docs/development.md#question-provider-boundary) includes a short JShell example. It shows the interface, nested records and a fake response together, using only compiled classes and the JDK.
 
@@ -1296,6 +1296,29 @@ The context record holds `request` and `sources`. Its constructor checks matchin
 Document scope is also checked here. A nonempty selected scope rejects an out-of-scope candidate instead of forwarding a partial request. An explicit empty selected set always yields no context. `Optional.empty()` also represents no matches or no whole passage fitting the budget; it lets the future caller handle absence without inventing an empty model request. The selector does not decide a final answer or recheck database visibility.
 
 This record is package-private because it is an internal question policy. Its static `select` method is a factory: it constructs a valid context when possible, without needing a mutable service object. Required limits and collaborators come from the existing typed query/result/request values. The focused tests in the [development guide](../docs/development.md#bounded-evidence-selection) exercise it with synthetic passages and preserve instruction-like content strictly as reference data; those tests cannot establish a real model's prompt-injection resistance.
+
+## 39. Turning the provider contract into a bounded HTTP request
+
+The [Cloudflare HTTP adapter](../src/main/java/dev/secondbrain/questions/CloudflareChatProvider.java) is the concrete implementation of `ChatProvider`. Its constructor creates owned connection resources. `generate(request)` performs the actual inference attempt when explicitly called. Spring can therefore construct and later close the client without spending allowance during startup. The question service that will call it is still under development.
+
+```mermaid
+flowchart LR
+    Input[Bounded ChatProvider.Request] --> Protocol[Encode instructions, reference data and output schema]
+    Protocol --> HTTP[Fixed Cloudflare endpoint, one application attempt]
+    HTTP --> Envelope[Validate HTTP status and bounded response envelope]
+    Envelope --> Content[Parse assistant content as strict JSON]
+    Content --> Candidate[Untrusted ChatProvider.Reply]
+    Candidate -. later .-> Local[Citation membership and source visibility checks]
+    HTTP -->|Timeout, quota or invalid response| Failure[Safe ChatFailure reason and optional hint]
+```
+
+[CloudflareChatProtocol](../src/main/java/dev/secondbrain/questions/CloudflareChatProtocol.java) owns JSON conversion and shape checks, while the adapter owns HTTP resources, request deadlines and interruption. This keeps transport decisions separate from evidence selection and citation acceptance. The trusted system message is fixed by the application. The question and passages are serialized into the user message as JSON data, so document text cannot add a new message or enable a tool by breaking string delimiters. That encoding guarantee does not prove that a real language model will ignore every malicious instruction; its factual and instruction-following behavior still needs separate evaluation.
+
+There are two JSON layers on the return path. The compatible HTTP response contains a `choices` array and an assistant message. That message's `content` is itself a JSON string describing the application result. Both layers are parsed with bounded sizes, strict duplicate-key detection and no trailing object. The inner object must have exactly `outcome`, `answer` and `citations`; record construction then enforces the existing text/count/outcome rules. A token-limit stop is an error rather than a partial answer, and tool calls/refusals are not silently converted into insufficient information.
+
+A semaphore coordinates two in-flight HTTP requests. A third caller is rejected immediately instead of waiting in an application queue. This is shared transport capacity, not mutable question state; each request, body and reply stays in local variables. The deadline covers headers and the complete response body, and the body is limited before decoding. `InterruptedException` is preserved so callers can cancel work. Cancelling locally cannot tell us whether the remote service already processed a request, so ambiguous failures are not automatically retried.
+
+[ChatFailure](../src/main/java/dev/secondbrain/questions/ChatFailure.java) carries a small enum and an optional timestamp. The raw provider/transport cause is retained privately instead of becoming a printable exception cause. This matters because a JSON parser's exception can contain part of the response it was reading. Rate limiting and exhausted daily allowance have separate reasons; a retry hint does not create a timer, background job or paid fallback. All unit/stub inputs use synthetic text and credentials. The [development guide](../docs/development.md#structured-answer-http-adapter) lists the fast checks and the loopback-server command; neither requires real inference.
 
 ## References and related notes
 

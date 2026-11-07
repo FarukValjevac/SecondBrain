@@ -215,11 +215,11 @@ Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub
 
 ## Question provider boundary
 
-Question generation is under development. Provider settings/contracts and bounded evidence selection from supplied retrieval results are implemented. The HTTP chat adapter, question orchestration and question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. No generation request is made during startup or these checks.
+Question generation is under development. Provider settings/contracts, bounded evidence selection and the HTTP chat adapter are implemented. Question orchestration and the question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
 
 | Setting | Current behavior |
 |---|---|
-| `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in currently validates settings only. |
+| `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in validates settings and creates the chat client; construction makes no inference request. |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Same external account/token keys as embeddings; required when settings are enabled. |
 | `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; model quality remains unmeasured. |
 | `CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS` | Defaults to 512; permitted range 1–2,048. |
@@ -231,7 +231,7 @@ Cloudflare lists this candidate with a 24,000-token context and [JSON Mode suppo
 
 `ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; citation identities and duplicates remain for later local validation. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
 
-The future HTTP adapter will send the question, application instructions and bounded evidence text to Cloudflare using the same account as query embeddings. Read the provider's [data policy](https://developers.cloudflare.com/workers-ai/platform/data-usage/) before live use. The current configuration/contract checks use only synthetic inputs:
+An explicit call to the HTTP adapter sends the question, application instructions and bounded evidence text to Cloudflare using the same account as query embeddings. Read the provider's [data policy](https://developers.cloudflare.com/workers-ai/platform/data-usage/) before live use. The current configuration/contract checks use only synthetic inputs:
 
 ```sh
 ./mvnw -Dtest=ChatProviderTest,ChatConfigurationTest test
@@ -267,7 +267,31 @@ Run the focused selection checks:
 ./mvnw -Dtest=EvidenceContextTest,ChatProviderTest,ChatConfigurationTest test
 ```
 
-These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while the HTTP adapter and orchestration are being built.
+These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while orchestration and the question page are being built.
+
+### Structured answer HTTP adapter
+
+[CloudflareChatProvider](../src/main/java/dev/secondbrain/questions/CloudflareChatProvider.java) implements `ChatProvider` using the existing JDK HTTP client and Jackson dependencies. It sends one nonstreaming application attempt to the fixed account-scoped `/ai/v1/chat/completions` endpoint. The body requests JSON Schema output, one choice, temperature zero and the configured output-token cap; it supplies trusted instructions separately from a JSON-encoded user message containing the question and labeled evidence. No tools or functions are enabled. Endpoint/schema/error documentation was rechecked on 2026-11-07; real-account compatibility and answer quality remain unmeasured.
+
+The adapter follows Cloudflare's documented [JSON Mode schema format](https://developers.cloudflare.com/workers-ai/features/json-mode/) and [compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/). Combining that schema form with the compatible endpoint is inferred from those documents and remains unverified against a live account. Structured generation still needs local validation. The protocol requires one assistant choice ending with `stop`, then parses its content as an object with exactly `outcome`, `answer` and `citations`. It checks types, closed outcomes, canonical UUID shape, text/count limits, duplicate JSON keys and trailing data. Truncated output (`length`) becomes `OUTPUT_LIMIT`; refusal/tool-call payloads, malformed JSON and unexpected content types fail safely. Citation membership, duplicate/uncited-answer policy, factual support and fresh source visibility remain later local checks. A shape-valid reply is still an untrusted candidate.
+
+Requests and responses are capped at 64 KiB. Response parsing requires UTF-8 and bounded nesting/string/token sizes. The deadline includes complete body reception, so sending headers or a partial body cannot hold the caller indefinitely. Two in-flight requests are allowed; a third is rejected without waiting for a slot. Internal HTTP work uses two threads and a bounded task queue. Interruption cancels the local pending request and preserves the caller flag. Calls inside a database transaction are refused. The Spring-owned client is closed with the application context; no health/startup probe invokes generation.
+
+`ChatFailure` exposes a fixed reason and optional retry hint. Authentication, model availability, invalid input/response, output limit, rate limiting, daily quota, timeout and unavailability are distinct. Numeric Cloudflare error `3036` identifies daily quota and `5035` identifies a paid-plan model restriction; [provider error documentation](https://developers.cloudflare.com/workers-ai/platform/errors/) owns those meanings. Retry/reset hints are information for a later explicit request: this adapter has no application retry, sleep, fallback or billing upgrade. Cancellation/timeout cannot establish whether the remote server already processed the request. Private parser/transport causes are retained internally outside the printable cause chain; no request, response, answer or credential body is logged. Generation metrics/observations are a later implementation step.
+
+Fast protocol/configuration/guard checks:
+
+```sh
+./mvnw -Dtest=CloudflareChatProtocolTest,CloudflareChatProviderTest,ChatConfigurationTest test
+```
+
+The local HTTP tests require permission to open a loopback listener, but need no Docker or Cloudflare account. They use synthetic credentials and a package-local loopback seam unavailable through application settings:
+
+```sh
+./mvnw -Dit.test=CloudflareChatHttpIT verify
+```
+
+Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until the question flow is composed; the adapter does not add a browser endpoint or accept replies as sourced answers.
 
 ## Staged vector storage
 
