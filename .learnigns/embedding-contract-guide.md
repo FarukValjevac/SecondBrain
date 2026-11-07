@@ -1248,7 +1248,7 @@ flowchart LR
     Contract --> Adapter
     Fake --> Candidate[Untrusted Reply]
     Adapter --> Candidate
-    Candidate -. later .-> Validation[Citation membership and source visibility]
+    Candidate --> Validation[Citation membership and source visibility]
 ```
 
 [ChatProvider](../src/main/java/dev/secondbrain/questions/ChatProvider.java) declares one operation: `Reply generate(Request request)`. An interface says what a collaborator must do, without implementing the HTTP request. A test can supply a lambda that immediately returns a fixed reply; the Cloudflare HTTP adapter implements the same method. This lets the business code and tests depend on the contract instead of a particular network client. The method exposes `InterruptedException` so cancellation cannot quietly become an answer.
@@ -1257,9 +1257,9 @@ flowchart LR
 
 The records validate their own values and copy input lists. Java's final record fields alone would not prevent a caller from changing an original mutable list. Request validation rejects missing/duplicate evidence and bounds text by both Unicode code points and UTF-8 bytes. One emoji can occupy two Java `char` values and four UTF-8 bytes, so those counts answer different questions. Evidence text is preserved as reference data; preserving instruction-like text does not prove that a real model will ignore it.
 
-A `Reply` is deliberately an untrusted model candidate. It can carry an uncited answer, a foreign citation UUID or repeated citation IDs at this boundary; later local rules must decide whether it can be accepted. By contrast, `INSUFFICIENT_INFORMATION` has an unambiguous empty answer/citation shape. The candidate's `toString()` prints only its outcome/count, so printing the object accidentally does not expose the answer. Valid citation membership will still not prove factual support.
+A `Reply` is deliberately an untrusted model candidate. It can carry an uncited answer, a foreign citation UUID or repeated citation IDs at this boundary; the public answer service applies local rules before accepting it. By contrast, `INSUFFICIENT_INFORMATION` has an unambiguous empty answer/citation shape. The candidate's `toString()` prints only its outcome/count, so printing the object accidentally does not expose the answer. Valid citation membership will still not prove factual support.
 
-[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The internal question service composes retrieval and generation; citation acceptance and the question page are still under development.
+[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The internal question service composes retrieval and generation; the public answer service adds citation/source acceptance. The question page is still under development.
 
 The [development guide](../docs/development.md#question-provider-boundary) includes a short JShell example. It shows the interface, nested records and a fake response together, using only compiled classes and the JDK.
 
@@ -1279,7 +1279,7 @@ flowchart TD
     Request --> Generation[QuestionService invokes generation]
     Sources --> Candidate[Candidate retains exact supplied sources]
     Generation --> Candidate
-    Candidate -. later .-> Validation[Local citation and visibility validation]
+    Candidate --> Validation[Local citation and visibility validation]
 ```
 
 The selection loop follows the order supplied by retrieval. If a passage fits, it keeps the complete passage and subtracts its UTF-8 byte count. If it cannot fit, the loop tries the next passage. It stops after five accepted passages. Text is never cut in the middle, so the original passage ID and line/page coordinates continue to describe exactly the same text. A shorter later passage can be included after a longer one is skipped; this is a simple greedy budget rule, not a claim about the best semantic combination.
@@ -1310,7 +1310,7 @@ flowchart LR
     HTTP --> Envelope[Validate HTTP status and bounded response envelope]
     Envelope --> Content[Parse assistant content as strict JSON]
     Content --> Candidate[Untrusted ChatProvider.Reply]
-    Candidate -. later .-> Local[Citation membership and source visibility checks]
+    Candidate --> Local[Citation membership and source visibility checks]
     HTTP -->|Timeout, quota or invalid response| Failure[Safe ChatFailure reason and optional hint]
 ```
 
@@ -1338,12 +1338,12 @@ flowchart TD
     Select -->|Context available| Chat[ChatProvider called once]
     Chat -->|Failure or interruption| Error
     Chat --> Candidate[Untrusted reply plus exact supplied context]
-    Candidate -. later .-> Accept[Citation and fresh visibility validation]
+    Candidate --> Accept[Citation and fresh visibility validation]
 ```
 
 The service uses an early return for absence. An empty selected-document set skips search and generation. No search matches, or no whole passage fitting the remaining byte budget, returns an insufficient-information reply without a chat request. That is different from a failed search: a database failure, incompatible index or exhausted allowance must remain a failure. Otherwise an outage could look like the documents simply contained no answer.
 
-When evidence is present, `chat.generate(...)` is called once. Its reply and the exact selected context travel together in the nested `Candidate` record. A model can itself report insufficient information after reading the evidence; that result keeps its context. An answered candidate can still contain invalid citation IDs because membership validation is a separate responsibility. The service and its result remain package-private, so the web layer cannot accidentally render this unfinished answer contract.
+When evidence is present, `chat.generate(...)` is called once. Its reply and the exact selected context travel together in the nested `Candidate` record. A model can itself report insufficient information after reading the evidence; that result keeps its context. An answered candidate can still contain invalid citation IDs because membership validation is a separate responsibility. The service and its result remain package-private, so callers use the public answer service instead of rendering an unvalidated reply.
 
 `Optional<EvidenceContext>` explicitly describes whether any evidence was supplied. It avoids a misleading empty provider request or an unexplained `null`. The nested record belongs to this use case, while the existing search and provider records keep their separate purposes. Source snapshots are immutable and preserve passage identity and locations. They are snapshots, so they do not replace checking whether a document was deleted while the model was responding.
 
@@ -1351,7 +1351,7 @@ When evidence is present, `chat.generate(...)` is called once. Its reply and the
 
 The service runs synchronously on its caller and refuses an active caller transaction. Search owns its short database reads, which finish before chat starts. The question, context and reply remain local variables, rather than mutable singleton fields. Interruption is checked before and after collaborator calls, and a provider's `InterruptedException` restores the thread's interrupt flag before returning a safe cancellation failure. No question queue or automatic retry is created.
 
-[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. Safe generation telemetry is available; the browser question page and citation acceptance are still under development.
+[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. Safe generation telemetry and the public citation/source gate are available; the browser question page is still under development.
 
 ## 41. Observing questions without recording their content
 
@@ -1377,6 +1377,51 @@ Token metadata stays inside the adapter's decoded response and does not change t
 For example, reports of input 19, output 7 and total 26 are three views of the same usage. Inspect a single `kind` in metrics; adding them all gives 52 and counts the same tokens twice. Missing total stays missing even if input and output were reported. These counters cover accepted metadata on successful response shapes, reset with the process, and cannot tell whether a failed remote request used allowance or what the account has left.
 
 Observations inherit an existing caller trace while leaving its scope unchanged. No prompt or credential is sent to a telemetry backend, and no trace baggage is forwarded to the model provider. If a counter, observation handler or logger fails, the business operation still returns its original candidate or safe failure. The [telemetry guide](../docs/development.md#question-and-chat-telemetry) lists exact meter names and deterministic checks. There is no new question page or live model call in those checks.
+
+## 42. Accepting citation identities and checking sources again
+
+The model's reply is still untrusted when HTTP parsing succeeds. [QuestionAnswerService](../src/main/java/dev/secondbrain/questions/QuestionAnswerService.java) is the public application entry point that turns an internal candidate into answer data suitable for the future web layer. It calls the existing generation service, validates the citation list, and checks the evidence again after the model has finished.
+
+```mermaid
+flowchart TD
+    Candidate[Untrusted reply and exact supplied context] --> IDs{Answered reply has distinct IDs from this context?}
+    IDs -->|No| Reject[Safe citation rejection, no source read]
+    IDs -->|Yes, or explicit insufficient information| Fresh[Read every supplied source in one fresh database snapshot]
+    Fresh --> Same{Same visible generation, text and locations?}
+    Same -->|No| Discard[Discard the entire response]
+    Same -->|Yes| Answer[Return answer and only its cited source projections]
+    Answer -. requires separate evaluation .-> Support[Do the cited passages actually support each claim?]
+```
+
+An answered reply needs at least one citation. Every ID must belong to the passages actually sent for that question. A real passage ID from a different question is still invalid here. So is a passage retrieved by search but omitted by the context budget. Duplicate IDs are rejected explicitly. Silently removing invalid IDs could make a broken model response look like a properly sourced answer.
+
+The fresh source lookup checks more than the cited IDs. Uncited text may also have influenced the response, so **every supplied passage** must remain available. A model-declared insufficient-information response also gets this check when evidence was supplied. With no evidence at all, the result is empty insufficient information and no source lookup is needed.
+
+[DocumentInspectionService.sources](../src/main/java/dev/secondbrain/documents/DocumentInspectionService.java) accepts a bounded map from passage IDs to their owning document IDs. It delegates to the document repository, which applies the same active-index, extraction, completeness and deletion predicates as opening a single source link. Single-source and batch reads share that query. Questions never import the document repository or duplicate its SQL visibility rules.
+
+Why read the whole batch with one SQL statement? Five separate reads could see five different committed moments. The batch gives all supplied passages one visibility snapshot after generation. It runs in its own short read-only transaction, outside the model call. The answer service then compares owner, passage ID, generation, text and location against the exact evidence snapshot sent to the model. A missing or changed passage discards the response instead of producing a partial answer. Fresh document names can be used because a name change does not change the evidence text.
+
+```mermaid
+sequenceDiagram
+    participant Question
+    participant Model
+    participant Deletion
+    participant Database
+    Question->>Model: Question and supplied passages
+    Deletion->>Database: Commit deletion marker
+    Model-->>Question: Reply with valid citation IDs
+    Question->>Database: Fresh batch source read
+    Database-->>Question: Deleted evidence is absent
+    Question-->>Question: Discard reply with SOURCE_UNAVAILABLE
+```
+
+This protects a precise boundary: deletion committed before the final read prevents returning that response. Deletion after the snapshot can still make a later citation link unavailable. A browser or model may already possess earlier text; the application cannot recall it. Each new source-link request performs its own fresh check.
+
+The public `Answer` record uses its own `Outcome`, answer text and an immutable list of document-owned source projections. It does not expose provider responses or internal search scores. Its constructor enforces sourced-answer and empty insufficient-information shapes, and its `toString()` contains only an outcome and count. The nested types belong to the answer use case, rather than a central enum/DTO folder. `QuestionFailure` is public so a future controller can choose safe feedback from its closed stage/reason values without reading a private exception.
+
+Identity checks cannot establish truth. Suppose the supplied passage says “HashSet does not permit duplicates,” and the model replies “HashSet permits duplicates” while citing that passage's correct ID. Membership and visibility checks pass even though the claim is false. A unit fixture deliberately demonstrates this limit; it is not evidence that the model answers well. Inspectable sources and separate semantic evaluation remain necessary.
+
+The `question.answer` observation and public-answer metrics include generation plus citation/source checks. `answered` means the mechanical gate passed; `candidate_answer` on the internal generation metric means only that a model reply was produced. Missing, foreign and duplicate citations and unavailable sources have separate fixed outcomes. No private content or exception is attached to telemetry, and failed metrics cannot bypass validation. The [development guide](../docs/development.md#citation-validation-and-visible-answer-sources) lists the deterministic checks and the required PostgreSQL deletion-race checks. The browser question page is still under development.
 
 ## References and related notes
 

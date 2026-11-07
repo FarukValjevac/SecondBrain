@@ -33,6 +33,9 @@ class QuestionTelemetryEndpointTest {
 
     @Test
     void exposesQuestionProviderDurationAndPerKindUsageWithoutPrivateLabels() throws Exception {
+        try (var answer = telemetry.startAnswer()) {
+            answer.failure(QuestionFailure.Reason.INVALID_CITATION);
+        }
         try (var request = telemetry.startQuestion()) {
             request.outcome(QuestionTelemetry.Outcome.NO_EVIDENCE);
         }
@@ -56,6 +59,17 @@ class QuestionTelemetryEndpointTest {
                                 .queryParam("tag", "outcome:no_evidence"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+        mvc.perform(
+                        get("/actuator/metrics/secondbrain.question.answers")
+                                .queryParam("tag", "outcome:invalid_citation"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0));
+        mvc.perform(
+                        get("/actuator/metrics/secondbrain.question.answer.duration")
+                                .queryParam("tag", "outcome:invalid_citation"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.measurements[0].value").value(1.0))
+                .andExpect(jsonPath("$.baseUnit").value("seconds"));
         for (var name :
                 List.of("secondbrain.question.duration", "secondbrain.chat.request.duration"))
             mvc.perform(get("/actuator/metrics/" + name))

@@ -4,8 +4,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Internal question failure; private collaborator diagnostics never enter printable causes. */
-final class QuestionFailure extends RuntimeException {
+/** Safe question failure; private collaborator diagnostics never enter printable causes. */
+public final class QuestionFailure extends RuntimeException {
     private static final long serialVersionUID = 1L;
     private final Stage stage;
     private final Reason reason;
@@ -24,30 +24,36 @@ final class QuestionFailure extends RuntimeException {
         this.diagnosticCause = diagnosticCause;
     }
 
-    Stage stage() {
+    public Stage stage() {
         return stage;
     }
 
-    Reason reason() {
+    public Reason reason() {
         return reason;
     }
 
-    Optional<Instant> retryAt() {
+    public Optional<Instant> retryAt() {
         return Optional.ofNullable(retryAt);
     }
 
-    enum Stage {
+    public enum Stage {
         RETRIEVAL,
         CONTEXT,
-        GENERATION
+        GENERATION,
+        CITATIONS,
+        SOURCES
     }
 
-    enum Reason {
+    public enum Reason {
         NO_COMPATIBLE_INDEX,
         DATABASE_UNAVAILABLE,
         INCOMPATIBLE_MODEL,
         INVALID_EMBEDDING,
         INVALID_EVIDENCE,
+        MISSING_CITATIONS,
+        INVALID_CITATION,
+        DUPLICATE_CITATION,
+        SOURCE_UNAVAILABLE,
         ACCESS_DENIED,
         MODEL_UNAVAILABLE,
         INVALID_INPUT,

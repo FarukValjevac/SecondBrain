@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.search.SearchQuery;
 import dev.secondbrain.search.SearchScope;
 import dev.secondbrain.search.SearchService;
@@ -24,7 +25,10 @@ class QuestionConfigurationTest {
     private final ApplicationContextRunner runner =
             new ApplicationContextRunner()
                     .withUserConfiguration(
-                            QuestionConfiguration.class, QuestionTelemetryConfiguration.class);
+                            QuestionConfiguration.class, QuestionTelemetryConfiguration.class)
+                    .withBean(
+                            DocumentInspectionService.class,
+                            () -> mock(DocumentInspectionService.class));
 
     @ParameterizedTest
     @ValueSource(
@@ -48,16 +52,20 @@ class QuestionConfigurationTest {
                 .withBean(ChatProvider.class, () -> chat)
                 .run(
                         context -> {
-                            assertThat(context).hasNotFailed().hasSingleBean(QuestionService.class);
-                            var candidate =
-                                    context.getBean(QuestionService.class)
-                                            .generate(
+                            assertThat(context)
+                                    .hasNotFailed()
+                                    .hasSingleBean(QuestionService.class)
+                                    .hasSingleBean(QuestionAnswerService.class);
+                            var answer =
+                                    context.getBean(QuestionAnswerService.class)
+                                            .answer(
                                                     new SearchQuery(
                                                             "Synthetic note",
                                                             SearchScope.selected(Set.of())));
-                            assertThat(candidate.context()).isEmpty();
-                            assertThat(candidate.reply().outcome())
-                                    .isEqualTo(ChatProvider.Outcome.INSUFFICIENT_INFORMATION);
+                            assertThat(answer.citations()).isEmpty();
+                            assertThat(answer.outcome())
+                                    .isEqualTo(
+                                            QuestionAnswerService.Outcome.INSUFFICIENT_INFORMATION);
                         });
         verifyNoInteractions(search, chat);
     }

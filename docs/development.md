@@ -215,7 +215,7 @@ Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub
 
 ## Question provider boundary
 
-Question generation is under development. Provider settings/contracts, bounded evidence selection, the HTTP chat adapter and internal retrieval/generation orchestration are implemented. Citation acceptance, fresh source validation and the question page remain under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
+Question generation is under development. Provider settings/contracts, bounded evidence selection, the HTTP chat adapter and internal retrieval/generation orchestration are implemented. Citation validation and fresh source resolution are implemented through the public answer service described below. The question page remains under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
 
 | Setting | Current behavior |
 |---|---|
@@ -229,7 +229,7 @@ Cloudflare lists this candidate with a 24,000-token context and [JSON Mode suppo
 
 `ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and trusted instructions; it is not an exact token budget. Evidence keeps its original text. The selector described below chooses whole retrieved passages that fit this envelope.
 
-`ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; citation identities and duplicates remain for later local validation. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
+`ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; the public answer service validates its citation identities and duplicates before returning answer data. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
 
 An explicit call to the HTTP adapter sends the question, application instructions and bounded evidence text to Cloudflare using the same account as query embeddings. Read the provider's [data policy](https://developers.cloudflare.com/workers-ai/platform/data-usage/) before live use. The current configuration/contract checks use only synthetic inputs:
 
@@ -257,7 +257,7 @@ Expect `ChatReply[outcome=ANSWERED, citations=1]`. This calls a Java fake, with 
 
 [EvidenceContext](../src/main/java/dev/secondbrain/questions/EvidenceContext.java) is an internal, pure selection rule. Given the validated `SearchQuery` and its `SearchResult`, it preserves retrieval order and stable passage UUIDs, takes at most five whole passages and includes the question in the 8,000-byte UTF-8 text budget. It skips a passage that cannot fit and tries later candidates; it never truncates evidence or recomputes source coordinates. This greedy policy preserves the order of accepted passages and does not claim to find an optimal combination for answer quality.
 
-The returned context contains the exact chat request plus matching immutable source records, including document ID, generation and line/PDF locations. IDs, text and order must match between the two lists. Later citation validation must use this **selected** set, which can be smaller than the retrieved set.
+The returned context contains the exact chat request plus matching immutable source records, including document ID, generation and line/PDF locations. IDs, text and order must match between the two lists. The answer service validates citations against this **selected** set, which can be smaller than the retrieved set.
 
 An explicit empty selected-document scope produces no context. For a nonempty selected scope, any candidate from another document is rejected, including candidates beyond the five-passage limit. A result set larger than the query's requested limit is also rejected. No matches or no whole passage fitting the remaining byte budget returns `Optional.empty()`; the question service turns that absence into insufficient information without a chat call. Selection itself makes no retrieval, database or provider call and adds no settings.
 
@@ -267,13 +267,13 @@ Run the focused selection checks:
 ./mvnw -Dtest=EvidenceContextTest,ChatProviderTest,ChatConfigurationTest test
 ```
 
-These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled while citation acceptance and the question page are being built.
+These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled for ordinary use until the question page is available.
 
 ### Structured answer HTTP adapter
 
 [CloudflareChatProvider](../src/main/java/dev/secondbrain/questions/CloudflareChatProvider.java) implements `ChatProvider` using the existing JDK HTTP client and Jackson dependencies. It sends one nonstreaming application attempt to the fixed account-scoped `/ai/v1/chat/completions` endpoint. The body requests JSON Schema output, one choice, temperature zero and the configured output-token cap; it supplies trusted instructions separately from a JSON-encoded user message containing the question and labeled evidence. No tools or functions are enabled. Endpoint/schema/error documentation was rechecked on 2026-11-07; real-account compatibility and answer quality remain unmeasured.
 
-The adapter follows Cloudflare's documented [JSON Mode schema format](https://developers.cloudflare.com/workers-ai/features/json-mode/) and [compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/). Combining that schema form with the compatible endpoint is inferred from those documents and remains unverified against a live account. Structured generation still needs local validation. The protocol requires one assistant choice ending with `stop`, then parses its content as an object with exactly `outcome`, `answer` and `citations`. It checks types, closed outcomes, canonical UUID shape, text/count limits, duplicate JSON keys and trailing data. Truncated output (`length`) becomes `OUTPUT_LIMIT`; refusal/tool-call payloads, malformed JSON and unexpected content types fail safely. Citation membership, duplicate/uncited-answer policy, factual support and fresh source visibility remain later local checks. A shape-valid reply is still an untrusted candidate.
+The adapter follows Cloudflare's documented [JSON Mode schema format](https://developers.cloudflare.com/workers-ai/features/json-mode/) and [compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/). Combining that schema form with the compatible endpoint is inferred from those documents and remains unverified against a live account. Structured generation still needs local validation. The protocol requires one assistant choice ending with `stop`, then parses its content as an object with exactly `outcome`, `answer` and `citations`. It checks types, closed outcomes, canonical UUID shape, text/count limits, duplicate JSON keys and trailing data. Truncated output (`length`) becomes `OUTPUT_LIMIT`; refusal/tool-call payloads, malformed JSON and unexpected content types fail safely. The answer service enforces citation membership and duplicate/uncited-answer rules, then rechecks source visibility. Factual support needs separate evaluation. A shape-valid reply is still an untrusted candidate.
 
 Requests and responses are capped at 64 KiB. Response parsing requires UTF-8 and bounded nesting/string/token sizes. The deadline includes complete body reception, so sending headers or a partial body cannot hold the caller indefinitely. Two in-flight requests are allowed; a third is rejected without waiting for a slot. Internal HTTP work uses two threads and a bounded task queue. Interruption cancels the local pending request and preserves the caller flag. Calls inside a database transaction are refused. The Spring-owned client is closed with the application context; no health/startup probe invokes generation.
 
@@ -291,11 +291,11 @@ The local HTTP tests require permission to open a loopback listener, but need no
 ./mvnw -Dit.test=CloudflareChatHttpIT verify
 ```
 
-Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until citation acceptance and the question page are available; the adapter does not add a browser endpoint or accept replies as sourced answers.
+Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until the question page is available; the adapter does not add a browser endpoint or accept replies as sourced answers.
 
 ### Retrieval and answer orchestration
 
-[QuestionService](../src/main/java/dev/secondbrain/questions/QuestionService.java) composes the existing search API, evidence selector and chat provider in one synchronous call. It passes the validated question, scope and result limit unchanged to search, selects bounded evidence, then calls chat once. It retains the exact supplied source snapshots alongside the untrusted model reply. This is an internal candidate, not a public answer ready for display: citation membership, substantive-answer citation rules and fresh source visibility still need validation.
+[QuestionService](../src/main/java/dev/secondbrain/questions/QuestionService.java) composes the existing search API, evidence selector and chat provider in one synchronous call. It passes the validated question, scope and result limit unchanged to search, selects bounded evidence, then calls chat once. It retains the exact supplied source snapshots alongside the untrusted model reply. This remains an internal candidate. The public QuestionAnswerService adds citation acceptance and fresh source checks before returning display data; callers must not display generation candidates directly.
 
 An explicit empty selected scope uses neither search nor chat. Empty retrieval or no whole passage fitting the context budget returns `INSUFFICIENT_INFORMATION` with no answer, citations or chat call. A model may also return insufficient information after seeing evidence; in that case the supplied context is retained. Missing compatible indexes and failed retrieval remain failures, rather than being treated as successful searches with no evidence.
 
@@ -309,7 +309,7 @@ Run the deterministic orchestration checks:
 ./mvnw -Dtest=QuestionServiceTest,QuestionConfigurationTest,EvidenceContextTest test
 ```
 
-They need no Docker, socket listener, credentials or live allowance. They verify the supplied passage set/budget, empty scope/evidence, model-declared absence, safe failures, cancellation and wiring. They do not establish SQL durability, real-model quality or final citation acceptance. Full `./mvnw verify` remains the completion gate.
+They need no Docker, socket listener, credentials or live allowance. They verify the supplied passage set/budget, empty scope/evidence, model-declared absence, safe failures, cancellation and wiring. They do not establish SQL durability or real-model quality; the acceptance checks below cover final citation behavior. Full `./mvnw verify` remains the completion gate.
 
 ### Question and chat telemetry
 
@@ -317,8 +317,10 @@ They need no Docker, socket listener, credentials or live allowance. They verify
 
 | Meter | Meaning | Labels |
 |---|---|---|
-| `secondbrain.question.requests` | Completed internal question operations, including failures and early returns | Fixed `outcome` |
-| `secondbrain.question.duration` | Whole operation duration in seconds, including retrieval and generation | Fixed `outcome`; framework `error=none` |
+| `secondbrain.question.requests` | Completed internal generation operations, including failures and early returns | Fixed `outcome` |
+| `secondbrain.question.duration` | Internal generation duration in seconds, including retrieval and chat | Fixed `outcome`; framework `error=none` |
+| `secondbrain.question.answers` | Public answer outcomes after citation/source checks | Fixed `outcome` |
+| `secondbrain.question.answer.duration` | Public answer duration in seconds, including generation and final validation | Fixed `outcome`; framework `error=none` |
 | `secondbrain.chat.requests` | Adapter invocations, including local input/transaction/capacity rejection | Fixed `outcome` |
 | `secondbrain.chat.request.duration` | Adapter duration through response validation, in seconds | Fixed `outcome`; framework `error=none` |
 | `secondbrain.chat.tokens` | Sum of accepted provider-reported token counts | `kind=input`, `output`, or `total` |
@@ -330,7 +332,7 @@ Cloudflare's [AI response schema](https://developers.cloudflare.com/api/resource
 
 The application never estimates a missing count or adds input/output to invent total usage. A reported zero increments the corresponding reports counter, whereas unknown usage changes neither counter. Filter by `kind`; adding all three token series would double-count a fully reported response. Failed, malformed and truncated responses do not contribute usage even if the remote request consumed allowance. These process-local, best-effort totals reset at restart and are neither a billing ledger nor the account's remaining allowance.
 
-The `question.generate` and `chat.request` observations inherit the current caller trace without replacing its scope or forwarding baggage to Cloudflare. Logs contain fixed operation/outcome fields and the existing safe caller correlation context. Questions, prompts, passage/document text, filenames, answers, IDs, credentials, endpoint URLs, raw exceptions and retry timestamps are never passed into these feature telemetry fields. No private exception is attached to an observation. The trace export allowlist retains only the fixed names/outcomes and its existing safe fields, dropping private attributes and events. Counter/handler/logging failures cannot replace a candidate or its safe failure.
+The `question.answer`, `question.generate` and `chat.request` observations inherit the current caller trace without replacing its scope or forwarding baggage to Cloudflare. Logs contain fixed operation/outcome fields and the existing safe caller correlation context. Questions, prompts, passage/document text, filenames, answers, IDs, credentials, endpoint URLs, raw exceptions and retry timestamps are never passed into these feature telemetry fields. No private exception is attached to an observation. The trace export allowlist retains only the fixed names/outcomes and its existing safe fields, dropping private attributes and events. Counter/handler/logging failures cannot replace a candidate or its safe failure.
 
 With questions enabled, Spring supplies shared registries for both the adapter and orchestration, including fake-provider contexts. Without a meter registry, telemetry is disabled. Standalone constructors keep disabled telemetry unless explicitly supplied. Startup registers zero counters but performs no inference; duration series appear only after operations. Reading Actuator metrics makes no provider call. There is no question UI yet, so keep the ordinary-use question flag false; no `.env` changes are needed for these tests:
 
@@ -338,7 +340,38 @@ With questions enabled, Spring supplies shared registries for both the adapter a
 ./mvnw -Dtest=QuestionTelemetryTest,QuestionTelemetryEndpointTest,QuestionConfigurationTest,ChatConfigurationTest,CloudflareChatProtocolTest,TelemetryPrivacyTest test
 ```
 
-These checks use synthetic data, fake collaborators, in-memory meters/traces and MockMvc Actuator calls, without Docker or live models. The additional transport-to-usage check is part of `./mvnw -Dit.test=CloudflareChatHttpIT verify` and requires local listener permission. Full `./mvnw verify` also requires Docker. Citation acceptance, final source visibility and real-model grounding remain separate checks.
+These checks use synthetic data, fake collaborators, in-memory meters/traces and MockMvc Actuator calls, without Docker or live models. The additional transport-to-usage check is part of `./mvnw -Dit.test=CloudflareChatHttpIT verify` and requires local listener permission. Full `./mvnw verify` also requires Docker. Citation/source acceptance is described below; real-model grounding remains a separate quality evaluation.
+
+
+### Citation validation and visible answer sources
+
+[QuestionAnswerService](../src/main/java/dev/secondbrain/questions/QuestionAnswerService.java) is the public application operation: `answer(SearchQuery)` returns a purpose-specific immutable `Answer`, or throws the safe public `QuestionFailure`. It composes the internal generation service with local citation and fresh-source validation. No question page or HTTP endpoint is added yet.
+
+Every `ANSWERED` candidate must contain at least one citation. IDs must belong to the exact passages supplied to that model request; an existing ID from another question or a retrieved passage omitted by the context budget is rejected. Duplicate IDs are rejected explicitly, rather than silently deduplicated. Invalid citation lists fail before any source lookup, with `MISSING_CITATIONS`, `INVALID_CITATION` or `DUPLICATE_CITATION` at stage `CITATIONS`. The application does not silently return a partially cited answer.
+
+After validation, the service rechecks **all supplied evidence**, including uncited passages and evidence used by a model-declared insufficient-information response. The document-owned `sources(Map<passageId, documentId>)` API accepts at most five owner pairs and uses one SQL statement in an independent, read-only, five-second-bounded `READ_COMMITTED` transaction. Single-source requests reuse the same eligibility query. This gives the batch one fresh committed visibility snapshot, even if another caller has an older transaction snapshot. No transaction remains open during model I/O.
+
+Each supplied passage must remain in the same visible, completed active generation with unchanged owner, ID, text and source coordinates. Missing, deleted, replaced or inconsistent evidence discards the entire response with `SOURCE_UNAVAILABLE` at stage `SOURCES`; database failures remain distinct. Only the model's validated cited sources are returned, in citation order, with fresh document names, exact excerpts, stable owner/passage IDs, generation and line/PDF locations. Insufficient information returns empty text and citations; no-evidence requests perform no source read.
+
+Existing links `/documents/{documentId}/passages/{passageId}` independently recheck eligibility when opened. A committed deletion before the final snapshot prevents returning the response; new source reads also exclude that document. A deletion committed after the final snapshot can make a later link unavailable. Already delivered browser/provider content cannot be recalled, and this API does not promise to freeze documents until a response reaches a browser.
+
+Citation identity and visibility are mechanical checks, **not a factual-support guarantee**. A test deliberately accepts a false claim citing a real, visible supplied passage that contradicts it. This proves that valid IDs alone cannot detect unsupported claims; semantic quality needs a separate evaluation. Returned text remains untrusted content for the future web layer to escape.
+
+Public-answer telemetry uses `question.answer`, `secondbrain.question.answers` and `secondbrain.question.answer.duration`. Outcomes distinguish `answered`, `insufficient_information`, citation rejection, changed sources and typed upstream failures. Here `answered` means citation/source acceptance only. Logs, metrics, traces and printable failures omit questions, filenames, excerpts, answers, credentials and raw causes. Broken diagnostics cannot bypass citation checks or change an accepted result.
+
+Fast checks use synthetic data, mocks, in-memory telemetry and Actuator through MockMvc:
+
+```sh
+./mvnw -Dtest=QuestionAnswerServiceTest,DocumentInspectionServiceTest,QuestionConfigurationTest,QuestionTelemetryTest,QuestionTelemetryEndpointTest,TelemetryPrivacyTest test
+```
+
+Required PostgreSQL checks use real extraction/indexing/search, fake models, temporary originals and coordinated deletion while generation is paused:
+
+```sh
+./mvnw -Dit.test=QuestionAnswerIT,DocumentRepositoryIT verify
+```
+
+The latter requires Docker; no credentials, live allowance, personal library or external telemetry service is used. Full `./mvnw verify` remains the completion gate. No new `.env` setting is needed.
 
 ## Staged vector storage
 

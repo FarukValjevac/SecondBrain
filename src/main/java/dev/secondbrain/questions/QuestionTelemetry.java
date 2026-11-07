@@ -45,6 +45,10 @@ public final class QuestionTelemetry {
         return start(Kind.CHAT);
     }
 
+    Operation startAnswer() {
+        return start(Kind.ANSWER);
+    }
+
     private Operation start(Kind kind) {
         var observation = Observation.NOOP;
         try {
@@ -85,7 +89,11 @@ public final class QuestionTelemetry {
                 "secondbrain.question.requests",
                 "secondbrain.question.duration",
                 "question.generate"),
-        CHAT("secondbrain.chat.requests", "secondbrain.chat.request.duration", "chat.request");
+        CHAT("secondbrain.chat.requests", "secondbrain.chat.request.duration", "chat.request"),
+        ANSWER(
+                "secondbrain.question.answers",
+                "secondbrain.question.answer.duration",
+                "question.answer");
 
         private final String counter;
         private final String timer;
@@ -110,6 +118,7 @@ public final class QuestionTelemetry {
 
     enum Outcome {
         CANDIDATE_ANSWER,
+        ANSWERED,
         INSUFFICIENT_INFORMATION,
         EMPTY_SCOPE,
         NO_EVIDENCE,
@@ -119,6 +128,10 @@ public final class QuestionTelemetry {
         INCOMPATIBLE_MODEL,
         INVALID_EMBEDDING,
         INVALID_EVIDENCE,
+        MISSING_CITATIONS,
+        INVALID_CITATION,
+        DUPLICATE_CITATION,
+        SOURCE_UNAVAILABLE,
         ACCESS_DENIED,
         MODEL_UNAVAILABLE,
         INVALID_INPUT,

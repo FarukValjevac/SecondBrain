@@ -87,6 +87,58 @@ class DocumentInspectionServiceTest {
     }
 
     @Test
+    void batchSourcesUseOneFreshReadAndCopyTheReturnedProjection() {
+        var id = UUID.randomUUID();
+        var passage = UUID.randomUUID();
+        var source =
+                new DocumentInspectionService.PassageSource(
+                        id,
+                        passage,
+                        1,
+                        "private-name",
+                        "private-text",
+                        new DocumentInspectionService.SourceLocation(
+                                1, 0, 1, 5, OptionalInt.empty()));
+        var mutable = new java.util.HashMap<UUID, DocumentInspectionService.PassageSource>();
+        mutable.put(passage, source);
+        when(documents.sources(Map.of(passage, id))).thenReturn(mutable);
+        var result = service.sources(Map.of(passage, id));
+        mutable.clear();
+        assertThat(result).containsEntry(passage, source);
+        assertThatThrownBy(result::clear).isInstanceOf(UnsupportedOperationException.class);
+        var definition =
+                org.mockito.ArgumentCaptor.forClass(
+                        org.springframework.transaction.TransactionDefinition.class);
+        verify(transactions).getTransaction(definition.capture());
+        assertThat(definition.getValue().getPropagationBehavior())
+                .isEqualTo(
+                        org.springframework.transaction.TransactionDefinition
+                                .PROPAGATION_REQUIRES_NEW);
+        assertThat(definition.getValue().getIsolationLevel())
+                .isEqualTo(
+                        org.springframework.transaction.TransactionDefinition
+                                .ISOLATION_READ_COMMITTED);
+        assertThat(definition.getValue().isReadOnly()).isTrue();
+        assertThat(definition.getValue().getTimeout()).isEqualTo(5);
+        verify(documents).sources(Map.of(passage, id));
+        verifyNoInteractions(texts, events);
+    }
+
+    @Test
+    void batchSourceBoundsAndEmptyInputAreEnforcedBeforeIo() {
+        assertThat(service.sources(Map.of())).isEmpty();
+        assertThatThrownBy(() -> service.sources(null)).isInstanceOf(NullPointerException.class);
+        var tooMany = new java.util.HashMap<UUID, UUID>();
+        for (int index = 0; index < 6; index++) tooMany.put(UUID.randomUUID(), UUID.randomUUID());
+        assertThatThrownBy(() -> service.sources(tooMany))
+                .isInstanceOf(IllegalArgumentException.class);
+        tooMany.clear();
+        tooMany.put(UUID.randomUUID(), null);
+        assertThatThrownBy(() -> service.sources(tooMany)).isInstanceOf(NullPointerException.class);
+        verifyNoInteractions(documents, texts, events, transactions);
+    }
+
+    @Test
     void missingSourceIdsAreRejectedBeforeAnyIo() {
         assertThatThrownBy(() -> service.source(null, UUID.randomUUID()))
                 .isInstanceOf(NullPointerException.class);

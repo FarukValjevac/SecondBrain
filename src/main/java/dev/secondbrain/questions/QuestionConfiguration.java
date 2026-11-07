@@ -1,5 +1,6 @@
 package dev.secondbrain.questions;
 
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.search.SearchService;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -13,6 +14,15 @@ import org.springframework.context.annotation.Configuration;
         name = {"secondbrain.questions.enabled", "secondbrain.embeddings.enabled"},
         havingValue = "true")
 class QuestionConfiguration {
+    @Bean
+    QuestionAnswerService questionAnswerService(
+            QuestionService generation,
+            DocumentInspectionService documents,
+            ObjectProvider<QuestionTelemetry> telemetry) {
+        return new QuestionAnswerService(
+                generation, documents, telemetry.getIfAvailable(QuestionTelemetry::disabled));
+    }
+
     @Bean
     QuestionService questionService(
             SearchService search, ChatProvider chat, ObjectProvider<QuestionTelemetry> telemetry) {

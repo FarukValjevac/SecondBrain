@@ -94,6 +94,17 @@ public final class DocumentInspectionService {
                 sourceReads.execute(status -> documents.source(documentId, passageId)));
     }
 
+    /** Passage UUID -> owner UUID; all returned sources share one fresh committed SQL snapshot. */
+    public Map<UUID, PassageSource> sources(Map<UUID, UUID> passageOwners) {
+        Objects.requireNonNull(passageOwners, "passageOwners");
+        if (passageOwners.size() > 5)
+            throw new IllegalArgumentException("Too many passage sources requested");
+        var owners = Map.copyOf(passageOwners);
+        if (owners.isEmpty()) return Map.of();
+        return Map.copyOf(
+                Objects.requireNonNull(sourceReads.execute(status -> documents.sources(owners))));
+    }
+
     private DocumentSummary summarize(DocumentMetadata document) {
         var progress = documents.progress(document.documentId(), document.processingVersion());
         var state = document.extractionState().displayedWith(progress.deliveryState());
