@@ -213,6 +213,46 @@ Failures expose fixed reasons: access denial, unavailable model, invalid input/r
 
 Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub with synthetic credentials/text. It needs local socket permission, but no Docker or Cloudflare account. It covers request/response ordering, bounds, status/quota errors, redirect refusal, slow headers/body, interruption, and connection failure. Full `./mvnw verify` remains the completion gate. No live BGE-M3 response or retrieval quality is established by the stub.
 
+## Question provider boundary
+
+Question generation is under development. The implemented boundary validates configuration and immutable request/reply values; it does not yet create an HTTP chat client, retrieve evidence for questions or expose a question page. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. No generation request is made during startup or these checks.
+
+| Setting | Current behavior |
+|---|---|
+| `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in currently validates settings only. |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Same external account/token keys as embeddings; required when settings are enabled. |
+| `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; model quality remains unmeasured. |
+| `CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS` | Defaults to 512; permitted range 1–2,048. |
+| `secondbrain.questions.connect-timeout` / `request-timeout` | Default 2s / 30s. Connect range 100ms–10s; request range connect-timeout–60s. |
+
+Cloudflare lists this candidate with a 24,000-token context and [JSON Mode support](https://developers.cloudflare.com/workers-ai/features/json-mode/). Model/account eligibility and the shared free allowance follow [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/); code cannot verify an account's billing plan. The [model page](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/) links its terms. Documentation compatibility was checked on 2026-11-02; live protocol behavior, language quality and grounding were not evaluated. No automatic model choice, paid upgrade or fallback is configured.
+
+`ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and future trusted instructions; it is not an exact token budget. Evidence keeps its original text. Selecting which retrieved passages fit this envelope is the next step.
+
+`ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; citation identities and duplicates remain for later local validation. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
+
+The future HTTP adapter will send the question, application instructions and bounded evidence text to Cloudflare using the same account as query embeddings. Read the provider's [data policy](https://developers.cloudflare.com/workers-ai/platform/data-usage/) before live use. The current configuration/contract checks use only synthetic inputs:
+
+```sh
+./mvnw -Dtest=ChatProviderTest,ChatConfigurationTest test
+```
+
+For a console example after compilation, launch `jshell --execution local --class-path target/classes` and enter:
+
+```java
+import dev.secondbrain.questions.ChatProvider;
+import java.util.List;
+import java.util.UUID;
+var id = UUID.randomUUID();
+ChatProvider fake = request -> new ChatProvider.Reply(
+    ChatProvider.Outcome.ANSWERED, "The sample note says yes.", List.of(id));
+fake.generate(new ChatProvider.Request("Are duplicates allowed?",
+    List.of(new ChatProvider.Passage(id, "ArrayList permits duplicates."))));
+/exit
+```
+
+Expect `ChatReply[outcome=ANSWERED, citations=1]`. This calls a Java fake, with no database or model request. `./mvnw verify` remains the full completion check.
+
 ## Staged vector storage
 
 `document_embeddings` stores one vector per stable passage ID, tied to its document, index generation, and model/dimensions. The first batch binds the model on `document_index_versions`. The storage adapter accepts up to 32 vectors in a caller-owned transaction, rechecks current document/source/desired-version eligibility, preserves identical retries, and rejects conflicting values. Foreign keys cascade physical cleanup; partial or old generations remain staged.

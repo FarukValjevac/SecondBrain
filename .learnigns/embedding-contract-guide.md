@@ -1236,6 +1236,33 @@ flowchart TD
 
 A completed command means the measurements finished. It does not declare the model good enough. Recall measures missing expected passages: a result list containing the expected passage and several irrelevant passages can still have recall 1. Inspect unexpected matches, filters/deletion and the chosen score threshold separately. Compare the same corpus/model/index/settings between runs. The [report field guide](../docs/development.md#opt-in-retrieval-evaluation) explains execution states, null measurements and token-usage coverage. The duration comes from the real search-service observation; passage embedding and fixture setup are outside that timer. The report records configuration and stable source bindings without copying queries, filenames, excerpts or credentials. Available token counts are partial usage evidence; the provider dashboard remains the authority for shared allowance consumption.
 
+## 37. Giving answer generation a small Java boundary
+
+Search returns saved passages. Answer generation will turn a question plus a bounded selection of those passages into a model response. These are separate operations: a successful search does not create an answer, and a model response is not automatically a trustworthy sourced answer.
+
+```mermaid
+flowchart LR
+    Settings[Validated chat settings] --> Future[Future HTTP adapter]
+    Request[Question and bounded labeled evidence] --> Contract[ChatProvider interface]
+    Contract --> Fake[Java fake used by tests]
+    Contract -. later .-> Future
+    Fake --> Candidate[Untrusted Reply]
+    Future -. later .-> Candidate
+    Candidate -. later .-> Validation[Citation membership and source visibility]
+```
+
+[ChatProvider](../src/main/java/dev/secondbrain/questions/ChatProvider.java) declares one operation: `Reply generate(Request request)`. An interface says what a collaborator must do, without implementing the HTTP request. A test can supply a lambda that immediately returns a fixed reply; a future Cloudflare adapter will implement the same method. This lets the business code and tests depend on the contract instead of a particular network client. The method exposes `InterruptedException` so cancellation cannot quietly become an answer.
+
+`Request`, `Passage`, `Reply` and `Outcome` are nested types that belong to this provider contract. Write `ChatProvider.Request` from another class, or import that nested type directly. Types defined inside an interface are implicitly public and static; they do not need an instance of the interface. A nested enum is useful here because its allowed outcomes belong to this particular boundary, rather than a project-wide enum directory.
+
+The records validate their own values and copy input lists. Java's final record fields alone would not prevent a caller from changing an original mutable list. Request validation rejects missing/duplicate evidence and bounds text by both Unicode code points and UTF-8 bytes. One emoji can occupy two Java `char` values and four UTF-8 bytes, so those counts answer different questions. Evidence text is preserved as reference data; preserving instruction-like text does not prove that a real model will ignore it.
+
+A `Reply` is deliberately an untrusted model candidate. It can carry an uncited answer, a foreign citation UUID or repeated citation IDs at this boundary; later local rules must decide whether it can be accepted. By contrast, `INSUFFICIENT_INFORMATION` has an unambiguous empty answer/citation shape. The candidate's `toString()` prints only its outcome/count, so printing the object accidentally does not expose the answer. Valid citation membership will still not prove factual support.
+
+[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling currently creates settings only. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. No chat client or question page exists at this stage.
+
+The [development guide](../docs/development.md#question-provider-boundary) includes a short JShell example. It shows the interface, nested records and a fake response together, using only compiled classes and the JDK.
+
 ## References and related notes
 
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
