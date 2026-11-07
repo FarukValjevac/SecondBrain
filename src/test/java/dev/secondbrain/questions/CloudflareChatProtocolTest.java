@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 class CloudflareChatProtocolTest {
@@ -83,6 +85,66 @@ class CloudflareChatProtocolTest {
                 new ChatProvider.Reply(
                         ChatProvider.Outcome.INSUFFICIENT_INFORMATION, "", List.of());
         assertThat(protocol.response(success(candidate))).isEqualTo(candidate);
+    }
+
+    @Test
+    void keepsReportedUsageSeparateFromTheUntrustedCandidateWithoutEstimatingMissingCounts() {
+        var full =
+                protocol.responseWithUsage(
+                        withUsage(
+                                "{\"prompt_tokens\":19,\"completion_tokens\":7,\"total_tokens\":26}"));
+        assertThat(full.reply()).isEqualTo(answer());
+        assertThat(full.inputTokens()).hasValue(19);
+        assertThat(full.outputTokens()).hasValue(7);
+        assertThat(full.totalTokens()).hasValue(26);
+        var partial = protocol.responseWithUsage(withUsage("{\"completion_tokens\":0}"));
+        assertThat(partial.inputTokens()).isEmpty();
+        assertThat(partial.outputTokens()).hasValue(0);
+        assertThat(partial.totalTokens()).isEmpty();
+        var missing = protocol.responseWithUsage(success(answer()));
+        assertThat(missing.inputTokens()).isEmpty();
+        assertThat(missing.outputTokens()).isEmpty();
+        assertThat(missing.totalTokens()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "null",
+                "[]",
+                "\"private-usage-sentinel\"",
+                "{}",
+                "{\"prompt_tokens\":-1}",
+                "{\"prompt_tokens\":1.5}",
+                "{\"prompt_tokens\":\"7\"}",
+                "{\"prompt_tokens\":true}",
+                "{\"prompt_tokens\":1000001}",
+                "{\"prompt_tokens\":999999999999999999999999}",
+                "{\"prompt_tokens\":19,\"completion_tokens\":7,\"total_tokens\":25}"
+            })
+    void invalidOptionalAccountingDoesNotInvalidateAnOtherwiseValidReply(String usage) {
+        var result = protocol.responseWithUsage(withUsage(usage));
+        assertThat(result.reply()).isEqualTo(answer());
+        assertThat(result.inputTokens()).isEmpty();
+        assertThat(result.outputTokens()).isEmpty();
+        assertThat(result.totalTokens()).isEmpty();
+    }
+
+    @Test
+    void boundsEachUsageFieldIndependentlyAndKeepsValidPartialReports() {
+        var result =
+                protocol.responseWithUsage(
+                        withUsage(
+                                "{\"prompt_tokens\":1000000,\"completion_tokens\":-1,\"total_tokens\":null}"));
+        assertThat(result.inputTokens()).isEqualTo(OptionalLong.of(1_000_000));
+        assertThat(result.outputTokens()).isEmpty();
+        assertThat(result.totalTokens()).isEmpty();
+    }
+
+    static byte[] withUsage(String usage) {
+        var success = new String(success(answer()), StandardCharsets.UTF_8);
+        return (success.substring(0, success.length() - 1) + ",\"usage\":" + usage + "}")
+                .getBytes(StandardCharsets.UTF_8);
     }
 
     enum Malformed {

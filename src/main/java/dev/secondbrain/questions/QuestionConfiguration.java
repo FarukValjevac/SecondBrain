@@ -2,6 +2,7 @@ package dev.secondbrain.questions;
 
 import dev.secondbrain.search.SearchService;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,7 +14,9 @@ import org.springframework.context.annotation.Configuration;
         havingValue = "true")
 class QuestionConfiguration {
     @Bean
-    QuestionService questionService(SearchService search, ChatProvider chat) {
-        return new QuestionService(search, chat);
+    QuestionService questionService(
+            SearchService search, ChatProvider chat, ObjectProvider<QuestionTelemetry> telemetry) {
+        return new QuestionService(
+                search, chat, telemetry.getIfAvailable(QuestionTelemetry::disabled));
     }
 }

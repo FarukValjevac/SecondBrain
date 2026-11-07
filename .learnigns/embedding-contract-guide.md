@@ -1351,7 +1351,32 @@ When evidence is present, `chat.generate(...)` is called once. Its reply and the
 
 The service runs synchronously on its caller and refuses an active caller transaction. Search owns its short database reads, which finish before chat starts. The question, context and reply remain local variables, rather than mutable singleton fields. Interruption is checked before and after collaborator calls, and a provider's `InterruptedException` restores the thread's interrupt flag before returning a safe cancellation failure. No question queue or automatic retry is created.
 
-[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. The browser question page and generation telemetry are still under development.
+[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. Safe generation telemetry is available; the browser question page and citation acceptance are still under development.
+
+## 41. Observing questions without recording their content
+
+[QuestionTelemetry](../src/main/java/dev/secondbrain/questions/QuestionTelemetry.java) measures two boundaries. The question timer covers the whole orchestration, including search. The chat timer covers one adapter call through response validation. They answer different questions: “How long did the operation take?” and “How long did its chat call take?” A question with no evidence increments only the question counter.
+
+```mermaid
+flowchart LR
+    Request[Question operation timer] --> Search[Search and evidence selection]
+    Search -->|No evidence| End[Question outcome: no_evidence]
+    Search -->|Evidence available| Chat[Chat adapter timer]
+    Chat --> Candidate[Question outcome: candidate_answer or insufficient_information]
+    Chat --> Usage[Optional numeric input, output and total usage]
+    Request -. same caller trace .-> Trace[Fixed operation names and outcomes only]
+    Chat -. same caller trace .-> Trace
+```
+
+The service and provider receive the telemetry collaborator through constructor injection. Each call creates an `Operation` in a try-with-resources block. The operation keeps its outcome and counts locally and records them once when it closes, including when an exception leaves the block. Calling `close()` again cannot count it twice. The singleton telemetry object holds registries, not the current question, answer or per-call outcome.
+
+Its methods accept closed enums and numbers instead of request objects or exceptions. That makes the privacy boundary easy to inspect: the telemetry code has no question text to log. An answered model reply uses the name `candidate_answer`, since successful generation is different from verified citations or factual support. Rate limits, quota exhaustion, timeouts, invalid output and interruption have separate fixed outcomes. Raw exceptions are never attached to observations. The existing trace exporter also removes unknown/private fields and exception events.
+
+Token metadata stays inside the adapter's decoded response and does not change the `ChatProvider.Reply` contract. The protocol checks optional input, output and total counts independently. `OptionalLong.empty()` means unknown; `OptionalLong.of(0)` means the provider explicitly reported zero. A valid report increments its reports counter even when its token count is zero. Missing or invalid usage leaves that kind unchanged. If all three counts are valid but disagree about their sum, accounting is treated as unknown while the valid reply remains usable as a candidate.
+
+For example, reports of input 19, output 7 and total 26 are three views of the same usage. Inspect a single `kind` in metrics; adding them all gives 52 and counts the same tokens twice. Missing total stays missing even if input and output were reported. These counters cover accepted metadata on successful response shapes, reset with the process, and cannot tell whether a failed remote request used allowance or what the account has left.
+
+Observations inherit an existing caller trace while leaving its scope unchanged. No prompt or credential is sent to a telemetry backend, and no trace baggage is forwarded to the model provider. If a counter, observation handler or logger fails, the business operation still returns its original candidate or safe failure. The [telemetry guide](../docs/development.md#question-and-chat-telemetry) lists exact meter names and deterministic checks. There is no new question page or live model call in those checks.
 
 ## References and related notes
 

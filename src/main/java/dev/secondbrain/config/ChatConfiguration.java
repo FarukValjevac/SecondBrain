@@ -3,6 +3,7 @@ package dev.secondbrain.config;
 import dev.secondbrain.questions.ChatProvider;
 import dev.secondbrain.questions.CloudflareChatProvider;
 import dev.secondbrain.questions.CloudflareChatSettings;
+import dev.secondbrain.questions.QuestionTelemetry;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -22,8 +23,13 @@ import java.time.Duration;
 class ChatConfiguration {
     @Bean(destroyMethod = "close")
     CloudflareChatProvider cloudflareChatProvider(
-            CloudflareChatSettings settings, ObjectProvider<Clock> clocks) {
-        return new CloudflareChatProvider(settings, clocks.getIfAvailable(Clock::systemUTC));
+            CloudflareChatSettings settings,
+            ObjectProvider<Clock> clocks,
+            ObjectProvider<QuestionTelemetry> telemetry) {
+        return new CloudflareChatProvider(
+                settings,
+                clocks.getIfAvailable(Clock::systemUTC),
+                telemetry.getIfAvailable(QuestionTelemetry::disabled));
     }
 
     @Bean

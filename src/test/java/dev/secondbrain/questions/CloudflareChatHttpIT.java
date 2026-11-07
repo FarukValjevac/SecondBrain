@@ -6,6 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -344,6 +348,63 @@ class CloudflareChatHttpIT {
             assertFailure(provider, ChatFailure.Reason.UNAVAILABLE);
         }
         assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void realSuccessfulTransportRecordsOnlyReportedUsageAndNoPrivateContent(CapturedOutput output)
+            throws Exception {
+        behavior.set(
+                exchange ->
+                        reply(
+                                exchange,
+                                200,
+                                CloudflareChatProtocolTest.withUsage(
+                                        "{\"prompt_tokens\":19,\"completion_tokens\":7,\"total_tokens\":26}")));
+        var meters = new SimpleMeterRegistry();
+        try {
+            var observations = ObservationRegistry.create();
+            observations
+                    .observationConfig()
+                    .observationHandler(new DefaultMeterObservationHandler(meters));
+            var telemetry = new QuestionTelemetry(meters, observations);
+            try (var provider =
+                    new CloudflareChatProvider(
+                            CloudflareChatProtocolTest.settings(Duration.ofSeconds(2)),
+                            CloudflareChatProtocolTest.CLOCK,
+                            endpoint(),
+                            telemetry)) {
+                assertThat(provider.generate(CloudflareChatProtocolTest.input()))
+                        .isEqualTo(CloudflareChatProtocolTest.answer());
+            }
+            assertThat(
+                            meters.get("secondbrain.chat.requests")
+                                    .tag("outcome", "candidate_answer")
+                                    .counter()
+                                    .count())
+                    .isEqualTo(1);
+            assertThat(
+                            meters.get("secondbrain.chat.request.duration")
+                                    .tag("outcome", "candidate_answer")
+                                    .timer()
+                                    .count())
+                    .isEqualTo(1);
+            assertThat(meters.get("secondbrain.chat.tokens").tag("kind", "input").counter().count())
+                    .isEqualTo(19);
+            assertThat(
+                            meters.get("secondbrain.chat.tokens")
+                                    .tag("kind", "output")
+                                    .counter()
+                                    .count())
+                    .isEqualTo(7);
+            assertThat(meters.get("secondbrain.chat.tokens").tag("kind", "total").counter().count())
+                    .isEqualTo(26);
+            assertThat(meters.get("secondbrain.chat.usage.reports").counters())
+                    .allSatisfy(counter -> assertThat(counter.count()).isEqualTo(1));
+        } finally {
+            meters.close();
+        }
+        assertThat(calls).hasValue(1);
+        assertPrivateOutputAbsent(output);
     }
 
     private CloudflareChatProvider provider(Duration timeout) {

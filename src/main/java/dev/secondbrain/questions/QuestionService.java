@@ -16,16 +16,44 @@ import java.util.Optional;
 final class QuestionService {
     private final SearchService search;
     private final ChatProvider chat;
+    private final QuestionTelemetry telemetry;
 
     QuestionService(SearchService search, ChatProvider chat) {
+        this(search, chat, QuestionTelemetry.disabled());
+    }
+
+    QuestionService(SearchService search, ChatProvider chat, QuestionTelemetry telemetry) {
         this.search = Objects.requireNonNull(search, "search");
         this.chat = Objects.requireNonNull(chat, "chat");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
     }
 
     Candidate generate(SearchQuery question) {
         Objects.requireNonNull(question, "question");
-        if (TransactionSynchronizationManager.isActualTransactionActive())
-            throw new IllegalStateException("Questions must run outside a caller transaction");
+        try (var operation = telemetry.startQuestion()) {
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                operation.outcome(QuestionTelemetry.Outcome.REJECTED);
+                throw new IllegalStateException("Questions must run outside a caller transaction");
+            }
+            try {
+                var candidate = generateCandidate(question);
+                if (candidate.context().isPresent())
+                    operation.candidate(candidate.reply().outcome());
+                else
+                    operation.outcome(
+                            question.scope() instanceof SearchScope.SelectedDocuments selected
+                                            && selected.documentIds().isEmpty()
+                                    ? QuestionTelemetry.Outcome.EMPTY_SCOPE
+                                    : QuestionTelemetry.Outcome.NO_EVIDENCE);
+                return candidate;
+            } catch (QuestionFailure failure) {
+                operation.failure(failure.reason());
+                throw failure;
+            }
+        }
+    }
+
+    private Candidate generateCandidate(SearchQuery question) {
         checkInterrupted(QuestionFailure.Stage.RETRIEVAL);
         if (question.scope() instanceof SearchScope.SelectedDocuments selected
                 && selected.documentIds().isEmpty()) return Candidate.withoutEvidence();

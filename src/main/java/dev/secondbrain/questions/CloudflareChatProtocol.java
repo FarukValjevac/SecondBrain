@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 /** Fixed JSON protocol; provider output remains an untrusted candidate after shape validation. */
@@ -144,6 +145,10 @@ final class CloudflareChatProtocol {
     }
 
     ChatProvider.Reply response(byte[] body) {
+        return responseWithUsage(body).reply();
+    }
+
+    Response responseWithUsage(byte[] body) {
         try {
             if (body.length > MAXIMUM_RESPONSE_BYTES) throw new IllegalArgumentException();
             var text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(body)).toString();
@@ -198,12 +203,47 @@ final class CloudflareChatProtocol {
                 require(id.toString().equalsIgnoreCase(citation.stringValue()));
                 ids.add(id);
             }
-            return new ChatProvider.Reply(
-                    ChatProvider.Outcome.valueOf(candidate.path("outcome").stringValue()),
-                    candidate.path("answer").stringValue(),
-                    ids);
+            var reply =
+                    new ChatProvider.Reply(
+                            ChatProvider.Outcome.valueOf(candidate.path("outcome").stringValue()),
+                            candidate.path("answer").stringValue(),
+                            ids);
+            var usage = root.path("usage");
+            var input = tokens(usage.path("prompt_tokens"));
+            var output = tokens(usage.path("completion_tokens"));
+            var total = tokens(usage.path("total_tokens"));
+            // Contradictory optional accounting is unknown; it must not invalidate an answer.
+            if (input.isPresent()
+                    && output.isPresent()
+                    && total.isPresent()
+                    && input.getAsLong() + output.getAsLong() != total.getAsLong())
+                return new Response(
+                        reply, OptionalLong.empty(), OptionalLong.empty(), OptionalLong.empty());
+            return new Response(reply, input, output, total);
         } catch (JacksonException | CharacterCodingException | IllegalArgumentException invalid) {
             throw new ChatFailure(INVALID_RESPONSE, null, invalid);
+        }
+    }
+
+    private static OptionalLong tokens(tools.jackson.databind.JsonNode value) {
+        return value.isIntegralNumber()
+                        && value.canConvertToLong()
+                        && value.longValue() >= 0
+                        && value.longValue() <= 1_000_000
+                ? OptionalLong.of(value.longValue())
+                : OptionalLong.empty();
+    }
+
+    record Response(
+            ChatProvider.Reply reply,
+            OptionalLong inputTokens,
+            OptionalLong outputTokens,
+            OptionalLong totalTokens) {
+        Response {
+            Objects.requireNonNull(reply, "reply");
+            Objects.requireNonNull(inputTokens, "inputTokens");
+            Objects.requireNonNull(outputTokens, "outputTokens");
+            Objects.requireNonNull(totalTokens, "totalTokens");
         }
     }
 

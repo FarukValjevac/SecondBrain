@@ -227,7 +227,7 @@ Question generation is under development. Provider settings/contracts, bounded e
 
 Cloudflare lists this candidate with a 24,000-token context and [JSON Mode support](https://developers.cloudflare.com/workers-ai/features/json-mode/). Model/account eligibility and the shared free allowance follow [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/); code cannot verify an account's billing plan. The [model page](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/) links its terms. Documentation compatibility was checked on 2026-11-02; live protocol behavior, language quality and grounding were not evaluated. No automatic model choice, paid upgrade or fallback is configured.
 
-`ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and future trusted instructions; it is not an exact token budget. Evidence keeps its original text. The selector described below chooses whole retrieved passages that fit this envelope.
+`ChatProvider.Request` carries a question and distinct passage UUID/text pairs. Its hard limits are 1,200 Unicode code points per question/passage, five nonempty passages and 8,000 combined UTF-8 text bytes. That byte count excludes labels, JSON framing and trusted instructions; it is not an exact token budget. Evidence keeps its original text. The selector described below chooses whole retrieved passages that fit this envelope.
 
 `ChatProvider.Reply` is an **untrusted candidate**, with `ANSWERED` or `INSUFFICIENT_INFORMATION`. An answered candidate needs nonblank bounded text; citation identities and duplicates remain for later local validation. An insufficient-information candidate contains empty answer text and no citations. These values cannot establish factual support or document visibility. Diagnostic strings omit questions, passages, answer text, IDs and credentials.
 
@@ -277,7 +277,7 @@ The adapter follows Cloudflare's documented [JSON Mode schema format](https://de
 
 Requests and responses are capped at 64 KiB. Response parsing requires UTF-8 and bounded nesting/string/token sizes. The deadline includes complete body reception, so sending headers or a partial body cannot hold the caller indefinitely. Two in-flight requests are allowed; a third is rejected without waiting for a slot. Internal HTTP work uses two threads and a bounded task queue. Interruption cancels the local pending request and preserves the caller flag. Calls inside a database transaction are refused. The Spring-owned client is closed with the application context; no health/startup probe invokes generation.
 
-`ChatFailure` exposes a fixed reason and optional retry hint. Authentication, model availability, invalid input/response, output limit, rate limiting, daily quota, timeout and unavailability are distinct. Numeric Cloudflare error `3036` identifies daily quota and `5035` identifies a paid-plan model restriction; [provider error documentation](https://developers.cloudflare.com/workers-ai/platform/errors/) owns those meanings. Retry/reset hints are information for a later explicit request: this adapter has no application retry, sleep, fallback or billing upgrade. Cancellation/timeout cannot establish whether the remote server already processed the request. Private parser/transport causes are retained internally outside the printable cause chain; no request, response, answer or credential body is logged. Generation metrics/observations are a later implementation step.
+`ChatFailure` exposes a fixed reason and optional retry hint. Authentication, model availability, invalid input/response, output limit, rate limiting, daily quota, timeout and unavailability are distinct. Numeric Cloudflare error `3036` identifies daily quota and `5035` identifies a paid-plan model restriction; [provider error documentation](https://developers.cloudflare.com/workers-ai/platform/errors/) owns those meanings. Retry/reset hints are information for a later explicit request: this adapter has no application retry, sleep, fallback or billing upgrade. Cancellation/timeout cannot establish whether the remote server already processed the request. Private parser/transport causes are retained internally outside the printable cause chain; no request, response, answer or credential body is logged. Safe generation metrics/observations are described below.
 
 Fast protocol/configuration/guard checks:
 
@@ -301,7 +301,7 @@ An explicit empty selected scope uses neither search nor chat. Empty retrieval o
 
 Failures expose a fixed stage (`RETRIEVAL`, `CONTEXT`, `GENERATION`), reason and optional retry timestamp. Quota/rate/timeout/model/database/invalid-output reasons remain distinguishable. Unexpected collaborator diagnostics stay private, inconsistent evidence never reaches chat, and interruption stops the flow with the thread's interrupt flag preserved. The service rejects caller database transactions. It creates no background question job, retry, wait or fallback; each lower-level adapter still owns its bounded I/O.
 
-Spring wires this internal service only when both questions and embeddings are enabled, using the existing `SearchService` and `ChatProvider`. Construction calls neither collaborator. No new configuration, endpoint, schema or provider dependency is needed. Generation telemetry is the next implementation step.
+Spring wires this internal service only when both questions and embeddings are enabled, using the existing `SearchService` and `ChatProvider`. Construction calls neither collaborator. No new configuration, endpoint, schema or provider dependency is needed. Safe observations measure the whole operation separately from individual chat calls.
 
 Run the deterministic orchestration checks:
 
@@ -310,6 +310,35 @@ Run the deterministic orchestration checks:
 ```
 
 They need no Docker, socket listener, credentials or live allowance. They verify the supplied passage set/budget, empty scope/evidence, model-declared absence, safe failures, cancellation and wiring. They do not establish SQL durability, real-model quality or final citation acceptance. Full `./mvnw verify` remains the completion gate.
+
+### Question and chat telemetry
+
+[QuestionTelemetry](../src/main/java/dev/secondbrain/questions/QuestionTelemetry.java) receives only fixed outcomes and validated numeric usage. It measures the internal question flow and the Cloudflare chat adapter separately:
+
+| Meter | Meaning | Labels |
+|---|---|---|
+| `secondbrain.question.requests` | Completed internal question operations, including failures and early returns | Fixed `outcome` |
+| `secondbrain.question.duration` | Whole operation duration in seconds, including retrieval and generation | Fixed `outcome`; framework `error=none` |
+| `secondbrain.chat.requests` | Adapter invocations, including local input/transaction/capacity rejection | Fixed `outcome` |
+| `secondbrain.chat.request.duration` | Adapter duration through response validation, in seconds | Fixed `outcome`; framework `error=none` |
+| `secondbrain.chat.tokens` | Sum of accepted provider-reported token counts | `kind=input`, `output`, or `total` |
+| `secondbrain.chat.usage.reports` | Number of valid reports for that token kind | Same fixed `kind` |
+
+An answered reply is labeled `candidate_answer`, which does not imply accepted citations or factual support. `insufficient_information` means the model reported absence after receiving evidence. `no_evidence` and `empty_scope` are question-only early returns with no chat invocation. Failures retain the fixed reason (`quota_exhausted`, `rate_limited`, `timed_out`, `output_limit`, and the other typed reasons). Active caller transactions produce `rejected`; interruption remains `interrupted`. A chat counter measures adapter calls, not guaranteed remote execution or allowance consumption.
+
+Cloudflare's [AI response schema](https://developers.cloudflare.com/api/resources/ai/) documents optional `usage.prompt_tokens`, `completion_tokens` and `total_tokens`; the adapter reads those names from its compatible response envelope. Each field must be an integer from zero through 1,000,000. Missing, null, nonnumeric, fractional, negative or oversized fields are unknown and ignored independently. If all three valid fields contradict `input + output = total`, all usage is ignored. Invalid optional accounting does not invalidate a valid reply. Compatibility and actual reporting remain unmeasured against a live account.
+
+The application never estimates a missing count or adds input/output to invent total usage. A reported zero increments the corresponding reports counter, whereas unknown usage changes neither counter. Filter by `kind`; adding all three token series would double-count a fully reported response. Failed, malformed and truncated responses do not contribute usage even if the remote request consumed allowance. These process-local, best-effort totals reset at restart and are neither a billing ledger nor the account's remaining allowance.
+
+The `question.generate` and `chat.request` observations inherit the current caller trace without replacing its scope or forwarding baggage to Cloudflare. Logs contain fixed operation/outcome fields and the existing safe caller correlation context. Questions, prompts, passage/document text, filenames, answers, IDs, credentials, endpoint URLs, raw exceptions and retry timestamps are never passed into these feature telemetry fields. No private exception is attached to an observation. The trace export allowlist retains only the fixed names/outcomes and its existing safe fields, dropping private attributes and events. Counter/handler/logging failures cannot replace a candidate or its safe failure.
+
+With questions enabled, Spring supplies shared registries for both the adapter and orchestration, including fake-provider contexts. Without a meter registry, telemetry is disabled. Standalone constructors keep disabled telemetry unless explicitly supplied. Startup registers zero counters but performs no inference; duration series appear only after operations. Reading Actuator metrics makes no provider call. There is no question UI yet, so keep the ordinary-use question flag false; no `.env` changes are needed for these tests:
+
+```sh
+./mvnw -Dtest=QuestionTelemetryTest,QuestionTelemetryEndpointTest,QuestionConfigurationTest,ChatConfigurationTest,CloudflareChatProtocolTest,TelemetryPrivacyTest test
+```
+
+These checks use synthetic data, fake collaborators, in-memory meters/traces and MockMvc Actuator calls, without Docker or live models. The additional transport-to-usage check is part of `./mvnw -Dit.test=CloudflareChatHttpIT verify` and requires local listener permission. Full `./mvnw verify` also requires Docker. Citation acceptance, final source visibility and real-model grounding remain separate checks.
 
 ## Staged vector storage
 

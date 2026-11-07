@@ -26,16 +26,31 @@ public final class CloudflareChatProvider implements ChatProvider, AutoCloseable
     private final URI endpoint;
     private final ThreadPoolExecutor network;
     private final HttpClient client;
+    private final QuestionTelemetry telemetry;
     // Shared transport capacity only; request/response state stays local to generate().
     private final Semaphore capacity = new Semaphore(2);
 
     public CloudflareChatProvider(CloudflareChatSettings settings, Clock clock) {
-        this(settings, clock, settings.endpoint());
+        this(settings, clock, settings.endpoint(), QuestionTelemetry.disabled());
+    }
+
+    public CloudflareChatProvider(
+            CloudflareChatSettings settings, Clock clock, QuestionTelemetry telemetry) {
+        this(settings, clock, settings.endpoint(), telemetry);
     }
 
     /** Package-local loopback seam for isolated stub tests, never external configuration. */
     CloudflareChatProvider(CloudflareChatSettings settings, Clock clock, URI endpoint) {
+        this(settings, clock, endpoint, QuestionTelemetry.disabled());
+    }
+
+    CloudflareChatProvider(
+            CloudflareChatSettings settings,
+            Clock clock,
+            URI endpoint,
+            QuestionTelemetry telemetry) {
         this.settings = Objects.requireNonNull(settings, "settings");
+        this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         if (!endpoint.equals(settings.endpoint())
                 && !("http".equals(endpoint.getScheme())
@@ -70,10 +85,32 @@ public final class CloudflareChatProvider implements ChatProvider, AutoCloseable
 
     @Override
     public Reply generate(Request request) throws InterruptedException {
-        if (Thread.currentThread().isInterrupted())
-            throw new InterruptedException("Chat request interrupted");
-        if (TransactionSynchronizationManager.isActualTransactionActive())
-            throw new IllegalStateException("Chat I/O must run outside a database transaction");
+        try (var operation = telemetry.startProvider()) {
+            try {
+                if (Thread.currentThread().isInterrupted())
+                    throw new InterruptedException("Chat request interrupted");
+                if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                    operation.outcome(QuestionTelemetry.Outcome.REJECTED);
+                    throw new IllegalStateException(
+                            "Chat I/O must run outside a database transaction");
+                }
+                var response = generateResponse(request);
+                operation.candidate(response.reply().outcome());
+                operation.usage(
+                        response.inputTokens(), response.outputTokens(), response.totalTokens());
+                return response.reply();
+            } catch (ChatFailure failure) {
+                operation.failure(failure.reason());
+                throw failure;
+            } catch (InterruptedException interrupted) {
+                operation.outcome(QuestionTelemetry.Outcome.INTERRUPTED);
+                throw interrupted;
+            }
+        }
+    }
+
+    private CloudflareChatProtocol.Response generateResponse(Request request)
+            throws InterruptedException {
         var body = protocol.request(request);
         if (!capacity.tryAcquire())
             throw new ChatFailure(ChatFailure.Reason.UNAVAILABLE, null, null);
@@ -92,7 +129,8 @@ public final class CloudflareChatProvider implements ChatProvider, AutoCloseable
         }
     }
 
-    private Reply exchange(HttpRequest request) throws InterruptedException {
+    private CloudflareChatProtocol.Response exchange(HttpRequest request)
+            throws InterruptedException {
         final java.util.concurrent.CompletableFuture<HttpResponse<byte[]>> pending;
         try {
             pending =
@@ -132,7 +170,7 @@ public final class CloudflareChatProvider implements ChatProvider, AutoCloseable
         String type = response.headers().firstValue("Content-Type").orElse("");
         if (!type.split(";", 2)[0].trim().equalsIgnoreCase("application/json"))
             throw new ChatFailure(ChatFailure.Reason.INVALID_RESPONSE, null, null);
-        return protocol.response(response.body());
+        return protocol.responseWithUsage(response.body());
     }
 
     @Override

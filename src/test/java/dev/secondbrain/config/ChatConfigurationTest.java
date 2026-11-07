@@ -1,14 +1,20 @@
 package dev.secondbrain.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import dev.secondbrain.questions.ChatFailure;
 import dev.secondbrain.questions.ChatProvider;
 import dev.secondbrain.questions.CloudflareChatProvider;
 import dev.secondbrain.questions.CloudflareChatSettings;
+import dev.secondbrain.questions.QuestionTelemetry;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -113,6 +119,34 @@ class ChatConfigurationTest {
                                     .doesNotHaveBean(CloudflareChatSettings.class);
                         });
         verify(fake, never()).generate(any());
+    }
+
+    @Test
+    void realProviderUsesTheInjectedTelemetryWithoutMakingAnInferenceRequest() {
+        var meters = new SimpleMeterRegistry();
+        try {
+            configured()
+                    .withBean(
+                            QuestionTelemetry.class,
+                            () -> new QuestionTelemetry(meters, ObservationRegistry.NOOP))
+                    .run(
+                            context -> {
+                                assertThat(context).hasNotFailed();
+                                assertThatThrownBy(
+                                                () ->
+                                                        context.getBean(ChatProvider.class)
+                                                                .generate(null))
+                                        .isInstanceOf(ChatFailure.class);
+                                assertThat(
+                                                meters.get("secondbrain.chat.requests")
+                                                        .tag("outcome", "invalid_input")
+                                                        .counter()
+                                                        .count())
+                                        .isEqualTo(1);
+                            });
+        } finally {
+            meters.close();
+        }
     }
 
     @Test
