@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /** HTTP mapping only; query invariants and retrieval remain in the search feature. */
@@ -69,14 +68,15 @@ class SearchController {
         try {
             var pages = fields.getOrDefault("page", List.of("0"));
             if (pages.size() != 1) throw new IllegalArgumentException("Invalid document page");
-            page = SearchForm.page(pages.getFirst());
+            page = DocumentQueryForm.page(pages.getFirst());
         } catch (IllegalArgumentException invalid) {
             return invalid(model, response);
         }
         if (Boolean.TRUE.equals(model.getAttribute("searchEnabled"))) {
-            restoreForm(SearchForm.blank(page), model);
+            DocumentQueryView.restore(DocumentQueryForm.blank(page), model);
             try {
-                populatePicker(SearchForm.blank(page), model);
+                DocumentQueryView.populate(
+                        DocumentQueryForm.blank(page), documents.getObject(), model);
             } catch (DataAccessException | TransactionException unavailable) {
                 return feedback(model, response, SearchFeedback.DATABASE, Optional.empty());
             }
@@ -89,17 +89,17 @@ class SearchController {
             @RequestParam MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response) {
-        final SearchForm form;
+        final DocumentQueryForm form;
         try {
-            form = SearchForm.read(fields);
+            form = DocumentQueryForm.read(fields, "search");
         } catch (IllegalArgumentException invalid) {
             return invalid(model, response);
         }
-        restoreForm(form, model);
+        DocumentQueryView.restore(form, model);
         final Optional<SearchQuery> query;
         try {
             query =
-                    form.action() == SearchForm.Action.SEARCH
+                    form.action() == DocumentQueryForm.Action.SUBMIT
                             ? Optional.of(form.toQuery())
                             : Optional.empty();
         } catch (IllegalArgumentException invalidQuery) {
@@ -110,8 +110,8 @@ class SearchController {
             return feedback(model, response, SearchFeedback.DISABLED, Optional.empty());
         }
         try {
-            populatePicker(form, model);
-            if (form.action() == SearchForm.Action.BROWSE) return "search";
+            DocumentQueryView.populate(form, documents.getObject(), model);
+            if (form.action() == DocumentQueryForm.Action.BROWSE) return "search";
             var request = query.orElseThrow();
             model.addAttribute("queryText", request.text());
             var result = service.search(request);
@@ -144,48 +144,13 @@ class SearchController {
     }
 
     private static SearchFeedback completedFeedback(
-            SearchForm form, SearchResult result, List<Hit> hits) {
+            DocumentQueryForm form, SearchResult result, List<Hit> hits) {
         if (!hits.isEmpty()) return SearchFeedback.SUCCESS;
-        if (form.scope() == SearchForm.Scope.SELECTED && form.documentIds().isEmpty())
+        if (form.scope() == DocumentQueryForm.Scope.SELECTED && form.documentIds().isEmpty())
             return SearchFeedback.EMPTY_SELECTION;
         return result.matches().isEmpty()
                 ? SearchFeedback.NO_MATCHES
                 : SearchFeedback.SOURCES_CHANGED;
-    }
-
-    private void populatePicker(SearchForm form, Model model) {
-        var service = documents.getObject();
-        var page = service.list(form.page());
-        var visibleIds =
-                page.documents().stream()
-                        .map(document -> document.documentId())
-                        .collect(Collectors.toSet());
-        var otherIds =
-                form.documentIds().stream()
-                        .filter(id -> !visibleIds.contains(id))
-                        .collect(Collectors.toSet());
-        var names = service.names(otherIds);
-        var others =
-                otherIds.stream()
-                        .sorted()
-                        .map(id -> new Choice(id, names.getOrDefault(id, "Document unavailable")))
-                        .toList();
-        model.addAttribute("documentPage", page);
-        model.addAttribute("otherSelections", others);
-        model.addAttribute("pickerAvailable", true);
-    }
-
-    private static void restoreForm(SearchForm form, Model model) {
-        model.addAttribute("queryText", form.text());
-        model.addAttribute("scope", form.scope() == SearchForm.Scope.ALL ? "all" : "selected");
-        model.addAttribute("documentIds", form.documentIds().stream().sorted().toList());
-        model.addAttribute("documentPage", new LibraryPage(List.of(), form.page(), false));
-        model.addAttribute(
-                "otherSelections",
-                form.documentIds().stream()
-                        .sorted()
-                        .map(id -> new Choice(id, "Selected document"))
-                        .toList());
     }
 
     private static String feedback(
@@ -216,18 +181,6 @@ class SearchController {
         @Override
         public String toString() {
             return "SearchHit";
-        }
-    }
-
-    record Choice(UUID documentId, String name) {
-        Choice {
-            Objects.requireNonNull(documentId, "documentId");
-            Objects.requireNonNull(name, "name");
-        }
-
-        @Override
-        public String toString() {
-            return "DocumentChoice";
         }
     }
 }

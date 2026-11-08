@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Questions | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
+  <main>
+    <div class="library-heading"><h1>Ask your documents</h1></div>
+    <section class="notice" th:if="${questionFeedback != null}"
+             th:classappend="${questionFeedback.error ? 'notice-error' : 'notice-info'}"
+             th:role="${questionFeedback.error ? 'alert' : 'status'}">
+      <h2 th:text="${questionFeedback.title}">Question feedback</h2>
+      <p th:text="${questionFeedback.message}">Check your question and try again.</p>
+      <p th:if="${retryAt.isPresent()}">Provider suggests trying again after:
+        <time th:datetime="${retryAt.orElseThrow()}" th:text="${retryAt.orElseThrow()}">Retry hint</time> (UTC).
+      </p>
+    </section>
+    <section class="library-card" aria-labelledby="answer-title" th:if="${questionAnswer != null}">
+      <h2>Your question</h2>
+      <p class="answer-text" th:text="${queryText}">Submitted question</p>
+      <p th:if="${scope == 'all'}">Scope: Whole library</p>
+      <p th:if="${scope == 'selected'}" th:text="|Scope: Selected documents (${documentIds.size()})|">Scope: Selected documents</p>
+      <h2 id="answer-title">Answer</h2>
+      <p class="answer-text" th:text="${questionAnswer.text}">Answer text</p>
+      <h2 id="answer-sources-title">Sources</h2>
+      <p>Source references were checked against the supplied passages. Check that the passages support the claims. Source links open in a new tab.</p>
+      <ol class="search-hits" aria-labelledby="answer-sources-title">
+        <li th:each="source, position : ${questionAnswer.citations}">
+          <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}"
+                 th:text="|Source ${position.count}: ${source.name}|">Source document</a></h3>
+          <p class="source-location">
+            <span th:if="${source.location.pageNumber.isPresent()}" th:text="|Page ${source.location.pageNumber.asInt} · |">Page 1 · </span>
+            <span th:text="|Lines ${source.location.startLine}–${source.location.endLine}|">Lines 1–2</span>
+          </p>
+          <pre class="search-excerpt" th:text="${source.text}">Source excerpt</pre>
+        </li>
+      </ol>
+    </section>
+    <section class="library-card" th:if="${questionsEnabled}">
+      <h2 th:text="${questionAnswer != null ? 'Ask another question' : 'Ask a question'}">Ask a question</h2>
+      <p th:if="${scope == 'all'}">Answer using the whole library.</p>
+      <p th:if="${scope == 'selected'}" th:text="|Selected documents: ${documentIds.size()}|">Selected documents: 0</p>
+      <form method="post" action="/questions" th:action="@{/questions}">
+        <label for="question-text">What would you like to know?</label>
+        <p id="question-help">Use up to 1,200 characters. Your question and relevant passages are sent to the configured provider. Search and answers share its allowance.</p>
+        <textarea id="question-text" name="q" rows="4" th:text="${queryText}"
+                  aria-describedby="question-help" th:aria-invalid="${questionFeedback != null and questionFeedback.queryInvalid ? 'true' : 'false'}" required></textarea>
+        <th:block th:replace="~{fragments/document-query :: picker}"></th:block>
+        <button type="submit" name="action" value="ask">Ask question</button>
+      </form>
+      <p><a href="/questions" th:href="@{/questions}">Start a new whole-library question</a></p>
+    </section>
+
+    <nav class="primary-links" aria-label="Knowledge library">
+      <a href="/search" th:href="@{/search}">Search documents</a>
+      <a href="/" th:href="@{/}">Back to document library</a>
+    </nav>
+  </main>
+</body>
+</html>

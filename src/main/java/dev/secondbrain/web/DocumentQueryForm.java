@@ -12,8 +12,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /** Bounded view state may contain a blank query while browsing document choices. */
-record SearchForm(String text, Scope scope, Set<UUID> documentIds, int page, Action action) {
-    SearchForm {
+record DocumentQueryForm(String text, Scope scope, Set<UUID> documentIds, int page, Action action) {
+    DocumentQueryForm {
         Objects.requireNonNull(text, "text");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(action, "action");
@@ -24,14 +24,14 @@ record SearchForm(String text, Scope scope, Set<UUID> documentIds, int page, Act
                 || text.codePointCount(0, text.length()) > SearchQuery.MAXIMUM_CODE_POINTS
                 || text.indexOf('\0') >= 0
                 || !StandardCharsets.UTF_8.newEncoder().canEncode(text))
-            throw new IllegalArgumentException("Invalid search form");
+            throw new IllegalArgumentException("Invalid document query form");
     }
 
-    static SearchForm blank(int page) {
-        return new SearchForm("", Scope.ALL, Set.of(), page, Action.SEARCH);
+    static DocumentQueryForm blank(int page) {
+        return new DocumentQueryForm("", Scope.ALL, Set.of(), page, Action.SUBMIT);
     }
 
-    static SearchForm read(MultiValueMap<String, String> fields) {
+    static DocumentQueryForm read(MultiValueMap<String, String> fields, String submitAction) {
         String text = single(fields, "q", null);
         var scope =
                 switch (single(fields, "scope", null)) {
@@ -52,22 +52,24 @@ record SearchForm(String text, Scope scope, Set<UUID> documentIds, int page, Act
             ids.add(id);
         }
         int page = page(single(fields, "page", "0"));
+        var submittedAction = single(fields, "action", submitAction);
         var action =
-                switch (single(fields, "action", "search")) {
-                    case "search" -> Action.SEARCH;
-                    case "previous" -> {
-                        page = Math.subtractExact(page, 1);
-                        yield Action.BROWSE;
-                    }
-                    case "next" -> {
-                        if (page == Integer.MAX_VALUE)
-                            throw new IllegalArgumentException("Invalid page");
-                        page++;
-                        yield Action.BROWSE;
-                    }
-                    default -> throw new IllegalArgumentException("Invalid form action");
-                };
-        return new SearchForm(text, scope, ids, page, action);
+                submittedAction.equals(submitAction)
+                        ? Action.SUBMIT
+                        : switch (submittedAction) {
+                            case "previous" -> {
+                                page = Math.subtractExact(page, 1);
+                                yield Action.BROWSE;
+                            }
+                            case "next" -> {
+                                if (page == Integer.MAX_VALUE)
+                                    throw new IllegalArgumentException("Invalid page");
+                                page++;
+                                yield Action.BROWSE;
+                            }
+                            default -> throw new IllegalArgumentException("Invalid form action");
+                        };
+        return new DocumentQueryForm(text, scope, ids, page, action);
     }
 
     SearchQuery toQuery() {
@@ -93,7 +95,7 @@ record SearchForm(String text, Scope scope, Set<UUID> documentIds, int page, Act
 
     @Override
     public String toString() {
-        return "SearchForm[scope=" + scope + ", page=" + page + "]";
+        return "DocumentQueryForm[scope=" + scope + ", page=" + page + "]";
     }
 
     enum Scope {
@@ -102,7 +104,7 @@ record SearchForm(String text, Scope scope, Set<UUID> documentIds, int page, Act
     }
 
     enum Action {
-        SEARCH,
+        SUBMIT,
         BROWSE
     }
 }

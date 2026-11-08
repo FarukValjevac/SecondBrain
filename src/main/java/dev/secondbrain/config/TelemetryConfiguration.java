@@ -79,6 +79,7 @@ class TelemetryConfiguration {
                                         Set.of(
                                                                 "/",
                                                                 "/search",
+                                                                "/questions",
                                                                 "/**",
                                                                 "/css/**",
                                                                 "/documents",

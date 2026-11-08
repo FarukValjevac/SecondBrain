@@ -9,7 +9,7 @@
 <body>
   <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
   <main>
-    <p><a href="/search" th:href="@{/search}">Back to search</a></p>
+    <p class="primary-links"><a href="/search" th:href="@{/search}">Back to search</a> <a href="/questions" th:href="@{/questions}">Ask your documents</a></p>
     <section class="notice notice-error" role="alert" th:if="${sourceError != null}">
       <h1>Source unavailable</h1>
       <p th:text="${sourceError}">Search again for current sources.</p>
