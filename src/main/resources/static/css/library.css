@@ -26,7 +26,7 @@ body {
   text-decoration: none;
 }
 
-:is(a, input, button):focus-visible {
+:is(a, input, textarea, button):focus-visible {
   outline: 3px solid #205c48;
   outline-offset: 5px;
 }
@@ -94,7 +94,7 @@ label {
   font-size: 0.875rem;
 }
 
-input[type="file"], input[type="search"] {
+input[type="file"], input[type="search"], textarea {
   display: block;
   width: 100%;
   margin: 0.75rem 0 1.25rem;
@@ -219,6 +219,11 @@ button:hover {
 .search-hits h3 { overflow-wrap: anywhere; }
 .search-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .source-location { color: #52665d; }
+
+textarea { resize: vertical; min-height: 8rem; }
+.answer-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.primary-links { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem; }
+.primary-links a { color: #205c48; }
 
 
 .notice-info {

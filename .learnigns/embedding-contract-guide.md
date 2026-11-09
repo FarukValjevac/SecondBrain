@@ -754,7 +754,7 @@ The `documents` row has two optional pointers:
 | `desired_indexing_version` | Which generation the application wants to build |
 | `active_indexing_version` | Which generation has been selected after publication checks |
 
-These can differ. Suppose generation 7 is active and generation 8 is being prepared. An incomplete replacement must not erase the old selection. The guard can select generation 8 only after its own passages and vectors are complete. Future retrieval also needs to check document visibility, current extraction, and model compatibility; a pointer alone does not establish those conditions.
+These can differ. Suppose generation 7 is active and generation 8 is being prepared. An incomplete replacement must not erase the old selection. The guard can select generation 8 only after its own passages and vectors are complete. Retrieval also checks document visibility, current extraction, and model compatibility; a pointer alone does not establish those conditions.
 
 The active pointer starts empty. Its composite foreign key references `(document_id, indexing_version)`, so a valid generation belonging to another document is still an invalid target. The foreign key is deferred: it is checked when the transaction finishes, allowing coordinated owner deletion without accepting a dangling target after the transaction succeeds.
 
@@ -911,7 +911,7 @@ sequenceDiagram
     Worker->>DB: Activate complete generation, record IndexPublished, acknowledge atomically
 ```
 
-Extraction version and index generation identify different stages. A document can show `EXTRACTED` while its embedding work is still pending. Only its complete committed active generation is ready for future retrieval. No semantic-search endpoint exists yet.
+Extraction version and index generation identify different stages. A document can show `EXTRACTED` while its embedding work is still pending. Only its complete committed active generation is ready for retrieval. Search and questions use that active generation after checking current visibility and compatibility.
 
 Every handoff retains a correlation ID identifying the overall operation and a causation ID identifying the immediately preceding event. Each delivery attempt has its own trace span linked to its producer's persisted trace context. This lets you follow the chain without storing document text in diagnostics. Retries are additional attempts, not additional ready documents.
 
@@ -1086,11 +1086,11 @@ The page displays a match count plus escaped filenames, excerpts, line ranges an
 
 ## 31. Keeping form state separate from an actual search
 
-[SearchForm](../src/main/java/dev/secondbrain/web/SearchForm.java) represents a browser interaction: text, scope, selected IDs, document page and action. It is an immutable record with copied selections and safe diagnostics. Its text may be blank because browsing documents does not require a query. `SearchQuery` is stricter: it represents a real retrieval request and rejects blank text. That distinction keeps paging from making inference calls or weakening the search contract.
+[DocumentQueryForm](../src/main/java/dev/secondbrain/web/DocumentQueryForm.java) represents a browser interaction: text, scope, selected IDs, document page and action. It is an immutable record with copied selections and safe diagnostics. Its text may be blank because browsing documents does not require a query. `SearchQuery` is stricter: it represents a real retrieval request and rejects blank text. That distinction keeps paging from making inference calls or weakening the search contract.
 
 ```mermaid
 flowchart TD
-    Form[POST: bounded SearchForm] --> Action{Which action?}
+    Form[POST: bounded DocumentQueryForm] --> Action{Which action?}
     Action -->|Previous or next| Choices[Read 50 document choices and selected labels]
     Choices --> Render[Render form; no query embedding]
     Action -->|Search| Query[Construct SearchQuery]
@@ -1155,9 +1155,9 @@ The controller maps absent/stale sources to the same 404, malformed links to 400
 
 A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
 
-The controller restores a parsed `SearchForm` before trying retrieval. This preserves valid text, scope, checked IDs and page when a provider or database operation fails. If labels cannot load, the page uses generic checked selection controls rather than losing those IDs or displaying old filenames. This state lives only in the request's view model; it is not query history or a server session.
+The controller restores a parsed `DocumentQueryForm` before trying retrieval. This preserves valid text, scope, checked IDs and page when a provider or database operation fails. If labels cannot load, the page uses generic checked selection controls rather than losing those IDs or displaying old filenames. This state lives only in the request's view model; it is not query history or a server session.
 
-Blank text is valid while browsing choices but invalid when converted into `SearchQuery`. That failure can preserve the rest of the valid form without any database/provider call. Malformed or ambiguous fields cannot form a trusted `SearchForm`; the page explicitly clears them and chooses selected/empty scope instead of accidentally broadening to all documents.
+Blank text is valid while browsing choices but invalid when converted into `SearchQuery`. That failure can preserve the rest of the valid form without any database/provider call. Malformed or ambiguous fields cannot form a trusted `DocumentQueryForm`; the page explicitly clears them and chooses selected/empty scope instead of accidentally broadening to all documents.
 
 An optional `Instant` retry hint is rendered as a UTC time for relevant provider failures. No raw message is interpreted to invent a reset date. The application does not wait or automatically resubmit: each explicit search can make at most one service attempt. A new request can succeed without retaining an earlier quota message because feedback is per request, not mutable singleton state.
 
@@ -1259,7 +1259,7 @@ The records validate their own values and copy input lists. Java's final record 
 
 A `Reply` is deliberately an untrusted model candidate. It can carry an uncited answer, a foreign citation UUID or repeated citation IDs at this boundary; the public answer service applies local rules before accepting it. By contrast, `INSUFFICIENT_INFORMATION` has an unambiguous empty answer/citation shape. The candidate's `toString()` prints only its outcome/count, so printing the object accidentally does not expose the answer. Valid citation membership will still not prove factual support.
 
-[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The internal question service composes retrieval and generation; the public answer service adds citation/source acceptance. The question page is still under development.
+[CloudflareChatSettings](../src/main/java/dev/secondbrain/questions/CloudflareChatSettings.java) owns validated connection/output limits and redacted credential diagnostics. [ChatConfiguration](../src/main/java/dev/secondbrain/config/ChatConfiguration.java) reads the external values through constructor arguments. The same account/token keys serve embeddings and questions, while each capability has its own enable switch. Disabled startup needs no chat credentials; enabling creates the settings and HTTP client without making an inference request. Supplying a fake provider bypasses live settings, allowing focused tests without credentials or inference. The internal question service composes retrieval and generation; the public answer service adds citation/source acceptance. The question page calls the public answer service through an explicit POST submission.
 
 The [development guide](../docs/development.md#question-provider-boundary) includes a short JShell example. It shows the interface, nested records and a fake response together, using only compiled classes and the JDK.
 
@@ -1351,7 +1351,7 @@ When evidence is present, `chat.generate(...)` is called once. Its reply and the
 
 The service runs synchronously on its caller and refuses an active caller transaction. Search owns its short database reads, which finish before chat starts. The question, context and reply remain local variables, rather than mutable singleton fields. Interruption is checked before and after collaborator calls, and a provider's `InterruptedException` restores the thread's interrupt flag before returning a safe cancellation failure. No question queue or automatic retry is created.
 
-[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. Safe generation telemetry and the public citation/source gate are available; the browser question page is still under development.
+[QuestionConfiguration](../src/main/java/dev/secondbrain/questions/QuestionConfiguration.java) wires this service only when both embeddings and questions are enabled. Constructing the object does not search or generate. The [orchestration checks](../docs/development.md#retrieval-and-answer-orchestration) exercise the sequence with synthetic data and doubles; they do not establish real-model quality or final citation acceptance. Safe generation telemetry and the public citation/source gate are available; the browser question page uses the public answer API.
 
 ## 41. Observing questions without recording their content
 
@@ -1376,11 +1376,11 @@ Token metadata stays inside the adapter's decoded response and does not change t
 
 For example, reports of input 19, output 7 and total 26 are three views of the same usage. Inspect a single `kind` in metrics; adding them all gives 52 and counts the same tokens twice. Missing total stays missing even if input and output were reported. These counters cover accepted metadata on successful response shapes, reset with the process, and cannot tell whether a failed remote request used allowance or what the account has left.
 
-Observations inherit an existing caller trace while leaving its scope unchanged. No prompt or credential is sent to a telemetry backend, and no trace baggage is forwarded to the model provider. If a counter, observation handler or logger fails, the business operation still returns its original candidate or safe failure. The [telemetry guide](../docs/development.md#question-and-chat-telemetry) lists exact meter names and deterministic checks. There is no new question page or live model call in those checks.
+Observations inherit an existing caller trace while leaving its scope unchanged. No prompt or credential is sent to a telemetry backend, and no trace baggage is forwarded to the model provider. If a counter, observation handler or logger fails, the business operation still returns its original candidate or safe failure. The [telemetry guide](../docs/development.md#question-and-chat-telemetry) lists exact meter names and deterministic checks. Those checks make no live model call; browser questions use the same instrumented public API.
 
 ## 42. Accepting citation identities and checking sources again
 
-The model's reply is still untrusted when HTTP parsing succeeds. [QuestionAnswerService](../src/main/java/dev/secondbrain/questions/QuestionAnswerService.java) is the public application entry point that turns an internal candidate into answer data suitable for the future web layer. It calls the existing generation service, validates the citation list, and checks the evidence again after the model has finished.
+The model's reply is still untrusted when HTTP parsing succeeds. [QuestionAnswerService](../src/main/java/dev/secondbrain/questions/QuestionAnswerService.java) is the public application entry point that turns an internal candidate into answer data suitable for the web layer. It calls the existing generation service, validates the citation list, and checks the evidence again after the model has finished.
 
 ```mermaid
 flowchart TD
@@ -1417,11 +1417,45 @@ sequenceDiagram
 
 This protects a precise boundary: deletion committed before the final read prevents returning that response. Deletion after the snapshot can still make a later citation link unavailable. A browser or model may already possess earlier text; the application cannot recall it. Each new source-link request performs its own fresh check.
 
-The public `Answer` record uses its own `Outcome`, answer text and an immutable list of document-owned source projections. It does not expose provider responses or internal search scores. Its constructor enforces sourced-answer and empty insufficient-information shapes, and its `toString()` contains only an outcome and count. The nested types belong to the answer use case, rather than a central enum/DTO folder. `QuestionFailure` is public so a future controller can choose safe feedback from its closed stage/reason values without reading a private exception.
+The public `Answer` record uses its own `Outcome`, answer text and an immutable list of document-owned source projections. It does not expose provider responses or internal search scores. Its constructor enforces sourced-answer and empty insufficient-information shapes, and its `toString()` contains only an outcome and count. The nested types belong to the answer use case, rather than a central enum/DTO folder. `QuestionFailure` is public so the controller can choose safe feedback from its closed stage/reason values without reading a private exception.
 
 Identity checks cannot establish truth. Suppose the supplied passage says “HashSet does not permit duplicates,” and the model replies “HashSet permits duplicates” while citing that passage's correct ID. Membership and visibility checks pass even though the claim is false. A unit fixture deliberately demonstrates this limit; it is not evidence that the model answers well. Inspectable sources and separate semantic evaluation remain necessary.
 
-The `question.answer` observation and public-answer metrics include generation plus citation/source checks. `answered` means the mechanical gate passed; `candidate_answer` on the internal generation metric means only that a model reply was produced. Missing, foreign and duplicate citations and unavailable sources have separate fixed outcomes. No private content or exception is attached to telemetry, and failed metrics cannot bypass validation. The [development guide](../docs/development.md#citation-validation-and-visible-answer-sources) lists the deterministic checks and the required PostgreSQL deletion-race checks. The browser question page is still under development.
+The `question.answer` observation and public-answer metrics include generation plus citation/source checks. `answered` means the mechanical gate passed; `candidate_answer` on the internal generation metric means only that a model reply was produced. Missing, foreign and duplicate citations and unavailable sources have separate fixed outcomes. No private content or exception is attached to telemetry, and failed metrics cannot bypass validation. The [development guide](../docs/development.md#citation-validation-and-visible-answer-sources) lists the deterministic checks and the required PostgreSQL deletion-race checks. The question controller renders accepted answer data with escaped source references.
+
+## 43. Following a browser question through Spring and back
+
+[QuestionController](../src/main/java/dev/secondbrain/web/QuestionController.java) is the HTTP boundary. Spring discovers its `@Controller` annotation and registers the methods marked `@GetMapping("/questions")` and `@PostMapping("/questions")`. The browser chooses which method runs by sending GET or POST; our code does not call these controller methods directly. Constructor injection supplies optional service providers, so a disabled feature can show useful setup feedback without constructing a model request.
+
+```mermaid
+flowchart TD
+    Browser[Browser] -->|GET: open the form| Form[Render form and document choices]
+    Browser -->|POST: previous or next choices| Form
+    Browser -->|POST: Ask question| Controller[Bind bounded text, explicit scope and selections]
+    Controller --> Picker[Load picker metadata before generation]
+    Picker --> API[QuestionAnswerService.answer]
+    API --> Generation[Search, context selection and provider call]
+    Generation --> Gate[Citation membership and final source snapshot]
+    Gate -->|Accepted data| View[Model attributes and questions.html]
+    Gate -->|Safe failure| Feedback[Fixed QuestionFeedback and retained form state]
+    Feedback --> View
+    View --> Escaped[Thymeleaf escapes text and builds stable source links]
+    Escaped --> Browser
+```
+
+The shared [DocumentQueryForm](../src/main/java/dev/secondbrain/web/DocumentQueryForm.java) represents browser state, while `SearchQuery` represents an actual inference request. Blank text is useful while paging through documents, so the form permits it; converting to `SearchQuery` before submitting rejects it. Search and questions share UUID/scope/page/Unicode limits, but each controller supplies its own allowed submit action. A malformed form resets to selected/empty scope instead of silently asking across the whole library.
+
+[DocumentQueryView](../src/main/java/dev/secondbrain/web/DocumentQueryView.java) restores field values and loads the bounded metadata picker. The [picker fragment](../src/main/resources/templates/fragments/document-query.html) shares the corresponding HTML with search. These helpers have a concrete shared responsibility; they are not a general controller framework. Paging uses POST with the current form state and performs no query embedding or chat call. Checked documents restrict results only when selected-document scope is chosen.
+
+The controller calls the public answer service after loading picker metadata. That order matters: source validation is the last database step before rendering the answer. An unavailable source clears the response and stale picker labels while retaining selected IDs as generic controls. The controller does not rebuild an answer from raw provider output or silently remove invalid citations. The application service owns those rules, and documents owns source eligibility.
+
+The accepted answer is placed above the picker, alongside its submitted question and scope. Source links open in a new tab so inspection can keep the answer page available without a POST resubmission. Returning the string `"questions"` selects [questions.html](../src/main/resources/templates/questions.html). `Model` is the per-request map containing field values, fixed feedback and the accepted answer projection. It is not a database record or a question-history session. Thymeleaf reads these values to generate the response. `th:text` escapes question, answer, filename and excerpt text; markup remains visible text. `th:href` builds source links from validated UUIDs, without putting the question or answer in a URL. Text is not interpreted as HTML or Markdown.
+
+[QuestionFeedback](../src/main/java/dev/secondbrain/web/QuestionFeedback.java) translates closed service reasons into safe titles, messages and HTTP statuses. Insufficient information, empty selection and no completed index are different informational states. Invalid input is 400; changed evidence is 409; rate/quota failures are 429; timeouts are 504; other unavailable or invalid-output states are 503. No candidate answer or private exception message is placed on these failure pages. Allowed retry hints are typed timestamps displayed in UTC, not automatic retries.
+
+Responses use `no-store` and `no-referrer`; GET parameters cannot trigger inference or restore private question text. There is no automatic refresh, background question job or saved question history. Explicitly refreshing a POST response may cause a browser to offer resubmission, which would be another model request. The existing correlation filter and allowlisted HTTP route keep diagnostics useful without recording form bodies.
+
+The [browser guide](../docs/development.md#browser-questions-and-feedback) describes usage and safe states. MVC tests render real templates with fake services; the full HTTP workflow test uses real uploads, database/event-produced indexes and fake models. Those checks are different from visual layout inspection or a live model-quality check. A model can cite valid sources while making an unsupported claim, so the page exposes excerpts for the user to inspect.
 
 ## References and related notes
 

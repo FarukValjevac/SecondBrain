@@ -215,15 +215,25 @@ Run `./mvnw -Dit.test=CloudflareEmbeddingHttpIT verify` for a real loopback stub
 
 ## Question provider boundary
 
-Question generation is under development. Provider settings/contracts, bounded evidence selection, the HTTP chat adapter and internal retrieval/generation orchestration are implemented. Citation validation and fresh source resolution are implemented through the public answer service described below. The question page remains under development. Keep `SECONDBRAIN_QUESTIONS_ENABLED=false` for ordinary use. Startup makes no inference request; checks below use controlled inputs or a local server.
+Questions are available at `/questions` when embeddings and questions are enabled and the provider is configured. The browser form calls the public answer service described below, including citation validation and fresh source resolution. Startup, opening the form and paging through document choices make no inference request. Submitting a valid question can send the question and bounded retrieved text to the configured provider. Automated checks use controlled inputs or local servers.
 
 | Setting | Current behavior |
 |---|---|
-| `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in validates settings and creates the chat client; construction makes no inference request. |
+| `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in validates settings and creates the chat client; with embeddings enabled it also enables the answer service and question form. Construction makes no inference request. |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Same external account/token keys as embeddings; required when settings are enabled. |
 | `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; model quality remains unmeasured. |
 | `CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS` | Defaults to 512; permitted range 1–2,048. |
 | `secondbrain.questions.connect-timeout` / `request-timeout` | Default 2s / 30s. Connect range 100ms–10s; request range connect-timeout–60s. |
+
+Enable questions explicitly after configuring [embeddings](#embedding-configuration) and the same external account/token. Example plain entries in your ignored `.env`:
+
+```dotenv
+SECONDBRAIN_QUESTIONS_ENABLED=true
+CLOUDFLARE_CHAT_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast
+CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS=512
+```
+
+`SECONDBRAIN_EMBEDDINGS_ENABLED=true` and completed indexes are also required for answers. Restart after changing configuration, then open [http://127.0.0.1:8080/questions](http://127.0.0.1:8080/questions). No new credential or provider account is introduced.
 
 Cloudflare lists this candidate with a 24,000-token context and [JSON Mode support](https://developers.cloudflare.com/workers-ai/features/json-mode/). Model/account eligibility and the shared free allowance follow [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/); code cannot verify an account's billing plan. The [model page](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/) links its terms. Documentation compatibility was checked on 2026-11-02; live protocol behavior, language quality and grounding were not evaluated. No automatic model choice, paid upgrade or fallback is configured.
 
@@ -267,7 +277,7 @@ Run the focused selection checks:
 ./mvnw -Dtest=EvidenceContextTest,ChatProviderTest,ChatConfigurationTest test
 ```
 
-These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Keep question generation disabled for ordinary use until the question page is available.
+These checks cover Unicode byte limits, omitted passages, exact source mappings, scope and instruction-like text retained as reference data. They do not measure a real model's grounding or instruction-following behavior. Enabling questions opts in to hosted generation; only explicit question submissions invoke the answer service.
 
 ### Structured answer HTTP adapter
 
@@ -291,7 +301,7 @@ The local HTTP tests require permission to open a loopback listener, but need no
 ./mvnw -Dit.test=CloudflareChatHttpIT verify
 ```
 
-Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. Keep the application flag false for ordinary use until the question page is available; the adapter does not add a browser endpoint or accept replies as sourced answers.
+Those tests cover transport success/insufficient information, failure mapping without retries, redirects, response-size limits, delayed headers/body, interruption, concurrent capacity, malformed bodies/content types and connection failure. A listener setup error fails required verification; it is not an executed protocol pass. Run full `./mvnw verify` with Docker available for all existing integration checks. The adapter itself does not serve HTTP views or accept sourced answers; the question controller uses the public answer service for those responsibilities.
 
 ### Retrieval and answer orchestration
 
@@ -334,7 +344,7 @@ The application never estimates a missing count or adds input/output to invent t
 
 The `question.answer`, `question.generate` and `chat.request` observations inherit the current caller trace without replacing its scope or forwarding baggage to Cloudflare. Logs contain fixed operation/outcome fields and the existing safe caller correlation context. Questions, prompts, passage/document text, filenames, answers, IDs, credentials, endpoint URLs, raw exceptions and retry timestamps are never passed into these feature telemetry fields. No private exception is attached to an observation. The trace export allowlist retains only the fixed names/outcomes and its existing safe fields, dropping private attributes and events. Counter/handler/logging failures cannot replace a candidate or its safe failure.
 
-With questions enabled, Spring supplies shared registries for both the adapter and orchestration, including fake-provider contexts. Without a meter registry, telemetry is disabled. Standalone constructors keep disabled telemetry unless explicitly supplied. Startup registers zero counters but performs no inference; duration series appear only after operations. Reading Actuator metrics makes no provider call. There is no question UI yet, so keep the ordinary-use question flag false; no `.env` changes are needed for these tests:
+With questions enabled, Spring supplies shared registries for both the adapter and orchestration, including fake-provider contexts. Without a meter registry, telemetry is disabled. Standalone constructors keep disabled telemetry unless explicitly supplied. Startup registers zero counters but performs no inference; duration series appear only after operations. Reading Actuator metrics makes no provider call. The question page exposes this operation after explicit configuration. No `.env` changes or real credentials are needed for these tests:
 
 ```sh
 ./mvnw -Dtest=QuestionTelemetryTest,QuestionTelemetryEndpointTest,QuestionConfigurationTest,ChatConfigurationTest,CloudflareChatProtocolTest,TelemetryPrivacyTest test
@@ -345,7 +355,7 @@ These checks use synthetic data, fake collaborators, in-memory meters/traces and
 
 ### Citation validation and visible answer sources
 
-[QuestionAnswerService](../src/main/java/dev/secondbrain/questions/QuestionAnswerService.java) is the public application operation: `answer(SearchQuery)` returns a purpose-specific immutable `Answer`, or throws the safe public `QuestionFailure`. It composes the internal generation service with local citation and fresh-source validation. No question page or HTTP endpoint is added yet.
+[QuestionAnswerService](../src/main/java/dev/secondbrain/questions/QuestionAnswerService.java) is the public application operation: `answer(SearchQuery)` returns a purpose-specific immutable `Answer`, or throws the safe public `QuestionFailure`. It composes the internal generation service with local citation and fresh-source validation. `QuestionController` exposes this operation through `POST /questions`.
 
 Every `ANSWERED` candidate must contain at least one citation. IDs must belong to the exact passages supplied to that model request; an existing ID from another question or a retrieved passage omitted by the context budget is rejected. Duplicate IDs are rejected explicitly, rather than silently deduplicated. Invalid citation lists fail before any source lookup, with `MISSING_CITATIONS`, `INVALID_CITATION` or `DUPLICATE_CITATION` at stage `CITATIONS`. The application does not silently return a partially cited answer.
 
@@ -355,7 +365,7 @@ Each supplied passage must remain in the same visible, completed active generati
 
 Existing links `/documents/{documentId}/passages/{passageId}` independently recheck eligibility when opened. A committed deletion before the final snapshot prevents returning the response; new source reads also exclude that document. A deletion committed after the final snapshot can make a later link unavailable. Already delivered browser/provider content cannot be recalled, and this API does not promise to freeze documents until a response reaches a browser.
 
-Citation identity and visibility are mechanical checks, **not a factual-support guarantee**. A test deliberately accepts a false claim citing a real, visible supplied passage that contradicts it. This proves that valid IDs alone cannot detect unsupported claims; semantic quality needs a separate evaluation. Returned text remains untrusted content for the future web layer to escape.
+Citation identity and visibility are mechanical checks, **not a factual-support guarantee**. A test deliberately accepts a false claim citing a real, visible supplied passage that contradicts it. This proves that valid IDs alone cannot detect unsupported claims; semantic quality needs a separate evaluation. The question template escapes returned text and does not interpret it as HTML or Markdown.
 
 Public-answer telemetry uses `question.answer`, `secondbrain.question.answers` and `secondbrain.question.answer.duration`. Outcomes distinguish `answered`, `insufficient_information`, citation rejection, changed sources and typed upstream failures. Here `answered` means citation/source acceptance only. Logs, metrics, traces and printable failures omit questions, filenames, excerpts, answers, credentials and raw causes. Broken diagnostics cannot bypass citation checks or change an accepted result.
 
@@ -372,6 +382,46 @@ Required PostgreSQL checks use real extraction/indexing/search, fake models, tem
 ```
 
 The latter requires Docker; no credentials, live allowance, personal library or external telemetry service is used. Full `./mvnw verify` remains the completion gate. No new `.env` setting is needed.
+
+
+### Browser questions and feedback
+
+Follow **Ask your documents** from the library, or open `/questions`. Enter up to 1,200 Unicode characters, choose **Whole library** or **Selected documents only**, then select **Ask question**. Checked document IDs restrict answers only in selected-document scope; an empty selection means no documents. Select at most 100 documents, retaining checked choices while paging through the 50-document picker. Browsing choices can use blank text and performs no query embedding or chat request. The form shows the submitted question and scope on completion and recoverable errors.
+
+Answers are rendered as escaped plain text with line breaks. Each accepted reference shows its document name, source excerpt, line range and physical PDF page where present. Answers appear above the picker with their submitted question and scope. Open a numbered source link in a new tab to resolve that exact passage again while keeping the answer available. Source references establish identity and visibility at the final check; inspect the text to assess factual support. The application does not interpret answer/document markup, enable tools or persist question history.
+
+`GET /questions` ignores question text/selection parameters and never invokes inference. Form submissions and paging use POST bodies; question text is not added to source or navigation URLs. Responses set `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, create no question session/history, and have no automatic refresh/retry. A browser refresh of a POST result may ask to resubmit it; a resubmission is another inference request. Use **Start a new whole-library question** for a fresh form.
+
+`DocumentQueryForm`, `DocumentQueryView` and the `fragments/document-query` template share bounded form/picker behavior with search. A controller-specific submit action keeps search and question actions distinct. Malformed/ambiguous state is cleared with selected/empty scope; a blank question preserves otherwise valid state without provider/database I/O. Picker metadata is read before generation, so no extra database work follows the answer service's final visibility check. On changed-source errors, stale picker labels are cleared while selected IDs remain as generic controls. No answer or excerpt is rendered on a failure.
+
+| Response | HTTP status | Meaning |
+|---|---|---|
+| Answer, insufficient information, empty selection, no compatible index | 200 | Distinct completed/informational states; empty evidence and failed retrieval are not confused |
+| Invalid question/form | 400 | Correct the input; valid selections are retained where possible |
+| Sources changed/unavailable | 409 | The response was discarded; ask again using current evidence |
+| Rate limit/shared quota | 429 | Wait before explicitly submitting again; a provider hint may be shown in UTC |
+| Provider timeout | 504 | The bounded provider deadline expired |
+| Disabled/configuration/storage/provider/invalid citations/invalid response/output limit/interruption | 503 | Safe fixed feedback without displaying an unverified or partial answer |
+
+The existing `/questions` route is allowlisted for bounded HTTP telemetry. Correlation uses the existing UUID header/MDC and answer/generation/provider observations; request bodies, question text, filenames, prompts, answers and private exceptions are not logged or attached to metrics/traces.
+
+```sh
+./mvnw -Dtest=QuestionControllerTest,QuestionDisabledControllerTest,SearchControllerTest,SearchDisabledControllerTest,DocumentSourceControllerTest,LibraryControllerTest,TelemetryPrivacyTest test
+./mvnw -Dit.test=QuestionHttpIT verify
+```
+
+The first command renders real templates with controlled public-service responses and needs no Docker, listener or credentials. The second needs Docker and loopback access: it uploads through HTTP, waits for real event-produced indexes, asks with deterministic providers, follows source URLs and exercises deletion, source changes, invalid output and quota failures. Neither consumes live allowance. Full `./mvnw verify` remains the completion gate.
+
+### Question browser walkthrough
+
+This is a separate user-run layout/live-provider check. Use disposable, non-sensitive notes and an explicitly configured account/model within its allowance; ordinary automated verification uses fakes. Keep this walkthrough to two explicit question submissions and stop on provider/configuration/quota failure rather than repeatedly retrying.
+
+1. Enable the existing embedding/question settings, restart, and open `/questions`. Check desktop and narrow layouts: labels, textarea, choices and navigation should fit without horizontal scrolling. Opening/paging makes no model call.
+2. With a disposable document indexed, select its scope and ask one question directly supported by its text. Inspect the answer and source excerpts. Open a source link and confirm its text/line/physical-page location. Record the actual outcome; correct citation IDs alone do not prove the answer is supported.
+3. Submit one question that the selected evidence cannot answer. Check the actual insufficient-information behavior; do not treat a fabricated reply with valid IDs as a successful grounding check.
+4. Delete only the disposable document through its existing confirmation UI. Its old source link should be unavailable. Quota, malformed-output and deletion-during-generation views are exercised with fakes rather than intentional live quota exhaustion or repeated requests.
+
+Browser pixel/layout inspection and any live-model results must be recorded separately from MVC/HTTP fixture checks. Current execution evidence and environment restrictions belong to the local implementation plan.
 
 ## Staged vector storage
 
@@ -395,11 +445,11 @@ This requires Docker but no Cloudflare account. It checks multi-batch/restart re
 
 ## Index publication prerequisites
 
-V12 adds `documents.active_indexing_version`, initially NULL. It is separate from `desired_indexing_version`: desired identifies the generation being built, while active identifies a generation selected after completeness validation. Existing data is not activated by the migration. The enabled embedding worker calls the activation operation after staging all vectors. Activation, `IndexPublished`, and acknowledgment share the dispatcher's lease-fenced transaction. There is no semantic-search endpoint yet.
+V12 adds `documents.active_indexing_version`, initially NULL. It is separate from `desired_indexing_version`: desired identifies the generation being built, while active identifies a generation selected after completeness validation. Existing data is not activated by the migration. The enabled embedding worker calls the activation operation after staging all vectors. Activation, `IndexPublished`, and acknowledgment share the dispatcher's lease-fenced transaction. Search and questions use only completed active indexes.
 
 `JdbcIndexingRepository.activate` is an internal caller-transaction operation. It locks/rechecks the visible, extracted, desired generation and its source, then requires the supported passage configuration, exact contiguous passage count, compatible model/dimensions, and one valid owned vector per passage. It returns `ACTIVATED`, `ALREADY_ACTIVE`, `INCOMPLETE`, or `INELIGIBLE`. Only successful new activation changes the pointer/timestamp. A repeat leaves the timestamp unchanged; a failed or incomplete replacement leaves an existing active pointer intact. The composite deferred foreign key prevents selecting another document's generation or removing a selected target independently.
 
-The repository operation does not publish an event or validate delivery leases by itself. `DocumentIndexPublication` supplies the shared effect; the normal embedding handler calls it before returning to the dispatcher for acknowledgment. If activation, event insertion, transaction completion, or the final lease check fails, the active pointer, new fact/key, and acknowledgment roll back together. Earlier batch checkpoints remain staged. Future retrieval must require a visible document and an active generation compatible with its current extraction/model, rather than treating staging rows as searchable.
+The repository operation does not publish an event or validate delivery leases by itself. `DocumentIndexPublication` supplies the shared effect; the normal embedding handler calls it before returning to the dispatcher for acknowledgment. If activation, event insertion, transaction completion, or the final lease check fails, the active pointer, new fact/key, and acknowledgment roll back together. Earlier batch checkpoints remain staged. Retrieval requires a visible document and an active generation compatible with its current extraction/model; staging rows are not searchable.
 
 ```sh
 ./mvnw -Dit.test=IndexPublicationIT,DatabaseMigrationIT verify
@@ -418,7 +468,7 @@ An empty active pointer is expected while processing is disabled, incomplete, or
 
 ## Atomic publication and recovery
 
-The normal `documents.embed-passages.v1` delivery acknowledges `PassagesPrepared` only after the shared publication effect succeeds. It selects the complete desired/current generation, emits one ID-only schema-1 `IndexPublished` fact, and acknowledges in the same transaction. Correlation is retained, and causation points to that `PassagesPrepared` event. Repeating an effect uses the original logical event identity; an already active generation still repairs a missing fact. `IndexPublished` is terminal and creates no additional business delivery. Library pages still display extraction status. Index readiness metrics are available below; semantic-search endpoints remain under development.
+The normal `documents.embed-passages.v1` delivery acknowledges `PassagesPrepared` only after the shared publication effect succeeds. It selects the complete desired/current generation, emits one ID-only schema-1 `IndexPublished` fact, and acknowledges in the same transaction. Correlation is retained, and causation points to that `PassagesPrepared` event. Repeating an effect uses the original logical event identity; an already active generation still repairs a missing fact. `IndexPublished` is terminal and creates no additional business delivery. Library pages still display extraction status. Index readiness metrics are available below; search and questions use completed active indexes.
 
 Indexing reconciliation also handles fully staged generations whose embedding delivery is already completed. It creates an idempotent `IndexPublicationRequested` recovery intent and a `documents.publish-index.v1` delivery. This pure database operation uses the same publication effect and its own fenced acknowledgment. It never reopens the completed embedding delivery, copies a failed job into a new budget, or repeats inference. Pending/running/failed/skipped embedding deliveries and existing recovery/publication keys exclude this enrollment; ordinary existing work keeps its original retry policy. Counts/model/configuration must indicate complete staging, and the consumer rechecks completed embedding provenance and the full activation guard again.
 

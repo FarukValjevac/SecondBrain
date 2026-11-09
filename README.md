@@ -16,14 +16,14 @@ The goal is to turn a personal collection of notes and study materials into a li
 
 Answers should acknowledge when the documents do not contain enough information. For example, you could ask “How do these notes explain photosynthesis?” and check the passages used to answer.
 
-Optional background embeddings send passage batches to Cloudflare, store vectors locally, and activate complete indexes. Saved batches survive restarts, replacements become active only when complete, and document deletion also removes derived indexes. Embeddings are disabled by default; see [embedding configuration](docs/development.md#embedding-configuration). Browser search shows matching passages with document names and line/PDF-page references, across the library or selected documents, when embeddings are enabled. Source links reopen the exact passage after checking its current visibility and active index. AI answers are still under development.
+Optional background embeddings send passage batches to Cloudflare, store vectors locally, and activate complete indexes. Saved batches survive restarts, replacements become active only when complete, and document deletion also removes derived indexes. Embeddings are disabled by default; see [embedding configuration](docs/development.md#embedding-configuration). Browser search shows matching passages across the library or selected documents. Optional questions display answers with checked source references and excerpts, or insufficient-information feedback. Source links recheck current visibility when opened. Inspect the excerpts to assess whether they support an answer.
 
 ## Requirements
 
 - Java 25 JDK, available through `JAVA_HOME` or `PATH`.
 - Docker with Docker Compose and a running Docker-compatible engine, such as Docker Desktop.
 - Internet access for the initial Maven and Docker image downloads.
-- For semantic search, Cloudflare Workers AI account credentials; uploads and text inspection work without them.
+- For semantic search and questions, Cloudflare Workers AI account credentials and configured models; uploads and text inspection work without them.
 - On macOS/Linux, `curl` or `wget` and `unzip` for Maven Wrapper.
 
 The included Maven Wrapper downloads Maven automatically; a separate Maven installation is not required.
@@ -48,6 +48,8 @@ docker compose up -d --wait --wait-timeout 60 postgres
 Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT, Markdown, or PDF file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Find uploads under **Your documents**, newest first, with up to 50 per page. Select a name or **Open document** to follow processing and inspect the extracted text; pending detail pages refresh automatically. The application listens on loopback and applies pending database migrations automatically.
 
 To remove a saved document, select **Delete** beside its status in **Your documents**, or **Delete document** on its detail page, and confirm. It disappears from the library immediately; saved content is cleaned up in the background. Your source file is unchanged.
+
+To ask questions, enable embeddings and configure [questions](docs/development.md#question-provider-boundary), restart, then select **Ask your documents**. Choose the whole library or selected documents and submit a question. Questions send query text and bounded relevant passages to the configured Cloudflare account; search and answering share its allowance.
 
 Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, with a default limit of 10 MB per file. TXT/Markdown extraction requires valid UTF-8. PDFs require selectable text and support up to 200 physical pages; encrypted files and scanned documents without text are unsupported. See [PDF support and limits](docs/development.md#pdf-support-and-limits) for extraction budgets and failure behavior. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
 

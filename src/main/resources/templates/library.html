@@ -13,7 +13,10 @@
   <main>
     <div class="library-heading">
       <h1>Document library</h1>
-      <a href="/search" th:href="@{/search}">Search documents</a>
+      <nav class="primary-links" aria-label="Library tools">
+        <a href="/search" th:href="@{/search}">Search documents</a>
+        <a href="/questions" th:href="@{/questions}">Ask your documents</a>
+      </nav>
     </div>
     <section class="notice notice-success" role="status" th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>

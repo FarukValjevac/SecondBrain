@@ -44,6 +44,7 @@ class TelemetryPrivacyTest {
         for (String route :
                 new String[] {
                     "/search",
+                    "/questions",
                     "/documents",
                     "/documents/upload",
                     "/documents/{id}/delete",
