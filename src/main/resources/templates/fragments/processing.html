@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+  <section th:fragment="status(progress, documentId)" class="processing-progress" aria-label="Processing progress">
+    <p role="status"><strong th:text="${progress.state.label}">Queued</strong>
+      · <span th:text="${progress.stage.label}">Extracting text</span></p>
+    <p th:text="${progress.message}">Waiting for processing.</p>
+    <p th:if="${progress.lines > 0 or progress.passages > 0}">
+      Saved: <span th:text="${progress.lines}">0</span> text lines;
+      <span th:text="${progress.passages}">0</span> passages;
+      <span th:text="${progress.vectors}">0</span> passages prepared for search.
+    </p>
+    <p th:if="${progress.eligibleAt.isPresent()}">Next automatic attempt no earlier than
+      <time th:datetime="${progress.eligibleAt.orElseThrow()}" th:text="${progress.eligibleAt.orElseThrow()}">Retry time</time> (UTC).
+    </p>
+    <form method="post" th:if="${progress.retry.isPresent()}" th:action="@{/documents/{id}/retry(id=${documentId})}">
+      <input type="hidden" name="deliveryId" th:value="${progress.retry.orElseThrow().deliveryId}">
+      <input type="hidden" name="cycle" th:value="${progress.retry.orElseThrow().cycle}">
+      <button type="submit">Retry processing</button>
+    </form>
+  </section>
+</body>
+</html>

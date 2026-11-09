@@ -45,7 +45,7 @@ docker compose up -d --wait --wait-timeout 60 postgres
 ./mvnw spring-boot:run
 ```
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT, Markdown, or PDF file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Find uploads under **Your documents**, newest first, with up to 50 per page. Select a name or **Open document** to follow processing and inspect the extracted text; pending detail pages refresh automatically. The application listens on loopback and applies pending database migrations automatically.
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT, Markdown, or PDF file, and select **Upload document**. A successful upload shows **Saved and queued**; invalid files receive a useful message. Find uploads under **Your documents**, newest first, with up to 50 per page. Select a name or **Open document** to follow processing and inspect the extracted text; use **Refresh status** to see saved processing progress. Library and document pages distinguish text extraction from search readiness and offer **Retry processing** for eligible failed work. The application listens on loopback and applies pending database migrations automatically.
 
 To remove a saved document, select **Delete** beside its status in **Your documents**, or **Delete document** on its detail page, and confirm. It disappears from the library immediately; saved content is cleaned up in the background. Your source file is unchanged.
 

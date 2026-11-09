@@ -230,3 +230,8 @@ textarea { resize: vertical; min-height: 8rem; }
   background: #eef5f2;
   border-color: #b8cec2;
 }
+
+.processing-progress { overflow-wrap: anywhere; }
+.document-list .processing-progress { flex-basis: 100%; order: 2; }
+.processing-progress p { margin: .5rem 0; }
+.processing-progress form { margin-top: .75rem; }

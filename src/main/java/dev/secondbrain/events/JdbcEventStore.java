@@ -1,5 +1,6 @@
 package dev.secondbrain.events;
 
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -27,6 +28,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 
 final class JdbcEventStore {
@@ -158,7 +160,7 @@ final class JdbcEventStore {
                     var candidate =
                             jdbc.sql(
                                             """
-                    SELECT delivery_id, event_id, handler_id, state, attempts FROM event_deliveries
+                    SELECT delivery_id, event_id, handler_id, state, attempts, cycle_attempts FROM event_deliveries
                     WHERE (state = 'PENDING' AND eligible_at <= :now)
                        OR (state = 'RUNNING' AND lease_until <= :now)
                     ORDER BY eligible_at, delivery_id LIMIT 1 FOR UPDATE SKIP LOCKED
@@ -172,7 +174,8 @@ final class JdbcEventStore {
                                                             row.getObject("event_id", UUID.class),
                                                             row.getString("handler_id"),
                                                             row.getString("state"),
-                                                            row.getInt("attempts")))
+                                                            row.getInt("attempts"),
+                                                            row.getInt("cycle_attempts")))
                                     .optional();
                     if (candidate.isEmpty()) {
                         return Optional.empty();
@@ -185,7 +188,7 @@ final class JdbcEventStore {
                                 "EXPIRED",
                                 DeliveryFailure.Code.LEASE_EXPIRED,
                                 now,
-                                selected.attempts() < settings.maxAttempts()
+                                selected.cycleAttempts() < settings.maxAttempts()
                                         ? EventMetrics.Outcome.RETRY
                                         : EventMetrics.Outcome.FAILED);
                         reschedule(
@@ -196,7 +199,8 @@ final class JdbcEventStore {
                                 now);
                         return Optional.empty();
                     }
-                    if (selected.attempts() >= settings.maxAttempts()) {
+                    if (selected.cycleAttempts() >= settings.maxAttempts()
+                            || selected.attempts() == Integer.MAX_VALUE) {
                         reschedule(
                                 selected.deliveryId(),
                                 selected.attempts(),
@@ -210,7 +214,7 @@ final class JdbcEventStore {
                     int attempt = selected.attempts() + 1;
                     jdbc.sql(
                                     """
-                    UPDATE event_deliveries SET state = 'RUNNING', attempts = :attempt,
+                    UPDATE event_deliveries SET state = 'RUNNING', attempts = :attempt, cycle_attempts = cycle_attempts + 1,
                         lease_owner = :owner, lease_token = :token, lease_until = :until,
                         deadline_at = :deadline, updated_at = :now, failure_code = NULL
                     WHERE delivery_id = :id
@@ -370,7 +374,7 @@ final class JdbcEventStore {
                             "FAILED",
                             code,
                             now,
-                            retryable && lease.attempt() < settings.maxAttempts()
+                            retryable && cycleAttempts(lease.deliveryId()) < settings.maxAttempts()
                                     ? EventMetrics.Outcome.RETRY
                                     : EventMetrics.Outcome.FAILED);
                     reschedule(lease.deliveryId(), lease.attempt(), retryable, code, now, retryAt);
@@ -397,7 +401,9 @@ final class JdbcEventStore {
                                 "FAILED",
                                 code,
                                 now,
-                                retryable && lease.attempt() < settings.maxAttempts()
+                                retryable
+                                                && cycleAttempts(lease.deliveryId())
+                                                        < settings.maxAttempts()
                                         ? EventMetrics.Outcome.RETRY
                                         : EventMetrics.Outcome.FAILED);
                         reschedule(lease.deliveryId(), lease.attempt(), retryable, code, now);
@@ -510,6 +516,98 @@ final class JdbcEventStore {
                 .isPresent();
     }
 
+    private int cycleAttempts(UUID id) {
+        return jdbc.sql("SELECT cycle_attempts FROM event_deliveries WHERE delivery_id = :id")
+                .param("id", id)
+                .query(Integer.class)
+                .single();
+    }
+
+    /** Delivery lock precedes the feature's document lock, just as for worker effects. */
+    boolean retryFailed(
+            UUID id,
+            int expectedCycle,
+            UUID correlationId,
+            BiPredicate<String, EventEnvelope> eligible) {
+        return inTransaction(
+                () -> {
+                    var row =
+                            jdbc.sql(
+                                            """
+                SELECT d.handler_id, d.retry_cycle, d.state, d.attempts,
+                       k.*, e.occurred_at, e.correlation_id, e.causation_id, e.trace_parent, e.reference_ids
+                FROM event_deliveries d JOIN domain_events e USING(event_id)
+                JOIN event_keys k USING(event_id)
+                WHERE d.delivery_id = :id FOR UPDATE OF d
+                """)
+                                    .param("id", id)
+                                    .query(
+                                            (r, n) ->
+                                                    new RetryRow(
+                                                            r.getString("handler_id"),
+                                                            r.getInt("retry_cycle"),
+                                                            r.getString("state"),
+                                                            r.getInt("attempts"),
+                                                            readEvent(r, n)))
+                                    .optional();
+                    if (row.isEmpty()) return false;
+                    var candidate = row.orElseThrow();
+                    if (!candidate.state().equals("FAILED")
+                            || candidate.cycle() != expectedCycle
+                            || candidate.cycle() == Integer.MAX_VALUE
+                            || candidate.attempts() == Integer.MAX_VALUE
+                            || !eligible.test(candidate.handler(), candidate.event())) return false;
+                    var now = clock.instant();
+                    jdbc.sql(
+                                    """
+                UPDATE event_deliveries SET state = 'PENDING', cycle_attempts = 0,
+                    retry_cycle = retry_cycle + 1, eligible_at = :now, updated_at = :now,
+                    failure_code = NULL
+                WHERE delivery_id = :id
+                """)
+                            .param("id", id)
+                            .param("now", timestamp(now))
+                            .update();
+                    jdbc.sql(
+                                    """
+                INSERT INTO event_delivery_retries(delivery_id, retry_cycle, requested_at, correlation_id)
+                VALUES (:id, :cycle, :now, :correlation)
+                """)
+                            .param("id", id)
+                            .param("cycle", expectedCycle + 1)
+                            .param("now", timestamp(now))
+                            .param("correlation", correlationId)
+                            .update();
+                    // The original envelope remains unchanged: worker attempts retain its
+                    // causation/trace.
+                    TransactionSynchronizationManager.registerSynchronization(
+                            new TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    try {
+                                        LoggerFactory.getLogger(JdbcEventStore.class)
+                                                .atInfo()
+                                                .addKeyValue("operation", "event_manual_retry")
+                                                .addKeyValue("outcome", "requested")
+                                                .addKeyValue(
+                                                        "event_id",
+                                                        candidate.event().eventId().toString())
+                                                .addKeyValue("delivery_id", id.toString())
+                                                .addKeyValue(
+                                                        "correlation_id", correlationId.toString())
+                                                .log("Event retry requested");
+                                    } catch (RuntimeException unavailable) {
+                                        /* Logging cannot undo a commit. */
+                                    }
+                                }
+                            });
+                    return true;
+                });
+    }
+
+    private record RetryRow(
+            String handler, int cycle, String state, int attempts, EventEnvelope event) {}
+
     private void reschedule(
             UUID id, int attempts, boolean retryable, DeliveryFailure.Code code, Instant now) {
         reschedule(id, attempts, retryable, code, now, null);
@@ -522,9 +620,11 @@ final class JdbcEventStore {
             DeliveryFailure.Code code,
             Instant now,
             Instant retryAt) {
-        boolean exhausted = attempts >= settings.maxAttempts();
+        int cycleAttempts = cycleAttempts(id);
+        boolean exhausted =
+                cycleAttempts >= settings.maxAttempts() || attempts == Integer.MAX_VALUE;
         boolean retrying = retryable && !exhausted;
-        Instant eligible = retrying ? retry.nextAttemptAt(attempts) : now;
+        Instant eligible = retrying ? retry.nextAttemptAt(cycleAttempts) : now;
         if (retrying && retryAt != null && retryAt.isAfter(eligible)) eligible = retryAt;
         jdbc.sql(
                         """
@@ -667,7 +767,12 @@ final class JdbcEventStore {
     }
 
     private record Candidate(
-            UUID deliveryId, UUID eventId, String handler, String state, int attempts) {}
+            UUID deliveryId,
+            UUID eventId,
+            String handler,
+            String state,
+            int attempts,
+            int cycleAttempts) {}
 
     private record EventKey(
             UUID eventId, UUID documentId, long version, String type, String fingerprint) {

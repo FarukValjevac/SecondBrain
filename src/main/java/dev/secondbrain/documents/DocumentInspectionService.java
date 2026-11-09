@@ -1,13 +1,9 @@
 package dev.secondbrain.documents;
 
-import dev.secondbrain.events.EventEnvelope;
-import dev.secondbrain.events.EventPublisher;
-
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,21 +19,15 @@ public final class DocumentInspectionService {
     private static final int PAGE_SIZE = 50;
     private final JdbcDocumentRepository documents;
     private final JdbcExtractedTextRepository texts;
-    private final EventPublisher events;
-    private final Clock clock;
     private final TransactionTemplate transactions;
     private final TransactionTemplate sourceReads;
 
     DocumentInspectionService(
             JdbcDocumentRepository documents,
             JdbcExtractedTextRepository texts,
-            EventPublisher events,
-            PlatformTransactionManager manager,
-            Clock clock) {
+            PlatformTransactionManager manager) {
         this.documents = Objects.requireNonNull(documents, "documents");
         this.texts = Objects.requireNonNull(texts, "texts");
-        this.events = Objects.requireNonNull(events, "events");
-        this.clock = Objects.requireNonNull(clock, "clock");
         transactions = new TransactionTemplate(Objects.requireNonNull(manager, "manager"));
         transactions.setTimeout(5);
         sourceReads = new TransactionTemplate(manager);
@@ -149,39 +139,7 @@ public final class DocumentInspectionService {
         }
         if (active && !message.isEmpty()) message += " Retrying automatically.";
         return new DocumentView(
-                id,
-                document.originalName(),
-                document.processingVersion(),
-                state,
-                message,
-                state == ExtractionState.FAILED && progress.deliveryState().equals("FAILED"),
-                lines);
-    }
-
-    public boolean retry(UUID id, UUID correlationId) {
-        Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(correlationId, "correlationId");
-        return Objects.requireNonNull(
-                transactions.execute(
-                        status -> {
-                            var document = documents.findById(id);
-                            if (document.isEmpty()) return false;
-                            var version = document.orElseThrow().processingVersion();
-                            var now = clock.instant();
-                            if (!documents.retry(id, version, now)) return false;
-                            events.publish(
-                                    new EventEnvelope(
-                                            UUID.randomUUID(),
-                                            DocumentAcceptedEvent.TYPE,
-                                            id,
-                                            Math.addExact(version, 1),
-                                            now,
-                                            correlationId,
-                                            null,
-                                            null,
-                                            Map.of()));
-                            return true;
-                        }));
+                id, document.originalName(), document.processingVersion(), state, message, lines);
     }
 
     /** Public source projection; independent of search ranking and provider responses. */
@@ -258,7 +216,6 @@ public final class DocumentInspectionService {
             long processingVersion,
             ExtractionState state,
             String message,
-            boolean retryAllowed,
             List<Line> lines) {
         public DocumentView {
             lines = List.copyOf(lines);

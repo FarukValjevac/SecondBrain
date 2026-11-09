@@ -136,7 +136,7 @@ class DocumentExtractionIT {
     }
 
     @Test
-    void recordsEncodingFailureAndRetriesANewVersionWithoutChangingDocumentIdentity()
+    void recordsEncodingFailureAndRetriesSameDeliveryWithoutChangingDocumentIdentity()
             throws Exception {
         try (var context = start(true, true, true)) {
             var id = upload(context, new byte[] {(byte) 0xC3, 0x28});
@@ -145,15 +145,20 @@ class DocumentExtractionIT {
             var failed = inspection.find(id).orElseThrow();
             assertThat(failed.state()).isEqualTo(ExtractionState.FAILED);
             assertThat(failed.message()).contains("UTF-8");
-            assertThat(failed.retryAllowed()).isTrue();
+            assertThat(
+                            context.getBean(DocumentProcessingService.class)
+                                    .read(java.util.Set.of(id))
+                                    .get(id)
+                                    .retry())
+                    .isPresent();
             assertThat(failed.lines()).isEmpty();
             assertNoText(context, id);
             var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
-            assertThat(inspection.retry(id, UUID.randomUUID())).isTrue();
+            assertThat(retry(context, id)).isTrue();
             awaitState(context, id, "FAILED");
             var retried = inspection.find(id).orElseThrow();
             assertThat(retried.documentId()).isEqualTo(id);
-            assertThat(retried.processingVersion()).isEqualTo(2);
+            assertThat(retried.processingVersion()).isEqualTo(1);
             assertThat(
                             context.getBean(JdbcDocumentRepository.class)
                                     .findById(id)
@@ -202,17 +207,19 @@ class DocumentExtractionIT {
             assertThat(view.message())
                     .contains("could not be read")
                     .doesNotContain(storage.toString());
-            assertThat(view.retryAllowed()).isTrue();
+            assertThat(
+                            context.getBean(DocumentProcessingService.class)
+                                    .read(java.util.Set.of(id))
+                                    .get(id)
+                                    .retry())
+                    .isPresent();
             assertNoText(context, id);
             var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
             Files.write(storage.resolve(metadata.storageId() + ".original"), content);
-            assertThat(
-                            context.getBean(DocumentInspectionService.class)
-                                    .retry(id, UUID.randomUUID()))
-                    .isTrue();
+            assertThat(retry(context, id)).isTrue();
             awaitState(context, id, "COMPLETED");
             var recovered = context.getBean(DocumentInspectionService.class).find(id).orElseThrow();
-            assertThat(recovered.processingVersion()).isEqualTo(2);
+            assertThat(recovered.processingVersion()).isEqualTo(1);
             assertThat(recovered.state()).isEqualTo(ExtractionState.EXTRACTED);
             assertThat(recovered.lines())
                     .filteredOn(line -> !line.text().isEmpty())
@@ -226,7 +233,7 @@ class DocumentExtractionIT {
             if (type == DocumentType.PDF) {
                 assertThat(
                                 context.getBean(JdbcExtractedTextRepository.class)
-                                        .findByDocumentVersion(id, 2)
+                                        .findByDocumentVersion(id, 1)
                                         .orElseThrow()
                                         .lines())
                         .allSatisfy(line -> assertThat(line.pageNumber()).hasValue(1));
@@ -415,7 +422,7 @@ class DocumentExtractionIT {
     @EnumSource(
             value = TextExtractionException.Reason.class,
             names = {"PDF_UNREADABLE", "PDF_ENCRYPTED", "PDF_NO_TEXT"})
-    void pdfFailuresStopAfterOneAttemptAndRetryAsANewVersion(TextExtractionException.Reason reason)
+    void pdfFailuresStopAfterOneAttemptPerManualCycle(TextExtractionException.Reason reason)
             throws Exception {
         var bytes =
                 switch (reason) {
@@ -431,9 +438,14 @@ class DocumentExtractionIT {
             for (var version = 1; version <= 2; version++) {
                 awaitState(context, id, "FAILED");
                 var view = inspection.find(id).orElseThrow();
-                assertThat(view.processingVersion()).isEqualTo(version);
+                assertThat(view.processingVersion()).isEqualTo(1);
                 assertThat(view.message()).isEqualTo(reason.message());
-                assertThat(view.retryAllowed()).isTrue();
+                assertThat(
+                                context.getBean(DocumentProcessingService.class)
+                                        .read(java.util.Set.of(id))
+                                        .get(id)
+                                        .retry())
+                        .isPresent();
                 assertThat(view.lines()).isEmpty();
                 assertThat(
                                 jdbc(context)
@@ -445,17 +457,23 @@ class DocumentExtractionIT {
                             AND k.event_type = 'DocumentAccepted'
                         """)
                                         .param("id", id)
-                                        .param("version", version)
+                                        .param("version", 1)
                                         .query(Integer.class)
                                         .single())
-                        .isEqualTo(1);
+                        .isEqualTo(version);
                 assertNoText(context, id);
-                if (version == 1) assertThat(inspection.retry(id, UUID.randomUUID())).isTrue();
+                if (version == 1) assertThat(retry(context, id)).isTrue();
             }
             var metadata = context.getBean(JdbcDocumentRepository.class).findById(id).orElseThrow();
             assertThat(Files.readAllBytes(storage.resolve(metadata.storageId() + ".original")))
                     .containsExactly(bytes);
         }
+    }
+
+    private static boolean retry(ConfigurableApplicationContext context, UUID id) {
+        var processing = context.getBean(DocumentProcessingService.class);
+        var option = processing.read(java.util.Set.of(id)).get(id).retry().orElseThrow();
+        return processing.retry(id, option.deliveryId(), option.cycle(), UUID.randomUUID());
     }
 
     private static UUID upload(ConfigurableApplicationContext context, byte[] bytes)

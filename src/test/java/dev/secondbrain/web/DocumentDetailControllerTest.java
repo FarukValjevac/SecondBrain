@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
+import dev.secondbrain.documents.DocumentProcessingService;
 import dev.secondbrain.documents.ExtractionState;
 
 import org.junit.jupiter.api.Test;
@@ -30,8 +31,10 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 
 @WebMvcTest({DocumentDetailController.class, LibraryController.class})
@@ -40,6 +43,7 @@ class DocumentDetailControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private DocumentInspectionService documents;
     @MockitoBean private DocumentDeletionService deletion;
+    @MockitoBean private DocumentProcessingService processing;
     private final UUID id = UUID.randomUUID();
 
     @Test
@@ -53,7 +57,6 @@ class DocumentDetailControllerTest {
                                         1,
                                         ExtractionState.EXTRACTED,
                                         "",
-                                        false,
                                         List.of(
                                                 new DocumentInspectionService.Line(
                                                         1, "Café <script>alert(1)</script>"),
@@ -85,7 +88,6 @@ class DocumentDetailControllerTest {
                                         1,
                                         ExtractionState.EXTRACTED,
                                         "",
-                                        false,
                                         List.of(
                                                 new DocumentInspectionService.Line(
                                                         1,
@@ -218,41 +220,51 @@ class DocumentDetailControllerTest {
         assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
 
-    @Test
-    void refreshesPendingPagesAndOffersRetryOnlyOnFailure() throws Exception {
-        for (var state :
-                List.of(
-                        ExtractionState.QUEUED,
-                        ExtractionState.PROCESSING,
-                        ExtractionState.FAILED)) {
-            when(documents.find(id))
-                    .thenReturn(
-                            Optional.of(
-                                    new DocumentInspectionService.DocumentView(
-                                            id,
-                                            "notes.txt",
-                                            1,
-                                            state,
-                                            state == ExtractionState.FAILED
-                                                    ? "Use valid UTF-8."
-                                                    : "",
-                                            state == ExtractionState.FAILED,
-                                            List.of())));
-            var html =
-                    mvc.perform(get("/documents/" + id))
-                            .andExpect(status().isOk())
-                            .andReturn()
-                            .getResponse()
-                            .getContentAsString();
-            if (state == ExtractionState.FAILED)
-                assertThat(html)
-                        .contains("Retry extraction", "Use valid UTF-8.")
-                        .doesNotContain("http-equiv=\"refresh\"");
-            else
-                assertThat(html)
-                        .contains("http-equiv=\"refresh\"")
-                        .doesNotContain("Retry extraction");
-        }
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(DocumentProcessingService.State.class)
+    void rendersPipelineStatesAndOffersOnlyEligibleRetry(DocumentProcessingService.State state)
+            throws Exception {
+        when(documents.find(id))
+                .thenReturn(
+                        Optional.of(
+                                new DocumentInspectionService.DocumentView(
+                                        id,
+                                        "notes.txt",
+                                        1,
+                                        ExtractionState.EXTRACTED,
+                                        "",
+                                        List.of())));
+        var delivery = UUID.randomUUID();
+        var option =
+                state == DocumentProcessingService.State.FAILED
+                        ? Optional.of(new DocumentProcessingService.Retry(delivery, 2))
+                        : Optional.<DocumentProcessingService.Retry>empty();
+        when(processing.read(Set.of(id)))
+                .thenReturn(
+                        Map.of(
+                                id,
+                                new DocumentProcessingService.Progress(
+                                        DocumentProcessingService.Stage.EMBEDDINGS,
+                                        state,
+                                        "Check settings before retrying.",
+                                        10,
+                                        5,
+                                        2,
+                                        option,
+                                        Optional.empty())));
+        var html =
+                mvc.perform(get("/documents/" + id))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(state.getLabel(), "Preparing search", "Refresh status", "10", "5", "2")
+                .doesNotContain("http-equiv=\"refresh\"", "%");
+        if (state == DocumentProcessingService.State.FAILED)
+            assertThat(html)
+                    .contains("Retry processing", "value=\"" + delivery + "\"", "value=\"2\"");
+        else assertThat(html).doesNotContain("Retry processing");
     }
 
     @Test
@@ -265,17 +277,36 @@ class DocumentDetailControllerTest {
     @Test
     void retriesWithRequestCorrelationAndRedirectsWithoutResubmitting() throws Exception {
         var correlation = UUID.randomUUID();
-        when(documents.retry(id, correlation)).thenReturn(true);
-        mvc.perform(post("/documents/" + id + "/retry").header("X-Correlation-ID", correlation))
+        var delivery = UUID.randomUUID();
+        when(processing.retry(id, delivery, 2, correlation)).thenReturn(true);
+        mvc.perform(
+                        post("/documents/" + id + "/retry")
+                                .param("deliveryId", delivery.toString())
+                                .param("cycle", "2")
+                                .header("X-Correlation-ID", correlation))
                 .andExpect(status().isSeeOther())
                 .andExpect(redirectedUrl("/documents/" + id));
-        verify(documents).retry(id, correlation);
+        verify(processing).retry(id, delivery, 2, correlation);
     }
 
     @Test
     void rejectsAnIneligibleRetry() throws Exception {
-        when(documents.retry(eq(id), any())).thenReturn(false);
-        mvc.perform(post("/documents/" + id + "/retry")).andExpect(status().isConflict());
+        mvc.perform(
+                        post("/documents/" + id + "/retry")
+                                .param("deliveryId", UUID.randomUUID().toString())
+                                .param("cycle", "0"))
+                .andExpect(status().isConflict());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "-1", "2147483648", "1.1", "private-invalid"})
+    void rejectsMissingOrInvalidRetryCyclesBeforeMutation(String cycle) throws Exception {
+        mvc.perform(
+                        post("/documents/" + id + "/retry")
+                                .param("deliveryId", UUID.randomUUID().toString())
+                                .param("cycle", cycle))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(processing);
     }
 
     @Test

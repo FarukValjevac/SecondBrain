@@ -618,8 +618,8 @@ class DocumentDeletionIT {
             assertThat(handler.prepare(fixture.accepted()).apply())
                     .isEqualTo(EventHandler.Outcome.SKIPPED);
             assertThat(
-                            context.getBean(DocumentInspectionService.class)
-                                    .retry(id, UUID.randomUUID()))
+                            context.getBean(DocumentProcessingService.class)
+                                    .retry(id, UUID.randomUUID(), 0, UUID.randomUUID()))
                     .isFalse();
             assertThat(
                             context.getBean(JdbcExtractedTextRepository.class)

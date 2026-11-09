@@ -287,11 +287,7 @@ class DocumentRepositoryIT {
         var fixture = sourceFixture(false); // Committed before the repeatable-read caller begins.
         var service =
                 new DocumentInspectionService(
-                        repository,
-                        extractedTextRepository,
-                        org.mockito.Mockito.mock(dev.secondbrain.events.EventPublisher.class),
-                        transactionManager,
-                        java.time.Clock.systemUTC());
+                        repository, extractedTextRepository, transactionManager);
         var outer = new TransactionTemplate(transactionManager);
         outer.setIsolationLevel(
                 org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);

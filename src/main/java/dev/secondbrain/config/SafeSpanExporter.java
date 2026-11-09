@@ -70,6 +70,7 @@ final class SafeSpanExporter implements SpanExporter {
                     "document.cleanup",
                     "document.deletion",
                     "document.indexing.request",
+                    "document.processing.retry",
                     "embedding.request",
                     "search.retrieval",
                     "question.generate",

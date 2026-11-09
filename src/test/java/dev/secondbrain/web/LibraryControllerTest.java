@@ -17,6 +17,7 @@ import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentInspectionService.DocumentSummary;
 import dev.secondbrain.documents.DocumentInspectionService.LibraryPage;
+import dev.secondbrain.documents.DocumentProcessingService;
 import dev.secondbrain.documents.ExtractionState;
 import dev.secondbrain.documents.UploadRejectedException;
 
@@ -48,6 +49,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @WebMvcTest(
@@ -59,6 +63,7 @@ class LibraryControllerTest {
     private final MockMvc mvc;
     @MockitoBean private DocumentAcceptanceService acceptanceService;
     @MockitoBean private DocumentInspectionService inspection;
+    @MockitoBean private DocumentProcessingService processing;
 
     @BeforeEach
     void emptyLibrary() {
@@ -68,6 +73,55 @@ class LibraryControllerTest {
     @Autowired
     LibraryControllerTest(MockMvc mvc) {
         this.mvc = mvc;
+    }
+
+    @Test
+    void rendersCurrentSearchProgressRetryAndCleanupWithoutHiddenNames(CapturedOutput output)
+            throws Exception {
+        var id = UUID.randomUUID();
+        var delivery = UUID.randomUUID();
+        when(inspection.list(0))
+                .thenReturn(
+                        new LibraryPage(
+                                List.of(
+                                        new DocumentSummary(
+                                                id,
+                                                "<script>private-note</script>",
+                                                ExtractionState.EXTRACTED,
+                                                Instant.EPOCH)),
+                                0,
+                                false));
+        when(processing.read(Set.of(id)))
+                .thenReturn(
+                        Map.of(
+                                id,
+                                new DocumentProcessingService.Progress(
+                                        DocumentProcessingService.Stage.EMBEDDINGS,
+                                        DocumentProcessingService.State.FAILED,
+                                        "Check configuration before retrying.",
+                                        10,
+                                        4,
+                                        2,
+                                        Optional.of(
+                                                new DocumentProcessingService.Retry(delivery, 1)),
+                                        Optional.empty())));
+        when(processing.cleanup()).thenReturn(new DocumentProcessingService.Cleanup(1, 2));
+        var html =
+                mvc.perform(MockMvcRequestBuilders.get("/"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        Assertions.assertThat(html)
+                .contains(
+                        "Preparing search",
+                        "Failed",
+                        "Retry processing",
+                        "Deleted-document cleanup",
+                        "Refresh status",
+                        "&lt;script&gt;private-note")
+                .doesNotContain("<script>", "100%", "documents.embed-passages");
+        Assertions.assertThat(output).doesNotContain("private-note");
     }
 
     @Test

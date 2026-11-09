@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="2" th:if="${document.state.name() == 'QUEUED' or document.state.name() == 'PROCESSING'}">
   <title>Document | SecondBrain</title>
   <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
 </head>
@@ -12,16 +11,14 @@
   <main>
     <p><a href="/">Back to library</a></p>
     <h1 th:text="${document.name}">Document</h1>
-    <p role="status">Status: <strong th:text="${document.state}">QUEUED</strong>
-      · Version <span th:text="${document.processingVersion}">1</span></p>
+    <p>Text extraction: <strong th:text="${document.state}">QUEUED</strong></p>
     <p><a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a></p>
-    <p th:if="${document.state.name() == 'QUEUED' or document.state.name() == 'PROCESSING'}">Processing your document. This page refreshes automatically.</p>
-    <section class="notice notice-error" role="alert" th:if="${!document.message.isEmpty()}">
+    <section class="notice notice-success" role="status" th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
+    <th:block th:if="${progress != null}" th:insert="~{fragments/processing :: status(${progress}, ${document.documentId})}"></th:block>
+    <p><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
+    <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">
       <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>
     </section>
-    <form method="post" th:if="${document.retryAllowed}" th:action="@{/documents/{id}/retry(id=${document.documentId})}">
-      <button type="submit">Retry extraction</button>
-    </form>
     <section th:if="${document.state.name() == 'EXTRACTED'}" aria-labelledby="text-title">
       <h2 id="text-title">Extracted text</h2>
       <p>Text is extracted. Search uses completed indexes when embeddings are enabled.</p>
