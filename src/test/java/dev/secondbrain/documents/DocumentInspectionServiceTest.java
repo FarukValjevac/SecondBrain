@@ -8,8 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import dev.secondbrain.events.EventPublisher;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -17,7 +15,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,11 +27,9 @@ import java.util.UUID;
 class DocumentInspectionServiceTest {
     private final JdbcDocumentRepository documents = mock(JdbcDocumentRepository.class);
     private final JdbcExtractedTextRepository texts = mock(JdbcExtractedTextRepository.class);
-    private final EventPublisher events = mock(EventPublisher.class);
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private final DocumentInspectionService service =
-            new DocumentInspectionService(
-                    documents, texts, events, transactions, Clock.systemUTC());
+            new DocumentInspectionService(documents, texts, transactions);
 
     @BeforeEach
     void transaction() {
@@ -72,7 +67,7 @@ class DocumentInspectionServiceTest {
                                 .ISOLATION_READ_COMMITTED);
         assertThat(definition.getValue().getTimeout()).isEqualTo(5);
         verify(documents).source(id, passage);
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
         assertThat(source.toString())
                 .doesNotContain("sentinel-private", id.toString(), passage.toString());
     }
@@ -83,7 +78,7 @@ class DocumentInspectionServiceTest {
         var passage = UUID.randomUUID();
         when(documents.source(id, passage)).thenReturn(Optional.empty());
         assertThat(service.source(id, passage)).isEmpty();
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @Test
@@ -121,7 +116,7 @@ class DocumentInspectionServiceTest {
         assertThat(definition.getValue().isReadOnly()).isTrue();
         assertThat(definition.getValue().getTimeout()).isEqualTo(5);
         verify(documents).sources(Map.of(passage, id));
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @Test
@@ -135,7 +130,7 @@ class DocumentInspectionServiceTest {
         tooMany.clear();
         tooMany.put(UUID.randomUUID(), null);
         assertThatThrownBy(() -> service.sources(tooMany)).isInstanceOf(NullPointerException.class);
-        verifyNoInteractions(documents, texts, events, transactions);
+        verifyNoInteractions(documents, texts, transactions);
     }
 
     @Test
@@ -144,7 +139,7 @@ class DocumentInspectionServiceTest {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> service.source(UUID.randomUUID(), null))
                 .isInstanceOf(NullPointerException.class);
-        verifyNoInteractions(documents, texts, events, transactions);
+        verifyNoInteractions(documents, texts, transactions);
     }
 
     @Test
@@ -193,13 +188,13 @@ class DocumentInspectionServiceTest {
         assertThat(names).containsExactlyEntriesOf(Map.of(id, "Notes.md"));
         assertThatThrownBy(() -> names.clear()).isInstanceOf(UnsupportedOperationException.class);
         verify(documents).names(Set.of(id));
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @Test
     void emptyNamesNeedNoTransactionOrRepository() {
         assertThat(service.names(Set.of())).isEmpty();
-        verifyNoInteractions(documents, texts, events, transactions);
+        verifyNoInteractions(documents, texts, transactions);
     }
 
     @Test
@@ -214,7 +209,7 @@ class DocumentInspectionServiceTest {
         ids.add(UUID.randomUUID());
         assertThatThrownBy(() -> service.names(ids)).isInstanceOf(IllegalArgumentException.class);
         org.mockito.Mockito.verifyNoMoreInteractions(documents);
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @Test
@@ -239,7 +234,7 @@ class DocumentInspectionServiceTest {
         var summary = service.summary(id).orElseThrow();
         assertThat(summary.name()).isEqualTo("Notes.md");
         assertThat(summary.state()).isEqualTo(ExtractionState.EXTRACTED);
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @ParameterizedTest
@@ -289,7 +284,6 @@ class DocumentInspectionServiceTest {
                                 1, "Café <script>reference</script>", firstPage),
                         new DocumentInspectionService.Line(2, "", blankPage),
                         new DocumentInspectionService.Line(3, "Last page", lastPage));
-        verifyNoInteractions(events);
     }
 
     @Test
@@ -321,7 +315,7 @@ class DocumentInspectionServiceTest {
         assertThatThrownBy(() -> page.documents().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
         verify(documents).list(51, 100L);
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @Test
@@ -334,13 +328,13 @@ class DocumentInspectionServiceTest {
         assertThat(empty.documents()).isEmpty();
         assertThat(empty.hasNext()).isFalse();
         verify(documents).list(51, 50L * Integer.MAX_VALUE);
-        verifyNoInteractions(texts, events);
+        verifyNoInteractions(texts);
     }
 
     @Test
     void rejectsNegativePagesBeforeStartingDatabaseWork() {
         assertThatThrownBy(() -> service.list(-1)).isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(documents, texts, events, transactions);
+        verifyNoInteractions(documents, texts, transactions);
     }
 
     private static JdbcDocumentRepository.LibraryRow row(ExtractionState state, String delivery) {

@@ -54,6 +54,12 @@
     </section>
     <section class="library-card" aria-labelledby="documents-title" th:if="${libraryAvailable}">
       <h2 id="documents-title">Your documents</h2>
+      <p><a th:href="@{/(page=${library.page})}">Refresh status</a></p>
+      <section class="notice notice-info" role="status" th:if="${cleanup != null and (cleanup.pending > 0 or cleanup.failed > 0)}">
+        <h3>Deleted-document cleanup</h3>
+        <p><span th:text="${cleanup.pending}">0</span> awaiting cleanup;
+          <span th:text="${cleanup.failed}">0</span> need attention. These documents stay removed from the library and search.</p>
+      </section>
       <p th:if="${library.documents.isEmpty()}">No documents on this page.</p>
       <ul class="document-list" th:unless="${library.documents.isEmpty()}">
         <li th:each="document : ${library.documents}">
@@ -61,8 +67,10 @@
             <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}">Document name</a>
             <time th:datetime="${document.createdAt}" th:text="${document.createdAt}">Upload time</time>
           </div>
+          <th:block th:if="${processing != null and processing.containsKey(document.documentId)}"
+                    th:insert="~{fragments/processing :: status(${processing.get(document.documentId)}, ${document.documentId})}"></th:block>
           <div class="document-actions">
-            <span class="document-state" th:text="${document.state}">QUEUED</span>
+            <span>Text:</span> <span class="document-state" th:text="${document.state}">QUEUED</span>
             <a class="library-delete" th:href="@{/documents/{id}/delete(id=${document.documentId})}"
                th:aria-label="|Delete ${document.name}|">Delete</a>
           </div>

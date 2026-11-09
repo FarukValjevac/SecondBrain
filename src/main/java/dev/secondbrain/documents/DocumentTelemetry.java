@@ -62,6 +62,14 @@ final class DocumentTelemetry {
                 correlationId);
     }
 
+    Operation processingRetry(UUID correlationId) {
+        return start(
+                "processing.retry",
+                "secondbrain.document.processing.retries",
+                Outcome.UNAVAILABLE,
+                correlationId);
+    }
+
     void deletedOriginal() {
         // Record after each actual deletion, even if a later entry fails in the same batch.
         safely(() -> meters.counter("secondbrain.document.cleanup.deleted").increment());
@@ -196,7 +204,9 @@ final class DocumentTelemetry {
                                                         ? "Document acceptance finished"
                                                         : name.equals("deletion")
                                                                 ? "Document deletion request finished"
-                                                                : "Document indexing request finished"));
+                                                                : name.equals("processing.retry")
+                                                                        ? "Document processing retry finished"
+                                                                        : "Document indexing request finished"));
             }
         }
     }

@@ -79,6 +79,12 @@ class EventDeliveryConfiguration {
     }
 
     @Bean
+    EventRetryService eventRetryService(
+            JdbcEventStore store, ObjectProvider<EventRegistry> registry) {
+        return new EventRetryService(store, registry::getObject);
+    }
+
+    @Bean
     EventDispatcher eventDispatcher(
             JdbcEventStore store, EventRegistry registry, EventTracing tracing) {
         return new EventDispatcher(store, registry, tracing);

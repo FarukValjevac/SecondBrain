@@ -1,12 +1,15 @@
 package dev.secondbrain.documents;
 
 import dev.secondbrain.events.EventEnvelope;
+import dev.secondbrain.events.EventHandler;
 import dev.secondbrain.events.EventPublisher;
+import dev.secondbrain.events.EventRetryService;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -28,6 +31,27 @@ import java.time.Clock;
         havingValue = "true",
         matchIfMissing = true)
 class DocumentConfiguration {
+    @Bean
+    DocumentProcessingService documentProcessingService(
+            JdbcClient jdbc,
+            JdbcDocumentRepository documents,
+            EventRetryService retries,
+            ObjectProvider<EventHandler> handlers,
+            @Value("${secondbrain.events.polling-enabled:true}") boolean polling,
+            PlatformTransactionManager transactions,
+            Clock clock,
+            DocumentTelemetry telemetry) {
+        return new DocumentProcessingService(
+                new JdbcProcessingRepository(jdbc),
+                documents,
+                retries,
+                () -> handlers.orderedStream().toList(),
+                polling,
+                transactions,
+                clock,
+                telemetry);
+    }
+
     @Bean
     DocumentIndexingService documentIndexingService(
             JdbcIndexingRepository indexes,
@@ -190,10 +214,8 @@ class DocumentConfiguration {
     DocumentInspectionService documentInspectionService(
             JdbcDocumentRepository documents,
             JdbcExtractedTextRepository texts,
-            EventPublisher events,
-            PlatformTransactionManager transactions,
-            Clock clock) {
-        return new DocumentInspectionService(documents, texts, events, transactions, clock);
+            PlatformTransactionManager transactions) {
+        return new DocumentInspectionService(documents, texts, transactions);
     }
 
     @Bean

@@ -104,6 +104,39 @@ class DocumentTelemetryTest {
     }
 
     @Test
+    void manualRetryOutcomesHaveOnlySafeLabelsAndCorrelatedObservations(CapturedOutput output) {
+        for (var outcome :
+                List.of(
+                        DocumentTelemetry.Outcome.REQUESTED,
+                        DocumentTelemetry.Outcome.UNCHANGED,
+                        DocumentTelemetry.Outcome.UNAVAILABLE)) {
+            try (var operation = telemetry.processingRetry(CORRELATION)) {
+                operation.outcome(outcome);
+            }
+        }
+        for (var outcome : List.of("requested", "unchanged", "unavailable"))
+            assertThat(count("secondbrain.document.processing.retries", outcome)).isEqualTo(1);
+        assertThat(completed)
+                .hasSize(3)
+                .allSatisfy(
+                        context -> {
+                            assertThat(context.getContextualName())
+                                    .isEqualTo("document.processing.retry");
+                            assertThat(context.getError()).isNull();
+                            assertThat(
+                                            context.getLowCardinalityKeyValues().stream()
+                                                    .map(k -> k.getKey())
+                                                    .toList())
+                                    .containsExactly("outcome");
+                        });
+        assertThat(output)
+                .contains("Document processing retry finished", CORRELATION.toString())
+                .doesNotContain("sentinel-private");
+        for (var meter : meters.getMeters())
+            assertThat(meter.getId().getTags().toString()).doesNotContain(CORRELATION.toString());
+    }
+
+    @Test
     void deletionOutcomesHaveFixedLabelsAndSafeCorrelatedLogs(CapturedOutput output) {
         for (var outcome :
                 List.of(DocumentTelemetry.Outcome.REQUESTED, DocumentTelemetry.Outcome.UNCHANGED)) {

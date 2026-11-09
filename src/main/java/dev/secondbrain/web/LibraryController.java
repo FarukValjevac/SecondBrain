@@ -1,6 +1,7 @@
 package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentInspectionService;
+import dev.secondbrain.documents.DocumentProcessingService;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,20 +18,24 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Controller
 class LibraryController {
     private final boolean uploadsEnabled;
     private final String maximumUploadSize;
     private final ObjectProvider<DocumentInspectionService> documents;
+    private final ObjectProvider<DocumentProcessingService> processing;
 
     LibraryController(
             @Value("${secondbrain.events.enabled:true}") boolean uploadsEnabled,
             @Value("${secondbrain.documents.max-upload-size}") String maximumUploadSize,
-            ObjectProvider<DocumentInspectionService> documents) {
+            ObjectProvider<DocumentInspectionService> documents,
+            ObjectProvider<DocumentProcessingService> processing) {
         this.uploadsEnabled = uploadsEnabled;
         this.maximumUploadSize = maximumUploadSize;
         this.documents = Objects.requireNonNull(documents, "documents");
+        this.processing = Objects.requireNonNull(processing, "processing");
     }
 
     @GetMapping("/")
@@ -42,7 +47,20 @@ class LibraryController {
         if (uploadsEnabled) {
             var service = documents.getIfAvailable();
             if (service == null) throw new IllegalStateException("Document service unavailable");
-            model.addAttribute("library", service.list(page));
+            var library = service.list(page);
+            model.addAttribute("library", library);
+            var stages = processing.getIfAvailable();
+            model.addAttribute(
+                    "processing",
+                    stages == null
+                            ? java.util.Map.of()
+                            : stages.read(
+                                    library.documents().stream()
+                                            .map(
+                                                    DocumentInspectionService.DocumentSummary
+                                                            ::documentId)
+                                            .collect(Collectors.toSet())));
+            if (stages != null) model.addAttribute("cleanup", stages.cleanup());
         }
         return "library";
     }

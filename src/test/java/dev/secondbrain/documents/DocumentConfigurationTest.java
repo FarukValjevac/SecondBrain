@@ -173,6 +173,9 @@ class DocumentConfigurationTest {
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(EventPublisher.class, () -> mock(EventPublisher.class))
                 .withBean(
+                        dev.secondbrain.events.EventRetryService.class,
+                        () -> mock(dev.secondbrain.events.EventRetryService.class))
+                .withBean(
                         PlatformTransactionManager.class,
                         () -> mock(PlatformTransactionManager.class))
                 .withBean(Clock.class, Clock::systemUTC)

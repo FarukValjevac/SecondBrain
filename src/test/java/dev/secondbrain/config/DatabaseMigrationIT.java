@@ -40,7 +40,7 @@ class DatabaseMigrationIT {
         var legacyDataSource =
                 new DriverManagerDataSource(
                         POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        // Populate the previous schema before application startup applies the page migration.
+        // Populate legacy text and failed-delivery history before startup applies later migrations.
         Flyway.configure().dataSource(legacyDataSource).target("6").load().migrate();
         var legacyJdbc = JdbcClient.create(legacyDataSource);
         insertDocument(
@@ -52,13 +52,16 @@ class DatabaseMigrationIT {
         insertExtraction(legacyJdbc, documentId, 2);
         insertTextLine(legacyJdbc, documentId, 2, 1, "Another version");
 
+        var failedDelivery = seedLegacyFailedDelivery(legacyJdbc, documentId);
+
         try (var context = startApplication()) {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
+            assertRetryMigration(jdbc, failedDelivery);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(12);
+            Assertions.assertThat(flyway.info().applied()).hasSize(13);
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("12");
+            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("13");
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -166,8 +169,9 @@ class DatabaseMigrationIT {
         try (var context = startApplication()) {
             var jdbc = context.getBean(JdbcClient.class);
             var flyway = context.getBean(Flyway.class);
+            assertRetryMigration(jdbc, failedDelivery);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(12);
+            Assertions.assertThat(flyway.info().applied()).hasSize(13);
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(
@@ -180,7 +184,7 @@ class DatabaseMigrationIT {
                             jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE success")
                                     .query(Integer.class)
                                     .single())
-                    .isEqualTo(12);
+                    .isEqualTo(13);
             assertExtractedLines(jdbc, documentId);
             Assertions.assertThat(
                             jdbc.sql(
@@ -234,6 +238,74 @@ class DatabaseMigrationIT {
                 .param("number", lineNumber)
                 .param("text", text)
                 .update();
+    }
+
+    private static UUID seedLegacyFailedDelivery(JdbcClient jdbc, UUID documentId) {
+        var event = UUID.randomUUID();
+        var delivery = UUID.randomUUID();
+        var at = Timestamp.from(Instant.parse("2030-01-01T00:00:00Z"));
+        jdbc.sql(
+                        """
+            INSERT INTO event_keys(event_id, document_id, processing_version, event_type, schema_version, fingerprint)
+            VALUES (:event, :document, 1, 'MigrationProbe', 1, :fingerprint)
+            """)
+                .param("event", event)
+                .param("document", documentId)
+                .param("fingerprint", "a".repeat(64))
+                .update();
+        jdbc.sql(
+                        """
+            INSERT INTO domain_events(event_id, occurred_at, correlation_id, reference_ids, created_at)
+            VALUES (:event, :at, :correlation, '{}'::jsonb, :at)
+            """)
+                .param("event", event)
+                .param("at", at)
+                .param("correlation", UUID.randomUUID())
+                .update();
+        jdbc.sql(
+                        """
+            INSERT INTO event_deliveries(delivery_id, event_id, handler_id, state, attempts, eligible_at,
+                failure_code, created_at, updated_at)
+            VALUES (:delivery, :event, 'migration.probe.v1', 'FAILED', 5, :at, 'ATTEMPTS_EXHAUSTED', :at, :at)
+            """)
+                .param("delivery", delivery)
+                .param("event", event)
+                .param("at", at)
+                .update();
+        jdbc.sql(
+                        """
+            INSERT INTO event_delivery_attempts(delivery_id, attempt, lease_token, started_at, finished_at, outcome, failure_code)
+            VALUES (:delivery, 5, :token, :at, :at, 'FAILED', 'HANDLER_TRANSIENT')
+            """)
+                .param("delivery", delivery)
+                .param("token", UUID.randomUUID())
+                .param("at", at)
+                .update();
+        return delivery;
+    }
+
+    private static void assertRetryMigration(JdbcClient jdbc, UUID delivery) {
+        Assertions.assertThat(
+                        jdbc.sql(
+                                        "SELECT attempts, cycle_attempts, retry_cycle FROM event_deliveries WHERE delivery_id = :id")
+                                .param("id", delivery)
+                                .query((r, n) -> List.of(r.getInt(1), r.getInt(2), r.getInt(3)))
+                                .single())
+                .containsExactly(5, 5, 0);
+        Assertions.assertThat(
+                        jdbc.sql(
+                                        "SELECT outcome FROM event_delivery_attempts WHERE delivery_id = :id AND attempt = 5")
+                                .param("id", delivery)
+                                .query(String.class)
+                                .single())
+                .isEqualTo("FAILED");
+        Assertions.assertThat(
+                        jdbc.sql(
+                                        "SELECT count(*) FROM event_delivery_retries WHERE delivery_id = :id")
+                                .param("id", delivery)
+                                .query(Integer.class)
+                                .single())
+                .isZero();
     }
 
     private static List<Map.Entry<Integer, String>> readTextLines(

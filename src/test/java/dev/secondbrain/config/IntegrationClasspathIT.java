@@ -35,6 +35,7 @@ class IntegrationClasspathIT {
                     "templates/questions.html",
                     "templates/document-source.html",
                     "templates/fragments/document-query.html",
+                    "templates/fragments/processing.html",
                     "static/css/library.css"
                 }) {
             assertThat(resources.getResource("classpath:" + path).exists())

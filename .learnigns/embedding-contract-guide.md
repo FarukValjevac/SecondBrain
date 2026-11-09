@@ -1462,3 +1462,43 @@ The [browser guide](../docs/development.md#browser-questions-and-feedback) descr
 The source files are the authority for current behavior. [The local architecture](../.task/architecture.md) explains design decisions; [the testing strategy](../.task/testing-strategy.md) describes verification responsibilities. [The development guide](../docs/development.md#embedding-configuration) lists implemented configuration settings.
 
 Provider/model references: [Cloudflare compatible endpoint](https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/), [BGE-M3 model specification](https://huggingface.co/BAAI/bge-m3), and [Cloudflare free-plan pricing rules](https://developers.cloudflare.com/workers-ai/platform/pricing/). Model documentation and pricing are external facts; recheck them before live inference.
+
+
+## 44. Reading processing progress and retrying existing work
+
+The library has two different milestones: readable text and a searchable index. A document can finish text extraction while its search preparation is queued or failed. [DocumentProcessingService](../src/main/java/dev/secondbrain/documents/DocumentProcessingService.java) creates a small presentation record from persisted facts, while [JdbcProcessingRepository](../src/main/java/dev/secondbrain/documents/JdbcProcessingRepository.java) reads current-version deliveries and saved counts. The controller renders that projection; it does not guess a percentage or call a provider on refresh.
+
+```text
+Saved original → Extracting text → Preparing passages → Preparing search → Ready
+                                      │                       │
+                               saved passages          saved vector batches
+                                                              │
+                                                       failure / retry
+                                                              │
+                                                   continue missing batches
+```
+
+A record is useful here because progress is a snapshot for one request. It has a stage, state, fixed safe message, saved counts and optional retry selection. `Optional<Retry>` expresses whether a button is useful; absence does not mean the whole document is missing. The persistence row may contain nullable database columns, but the public view turns absence into explicit optional values or a named state. Constructor injection keeps required collaborators visible and final; no request progress is stored in singleton fields.
+
+A GET reads progress. A POST asks to change it. Both library and detail pages reuse one [Thymeleaf fragment](../src/main/resources/templates/fragments/processing.html). Its hidden delivery/cycle values select the failed work shown to the user; the server validates them again. They are not trusted permission or eligibility checks. A successful POST redirects to GET, so refreshing the result does not submit another retry. A stale selection receives a useful conflict response.
+
+[EventRetryService](../src/main/java/dev/secondbrain/events/EventRetryService.java) owns delivery mechanics. The document service supplies a database-only guard that locks the current document and checks visibility and desired stage. The store locks the delivery before that document, matching the worker's lock order. Checking only in the controller would be insufficient: deletion, another retry or a newer index could win before the POST commits. The guard and requeue therefore share a short transaction, and audit-insert failure rolls both back.
+
+```text
+Before retry: delivery D, event E, index 7
+  lifetime attempts = 5, cycle attempts = 5, cycle = 0, FAILED
+
+Explicit retry of the displayed cycle 0:
+  same D / E / index 7
+  lifetime attempts = 5, cycle attempts = 0, cycle = 1, PENDING
+
+Next worker claim:
+  lifetime attempt 6, cycle attempt 1
+  old attempt rows and successfully saved batches remain
+```
+
+Lifetime `attempts` provides unique history numbers. `cycle_attempts` governs bounded automatic retries and backoff. Resetting lifetime attempts would collide with history or erase evidence; continuing to compare the lifetime total with one cycle's limit would prevent recovery. The observed cycle also prevents an old double-click from starting another cycle after the first one has already failed. Restart never resets these counters. Only an explicit valid retry starts another bounded cycle.
+
+The original envelope remains unchanged, so consumer attempts retain its event/correlation/causation/trace context. A small audit row and safe ID-only log connect the manual request correlation to that delivery. Metrics use a closed outcome, not IDs or document content. Retention and deletion may remove operational history later; this is not event sourcing or an unlimited audit archive.
+
+Retry is different from reindexing: retry continues the same work, keeping saved passage IDs and embedding batches; `DocumentIndexingService.requestNext` deliberately allocates a new generation. Neither action can revive a tombstoned document. Read-only cleanup totals explain that removed content can still await cleanup, without making it visible again. The [development guide](../docs/development.md#processing-progress-and-manual-retry) contains usage and verification commands. Real database tests are needed for locking, restart and atomicity; MVC tests prove binding and escaped rendering, while browser layout and live provider quality remain separate checks.
