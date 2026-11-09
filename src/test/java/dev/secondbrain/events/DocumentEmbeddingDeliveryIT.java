@@ -50,8 +50,10 @@ class DocumentEmbeddingDeliveryIT {
     @Container
     private static final PostgreSQLContainer POSTGRES =
             new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+                            DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
+                                    .asCompatibleSubstituteFor("postgres"))
+                    // This disposable local fixture has no TLS configuration or certificates.
+                    .withUrlParam("sslmode", "disable");
 
     @TempDir private Path storage;
     private final MutableClock clock =
@@ -553,6 +555,11 @@ class DocumentEmbeddingDeliveryIT {
                         })
                 .run(
                         "--spring.config.import=",
+                        "--secondbrain.questions.enabled=false",
+                        "--secondbrain.events.enabled=true",
+                        "--secondbrain.documents.extraction.enabled=true",
+                        "--secondbrain.documents.indexing.enabled=true",
+                        "--secondbrain.documents.indexing.passages.enabled=true",
                         "--secondbrain.embeddings.enabled=" + enabled,
                         "--secondbrain.embeddings.batch-size=1",
                         "--secondbrain.events.polling-enabled=false",

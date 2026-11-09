@@ -26,6 +26,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -353,6 +355,20 @@ class ProviderRecoveryIT {
                         c -> {
                             c.getBeanFactory().registerSingleton("recoveryClock", clock);
                             c.getBeanFactory().registerSingleton("recoveryStub", stub);
+                            // Register the type before regular configuration conditions run.
+                            // A later @Bean method can otherwise coexist with the default provider.
+                            var provider =
+                                    new RootBeanDefinition(CloudflareEmbeddingProvider.class);
+                            provider.setInstanceSupplier(
+                                    () ->
+                                            testProvider(
+                                                    stub,
+                                                    clock,
+                                                    c.getBean(MeterRegistry.class),
+                                                    c.getBean(ObservationRegistry.class)));
+                            provider.setDestroyMethodName("close");
+                            ((BeanDefinitionRegistry) c.getBeanFactory())
+                                    .registerBeanDefinition("testEmbeddingProvider", provider);
                         })
                 .run(
                         "--spring.config.import=",
@@ -497,24 +513,23 @@ class ProviderRecoveryIT {
         return context.getBean("recoverySpans", InMemorySpanExporter.class).getFinishedSpanItems();
     }
 
+    private static CloudflareEmbeddingProvider testProvider(
+            Stub stub, Clock clock, MeterRegistry meters, ObservationRegistry observations) {
+        return new CloudflareEmbeddingProvider(
+                new CloudflareEmbeddingSettings(
+                        "a".repeat(32),
+                        "synthetic-recovery-token",
+                        new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024),
+                        Duration.ofMillis(100),
+                        Duration.ofSeconds(2),
+                        1),
+                clock,
+                stub.endpoint(),
+                new EmbeddingTelemetry(meters, observations));
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class FixtureConfiguration {
-        @Bean(destroyMethod = "close")
-        CloudflareEmbeddingProvider testEmbeddingProvider(
-                Stub stub, Clock clock, MeterRegistry meters, ObservationRegistry observations) {
-            return new CloudflareEmbeddingProvider(
-                    new CloudflareEmbeddingSettings(
-                            "a".repeat(32),
-                            "synthetic-recovery-token",
-                            new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024),
-                            Duration.ofMillis(100),
-                            Duration.ofSeconds(2),
-                            1),
-                    clock,
-                    stub.endpoint(),
-                    new EmbeddingTelemetry(meters, observations));
-        }
-
         @Bean
         SpanExporter recoverySpans() {
             return InMemorySpanExporter.create();
