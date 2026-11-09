@@ -189,7 +189,28 @@ class ManualProcessingRetryIT {
                                     .query(Integer.class)
                                     .single())
                     .isEqualTo(1);
-            assertThat(service.retry(id, delivery, 1, UUID.randomUUID())).isTrue();
+            // Lifetime history may exceed the maximum supported *cycle* budget of ten.
+            for (int observedCycle = 1; observedCycle <= 5; observedCycle++) {
+                assertThat(service.retry(id, delivery, observedCycle, UUID.randomUUID())).isTrue();
+                failCycle(context, claim(context));
+            }
+            assertThat(provider.calls).isEqualTo(14);
+            assertThat(
+                            sql(context)
+                                    .sql(
+                                            "SELECT attempts FROM event_deliveries WHERE delivery_id = :id")
+                                    .param("id", delivery)
+                                    .query(Integer.class)
+                                    .single())
+                    .isEqualTo(14);
+            assertThat(
+                            sql(context)
+                                    .sql(
+                                            "SELECT count(*) FROM event_delivery_attempts WHERE delivery_id = :id")
+                                    .param("id", delivery)
+                                    .query(Integer.class)
+                                    .single())
+                    .isEqualTo(14);
         }
     }
 

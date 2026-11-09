@@ -1502,3 +1502,32 @@ Lifetime `attempts` provides unique history numbers. `cycle_attempts` governs bo
 The original envelope remains unchanged, so consumer attempts retain its event/correlation/causation/trace context. A small audit row and safe ID-only log connect the manual request correlation to that delivery. Metrics use a closed outcome, not IDs or document content. Retention and deletion may remove operational history later; this is not event sourcing or an unlimited audit archive.
 
 Retry is different from reindexing: retry continues the same work, keeping saved passage IDs and embedding batches; `DocumentIndexingService.requestNext` deliberately allocates a new generation. Neither action can revive a tombstoned document. Read-only cleanup totals explain that removed content can still await cleanup, without making it visible again. The [development guide](../docs/development.md#processing-progress-and-manual-retry) contains usage and verification commands. Real database tests are needed for locking, restart and atomicity; MVC tests prove binding and escaped rendering, while browser layout and live provider quality remain separate checks.
+
+
+## 45. Understanding failure limits across the provider and worker
+
+There are two different kinds of attempt. A delivery attempt is one worker execution of a persisted job. Inside it, the embedding handler can make several provider calls, one per missing passage batch. The provider does not secretly run another application retry loop. A successful batch is saved in a short checkpoint transaction; inference itself runs outside that transaction.
+
+```text
+Delivery attempt 1                Waiting / restart                Delivery attempt 2
+  batch A → save vectors          same delivery/event              batch A already saved: skip
+  batch B → provider failure  →   persisted eligible time     →    batch B → save vectors
+                                  worker slot is free              remaining batches → publish
+```
+
+A retry budget therefore does not mean “five HTTP calls for the whole document.” For `B` required batches and `A` allowed attempts, `A × B` is a conservative upper bound on application calls in one cycle. Checkpoints usually make the count much smaller. If a provider replied but the application stopped before saving, repeating that call is possible. The event design prevents duplicate published state; it cannot promise exactly-once remote execution or refunded quota.
+
+[CloudflareEmbeddingProvider](../src/main/java/dev/secondbrain/embeddings/CloudflareEmbeddingProvider.java) uses a semaphore with two permits shared by background batches and search-query embeddings. A semaphore coordinates limited capacity; it does not store a question or document in singleton state. A third call fails immediately rather than building a caller queue. The permit is released in `finally`, including provider errors, interruption and timeout. The HTTP client's separate executor also has finite threads/queued tasks. Bounding that executor alone would not bound all outstanding HTTP operations. Chat has its own two-request limit.
+
+Connection timeout, full-response timeout, worker attempt deadline and retry eligibility answer different questions:
+
+- Connection timeout limits establishing a connection.
+- Full-response timeout also covers a server that sends headers but stalls midway through its body.
+- The worker deadline caps one lease's execution. Renewals do not move that deadline.
+- Retry eligibility says when a later attempt may start. A quota hint may be tomorrow while no worker is occupied.
+
+A question can use an embedding call and a chat call sequentially, plus database reads, so a per-provider timeout is not a whole-answer deadline. Local cancellation asks I/O to stop; it cannot prove what already happened remotely. During shutdown, a handler that ignores interruption continues to occupy its slot. The worker refuses to create a replacement pool until its old executor has terminated; database lease/version checks still reject late writes.
+
+Permanent errors such as denied access or invalid input stop that automatic attempt chain. Rate limits, classified quota errors, service/transport failures and timeouts can use the remaining automatic budget. The store uses the current cycle count for backoff and preserves lifetime attempt numbers for history; repeated explicit cycles can exceed ten lifetime attempts without expanding one cycle's limit. Resetting the application does not reset those counters. Valid reset hints delay persisted work; they never create another budget or a background question queue.
+
+[ProviderRecoveryIT](../src/test/java/dev/secondbrain/embeddings/ProviderRecoveryIT.java) sends real HTTP to a synthetic local stub, then exercises the actual worker/database chain across failure and restart. This verifies more than returning a canned provider object, while requiring no live account. The tests retain successful batches, reject late publication, and capture safe logs, metrics and linked attempt spans. Other tests own generic transaction/lease/out-of-order invariants; they are not duplicated for every provider status. Compilation, a passing database run, a browser check and live model quality remain different evidence. The [development guide](../docs/development.md#provider-timeout-and-retry-budgets) lists exact current settings and recovery commands.
