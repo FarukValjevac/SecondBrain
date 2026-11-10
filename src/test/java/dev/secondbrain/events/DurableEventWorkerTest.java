@@ -122,4 +122,100 @@ class DurableEventWorkerTest {
             Assertions.assertThat(worker.isOperational()).isFalse();
         }
     }
+
+    @Test
+    void shutdownCannotReplaceAnExecutorWhileAnUncooperativeHandlerIsStillAlive() throws Exception {
+        var clock = new MutableClock(Instant.parse("2030-01-01T00:00:00Z"));
+        var settings =
+                new EventDeliveryProperties(
+                        1,
+                        1,
+                        Duration.ofMillis(50),
+                        Duration.ofSeconds(3),
+                        Duration.ofSeconds(5),
+                        Duration.ofSeconds(1),
+                        3,
+                        Duration.ofMillis(100),
+                        Duration.ofSeconds(1),
+                        Duration.ofDays(30),
+                        100,
+                        Duration.ofHours(1));
+        var event =
+                new EventEnvelope(
+                        UUID.randomUUID(),
+                        new EventEnvelope.Type("ShutdownProbe", 1),
+                        UUID.randomUUID(),
+                        1,
+                        clock.instant(),
+                        UUID.randomUUID(),
+                        null,
+                        null,
+                        java.util.Map.of());
+        var lease =
+                new DeliveryLease(
+                        UUID.randomUUID(),
+                        "shutdown-probe",
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        1,
+                        clock.instant().plusSeconds(5),
+                        event);
+        var store = Mockito.mock(JdbcEventStore.class);
+        var dispatcher = Mockito.mock(EventDispatcher.class);
+        var claims = new AtomicInteger();
+        Mockito.when(store.claim(ArgumentMatchers.any()))
+                .thenAnswer(
+                        call ->
+                                claims.getAndIncrement() == 0
+                                        ? java.util.Optional.of(lease)
+                                        : java.util.Optional.empty());
+        Mockito.when(store.renew(lease)).thenReturn(true);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var interrupted = new CountDownLatch(1);
+        Mockito.doAnswer(
+                        call -> {
+                            entered.countDown();
+                            boolean restore = false;
+                            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+                            try {
+                                while (release.getCount() != 0) {
+                                    long remaining = deadline - System.nanoTime();
+                                    if (remaining <= 0)
+                                        throw new IllegalStateException("Test wait expired");
+                                    try {
+                                        release.await(remaining, TimeUnit.NANOSECONDS);
+                                    } catch (InterruptedException expected) {
+                                        restore = true;
+                                        interrupted.countDown();
+                                    }
+                                }
+                            } finally {
+                                if (restore) Thread.currentThread().interrupt();
+                            }
+                            return null;
+                        })
+                .when(dispatcher)
+                .dispatch(lease);
+        var worker = new DurableEventWorker(store, dispatcher, settings, clock);
+        try {
+            worker.start();
+            Assertions.assertThat(entered.await(3, TimeUnit.SECONDS)).isTrue();
+            worker.stop();
+            Assertions.assertThat(interrupted.getCount()).isZero();
+            Assertions.assertThat(worker.activeCount()).isEqualTo(1);
+            Assertions.assertThatThrownBy(worker::start).isInstanceOf(IllegalStateException.class);
+            release.countDown();
+            Awaitility.await()
+                    .atMost(Duration.ofSeconds(3))
+                    .untilAsserted(
+                            () ->
+                                    Assertions.assertThatCode(worker::start)
+                                            .doesNotThrowAnyException());
+            Assertions.assertThat(worker.isOperational()).isTrue();
+        } finally {
+            release.countDown();
+            worker.stop();
+        }
+    }
 }

@@ -101,8 +101,8 @@ class DocumentPassageDeliveryIT {
                             .list();
             if (format == Format.PDF) assertThat(pages).containsExactly(1, 3);
             else assertThat(pages).isEmpty();
-            // Embedding has no consumer yet; its durable fact must remain available, not
-            // acknowledged.
+            // This passage-only fixture disables embeddings explicitly. Retain its downstream
+            // fact without creating or acknowledging an embedding delivery.
             assertThat(
                             jdbc(context)
                                     .sql(
@@ -585,6 +585,12 @@ class DocumentPassageDeliveryIT {
                                         .registerSingleton("passageTestClock", clock))
                 .run(
                         "--spring.config.import=",
+                        // Keep this stage-only suite independent of locally enabled model flags.
+                        "--secondbrain.embeddings.enabled=false",
+                        "--secondbrain.questions.enabled=false",
+                        "--secondbrain.events.enabled=true",
+                        "--secondbrain.documents.extraction.enabled=true",
+                        "--secondbrain.documents.indexing.enabled=true",
                         "--secondbrain.events.polling-enabled=" + polling,
                         "--secondbrain.documents.cleanup.enabled=false",
                         "--secondbrain.documents.indexing.passages.enabled=" + consumer,

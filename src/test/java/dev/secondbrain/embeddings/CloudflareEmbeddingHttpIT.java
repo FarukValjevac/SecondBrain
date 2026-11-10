@@ -310,6 +310,50 @@ class CloudflareEmbeddingHttpIT {
     }
 
     @Test
+    void boundsSharedBackgroundAndInteractiveCallsAndReleasesCapacityAfterFailures()
+            throws Exception {
+        var entered = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        behavior.set(
+                exchange -> {
+                    entered.countDown();
+                    try {
+                        if (!release.await(5, TimeUnit.SECONDS))
+                            throw new IOException("Stub wait expired");
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Stub interrupted", interrupted);
+                    }
+                    reply(exchange, 503, "{\"error\":{\"message\":\"" + PRIVATE_RESPONSE + "\"}}");
+                });
+        try (var provider = provider(Duration.ofSeconds(4));
+                var callers = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var first =
+                    callers.submit(
+                            () -> {
+                                assertFailure(provider, EmbeddingFailure.Reason.UNAVAILABLE);
+                            });
+            var second =
+                    callers.submit(
+                            () -> {
+                                assertFailure(provider, EmbeddingFailure.Reason.UNAVAILABLE);
+                            });
+            try {
+                assertThat(entered.await(3, TimeUnit.SECONDS)).isTrue();
+                assertFailure(provider, EmbeddingFailure.Reason.UNAVAILABLE);
+                assertThat(calls).hasValue(2);
+            } finally {
+                release.countDown();
+            }
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+            behavior.set(exchange -> reply(exchange, 200, "{\"data\":[" + entry(0, "1") + "]}"));
+            assertThat(provider.embed(List.of(PRIVATE_TEXT))).hasSize(1);
+            assertThat(calls).hasValue(3);
+        }
+    }
+
+    @Test
     void rejectsMalformedSuccessPayloadsAndWrongContentType() throws Exception {
         behavior.set(
                 exchange -> reply(exchange, 200, "{\"data\":[{\"index\":0,\"embedding\":[1,2]}]}"));

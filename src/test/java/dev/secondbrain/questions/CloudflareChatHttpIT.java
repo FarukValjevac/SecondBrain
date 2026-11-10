@@ -141,7 +141,11 @@ class CloudflareChatHttpIT {
     @ParameterizedTest
     @CsvSource({
         "401,0,ACCESS_DENIED",
+        "403,0,ACCESS_DENIED",
         "403,5035,MODEL_UNAVAILABLE",
+        "404,3042,MODEL_UNAVAILABLE",
+        "413,3006,INVALID_INPUT",
+        "408,3007,TIMED_OUT",
         "429,3036,QUOTA_EXHAUSTED",
         "429,3040,RATE_LIMITED",
         "503,0,UNAVAILABLE"

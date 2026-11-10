@@ -2,7 +2,9 @@ package dev.secondbrain.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
+import dev.secondbrain.embeddings.CloudflareEmbeddingProvider;
 import dev.secondbrain.embeddings.CloudflareEmbeddingSettings;
 import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingProvider;
@@ -11,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -165,6 +169,30 @@ class EmbeddingConfigurationTest {
                                             "Unsupported embedding model or dimensions");
                         });
         assertThat(output).doesNotContain(TOKEN);
+    }
+
+    @Test
+    void earlyProviderDefinitionSuppressesProductionSetupAndClosesTheOwnedClient() {
+        var provider = mock(CloudflareEmbeddingProvider.class);
+        runner.withInitializer(
+                        context -> {
+                            var definition =
+                                    new RootBeanDefinition(CloudflareEmbeddingProvider.class);
+                            definition.setInstanceSupplier(() -> provider);
+                            definition.setDestroyMethodName("close");
+                            ((BeanDefinitionRegistry) context.getBeanFactory())
+                                    .registerBeanDefinition("testEmbeddingProvider", definition);
+                        })
+                .withPropertyValues("secondbrain.embeddings.enabled=true")
+                .run(
+                        context -> {
+                            assertThat(context).hasNotFailed();
+                            assertThat(context).hasSingleBean(EmbeddingProvider.class);
+                            assertThat(context.getBean(EmbeddingProvider.class)).isSameAs(provider);
+                            assertThat(context).doesNotHaveBean(CloudflareEmbeddingSettings.class);
+                            assertThat(context).doesNotHaveBean("cloudflareEmbeddingProvider");
+                        });
+        verify(provider).close();
     }
 
     @Test

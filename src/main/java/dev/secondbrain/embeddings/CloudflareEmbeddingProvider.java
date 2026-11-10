@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -27,6 +28,7 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
     private final ThreadPoolExecutor network;
     private final HttpClient client;
     private final EmbeddingTelemetry telemetry;
+    private final Semaphore capacity = new Semaphore(2);
 
     public CloudflareEmbeddingProvider(CloudflareEmbeddingSettings settings, Clock clock) {
         this(settings, clock, settings.endpoint(), EmbeddingTelemetry.disabled());
@@ -109,9 +111,17 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
                         .build();
         try (var operation = telemetry.start()) {
             try {
-                var result = exchange(request, texts.size());
-                operation.success(result.inputTokens());
-                return result.vectors();
+                // Background batches and interactive query embeddings share this one client.
+                // Bounding executor tasks alone does not bound outstanding HTTP requests.
+                if (!capacity.tryAcquire())
+                    throw new EmbeddingFailure(EmbeddingFailure.Reason.UNAVAILABLE, null, null);
+                try {
+                    var result = exchange(request, texts.size());
+                    operation.success(result.inputTokens());
+                    return result.vectors();
+                } finally {
+                    capacity.release();
+                }
             } catch (EmbeddingFailure failed) {
                 operation.failure(failed.reason());
                 throw failed;
