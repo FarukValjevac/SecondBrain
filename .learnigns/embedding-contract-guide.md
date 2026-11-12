@@ -1616,3 +1616,33 @@ Tracing follows a request through observations. A durable worker starts a new ro
 The normal sampling rate is 10%; the explicit local profile uses 100% for a short walkthrough. Trace buffers and HTTP deadlines remain bounded. Backend errors never make an upload, search, acknowledgment or readiness check depend on Grafana. The application can be healthy while one document is failed, cleanup needs attention, or telemetry is unavailable. Diagnose those conditions with their distinct signals rather than turning every individual failure into application downtime.
 
 The [local observability guide](../docs/development.md#local-observability-dashboard) owns startup/shutdown, safe synthetic success/failure/retry examples, correlation lookup and optional question checks. Logs stay in the terminal; Loki in the development image is unused. Telemetry history is disposable and kept separately from originals and PostgreSQL. A dashboard supports diagnosis, while the database delivery history remains the authority for durable processing.
+
+
+## 49. An answer key is different from an evaluation result
+
+The reference collection is a small public set of invented documents and questions with known evidence. It acts like an answer key: it says what a successful result should contain. It does not tell us whether a model has succeeded.
+
+```mermaid
+flowchart LR
+    D[Versioned TXT / Markdown / PDF bytes] --> X[Actual extraction and passage preparation checks]
+    D --> G[Gold source quotes / lines / pages / facts]
+    G --> C[Cases: question + scope + deletion + evidence expectation]
+    C --> R[Retrieval-only run]
+    R --> Q[Did expected passage IDs appear within top five?]
+    R --> A[Separate answer and citation review]
+    A --> S[Are actual claims supported, complete and correctly cited?]
+```
+
+`java-study-v1` preserves the original regression examples. `java-study-v2` is the release answer key: twenty cases across seven documents, including selectable PDF text and a deliberately quoted instruction. Document and source labels are stable human-readable names. The fixture binds them to deterministic document/passage UUIDs for extraction/index/passage configuration1. Several source quotes can live in one passage, so finding that passage once should not count as several independent retrieval hits.
+
+There are two hashes for a release document. The original hash checks the uploaded bytes; the passage hash checks the canonical extracted text. A PDF's original bytes are completely different from its extracted words. A final newline also changes the text hash and final source position. Offline tests exercise the actual storage/extractors/splitter so that the gold answer key cannot silently drift from application behavior. The deliberately short examples each fit one passage; this is not a long-document or chunk-overlap benchmark.
+
+A case carries a question, explicit search scope, any independently deleted documents, evidence expected/absent, source labels and expected facts. Those facts are anchored in quoted source locations. For example, an ArrayList fact must not accidentally be justified by a similar LinkedList sentence. A quoted instruction is still document data; the system should answer the factual question rather than follow that instruction.
+
+Controlled vectors let ordinary tests verify SQL ranking, scope, deletion, pages and IDs without calling a model. They do not demonstrate understanding of the words. A real retrieval run uses the same answer key with hosted embeddings, under explicit consent and request/text/token budgets. Seven passage inputs are batched3/3/1 to respect the provider boundary. The conservative preflight reserves twenty-two request slots, including possible query embeddings, before doing inference.
+
+Recall@5 measures how many distinct expected passages were retrieved among the first five. It does not penalize unrelated extra passages. An unanswerable question can still retrieve a topically similar passage; empty retrieval and absent factual support are different. Check scope/deletion safety independently, and require an insufficient-information answer when the supplied evidence cannot answer the question.
+
+Grounding review is separate again. Check each material claim against the passages actually supplied to that answer, verify citations belong to that context and remain visible, and check that all expected facts were covered. A citation can be a valid ID while the answer says something unsupported or contradictory. An automated judge may assist but cannot turn ID validity into factual correctness.
+
+The [release quality gates](../docs/development.md#release-reference-corpus-and-quality-gates) declare the thresholds and review rubric before a live measurement. Reports start with `NOT_RUN`; they contain no invented recall, latency or token/cost results. Later failures should produce concrete follow-up work and another evaluation, rather than quietly changing the answer key or lowering thresholds to make an existing run pass.

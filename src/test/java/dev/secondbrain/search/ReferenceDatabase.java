@@ -74,12 +74,17 @@ record ReferenceDatabase(JdbcClient jdbc, JdbcTransactionManager transactions) {
                 .param("id", document.documentId())
                 .param("at", Timestamp.from(at))
                 .update();
-        var lines = document.text().lines().toList();
+        var lines = List.of(document.text().split("\\n", -1));
         for (int i = 0; i < lines.size(); i++)
             jdbc.sql(
-                            "INSERT INTO document_text_lines(document_id, processing_version, line_number, line_text) VALUES (:id, 1, :line, :text)")
+                            "INSERT INTO document_text_lines(document_id, processing_version, line_number, line_text, page_number) VALUES (:id, 1, :line, :text, :page)")
                     .param("id", document.documentId())
                     .param("line", i + 1)
+                    .param(
+                            "page",
+                            document.location().pageNumber().isPresent()
+                                    ? document.location().pageNumber().getAsInt()
+                                    : null)
                     .param("text", lines.get(i))
                     .update();
         jdbc.sql(
@@ -99,7 +104,7 @@ record ReferenceDatabase(JdbcClient jdbc, JdbcTransactionManager transactions) {
                         """
                 INSERT INTO document_passages(passage_id, document_id, indexing_version, sequence_number,
                     passage_text, start_line, start_column, end_line, end_column, page_number)
-                VALUES (:passage, :id, :version, 1, :text, :start, 0, :end, :column, NULL)
+                VALUES (:passage, :id, :version, 1, :text, :start, 0, :end, :column, :page)
                 """)
                 .param("passage", document.passageId())
                 .param("id", document.documentId())
@@ -108,6 +113,9 @@ record ReferenceDatabase(JdbcClient jdbc, JdbcTransactionManager transactions) {
                 .param("start", location.startLine())
                 .param("end", location.endLine())
                 .param("column", location.endColumn())
+                .param(
+                        "page",
+                        location.pageNumber().isPresent() ? location.pageNumber().getAsInt() : null)
                 .update();
         jdbc.sql(
                         """

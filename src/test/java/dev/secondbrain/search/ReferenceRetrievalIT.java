@@ -73,12 +73,9 @@ class ReferenceRetrievalIT {
 
     @BeforeEach
     void seedCompletePublishedReferenceIndexes() throws IOException {
-        index = ReferenceIndex.prepare(RetrievalReferenceCollection.load());
         observations
                 .observationConfig()
                 .observationHandler(new DefaultMeterObservationHandler(meters));
-        database.seed(
-                index, List.of(vector(1, 0, 0, 0), vector(0, 1, 0, 0), vector(0, 0, 1, 0)), AT);
     }
 
     @AfterEach
@@ -90,13 +87,49 @@ class ReferenceRetrievalIT {
         }
     }
 
-    static Stream<QueryCase> referenceCases() throws IOException {
-        return RetrievalReferenceCollection.load().cases().stream();
+    static Stream<Scenario> referenceCases() throws IOException {
+        var legacy = RetrievalReferenceCollection.load();
+        var release = RetrievalReferenceCollection.loadRelease();
+        return Stream.concat(
+                legacy.cases().stream().map(query -> new Scenario(legacy, query)),
+                release.cases().stream().map(query -> new Scenario(release, query)));
+    }
+
+    private void seed(RetrievalReferenceCollection collection) throws IOException {
+        index = ReferenceIndex.prepare(collection);
+        var directions =
+                index.documents().stream()
+                        .map(
+                                document ->
+                                        switch (document.label()) {
+                                            case "arraylist" -> axis(0);
+                                            case "hashset" -> axis(1);
+                                            case "study-plan" -> axis(2);
+                                            case "linkedlist" -> axis(3);
+                                            case "review-methods" -> axis(4);
+                                            case "instruction-example" -> axis(5);
+                                            case "practice-card" -> axis(6);
+                                            default ->
+                                                    throw new IllegalArgumentException(
+                                                            "Missing controlled document direction");
+                                        })
+                        .toList();
+        database.seed(index, directions, AT);
+    }
+
+    record Scenario(RetrievalReferenceCollection collection, QueryCase query) {
+        @Override
+        public String toString() {
+            return collection.corpusVersion() + ":" + query.id();
+        }
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("referenceCases")
-    void retrievesExactlyTheExpectedVisiblePassages(QueryCase reference, CapturedOutput output) {
+    void retrievesExactlyTheExpectedVisiblePassages(Scenario scenario, CapturedOutput output)
+            throws IOException {
+        seed(scenario.collection());
+        var reference = scenario.query();
         applyDeletions(reference);
         var saved = storedVectors();
         var provider = new ScriptedQueryProvider(reference.query(), queryDirection(reference.id()));
@@ -142,7 +175,8 @@ class ReferenceRetrievalIT {
     }
 
     @Test
-    void selectedScopeIsAppliedBeforeTheTopOneLimit() {
+    void selectedScopeIsAppliedBeforeTheTopOneLimit() throws IOException {
+        seed(RetrievalReferenceCollection.load());
         var provider =
                 new ScriptedQueryProvider("Are duplicate values allowed?", vector(1, 0.8f, 0, 0));
         var service = service(provider);
@@ -173,7 +207,8 @@ class ReferenceRetrievalIT {
     }
 
     @Test
-    void aFreshReaderReusesPersistedVectorsAndTieOrdering() {
+    void aFreshReaderReusesPersistedVectorsAndTieOrdering() throws IOException {
+        seed(RetrievalReferenceCollection.load());
         var reference =
                 index.collection().cases().stream()
                         .filter(query -> query.id().equals("duplicate-comparison"))
@@ -256,8 +291,14 @@ class ReferenceRetrievalIT {
                     "removed-arraylist" ->
                     vector(1, 0, 0, 0);
             case "duplicate-comparison" -> vector(1, 1, 0, 0);
-            case "collections-and-review" -> vector(1, 0, 1, 0);
-            case "threads-absent" -> vector(0, 0, 0, 1);
+            case "collections-and-review" -> vector(1, 0, 1, 0, 1);
+            case "threads-absent", "exam-date-absent" -> axis(7);
+            case "membership-direct" -> axis(1);
+            case "indexed-access-comparison" -> vector(1, 0, 0, 1);
+            case "linkedlist-front" -> axis(3);
+            case "review-and-quiz" -> vector(0, 0, 1, 0, 0, 0, 1);
+            case "pdf-score", "pdf-score-filter", "removed-pdf" -> axis(6);
+            case "untrusted-instructions" -> axis(5);
             case "hashset-filter" -> vector(1, 0.8f, 0, 0);
             case "hashset-survives" -> vector(0, 1, 0, 0);
             default ->
@@ -265,12 +306,15 @@ class ReferenceRetrievalIT {
         };
     }
 
-    private static EmbeddingVector vector(float a, float b, float c, float d) {
+    private static EmbeddingVector vector(float... components) {
         var values = new float[1024];
-        values[0] = a;
-        values[1] = b;
-        values[2] = c;
-        values[3] = d;
+        System.arraycopy(components, 0, values, 0, components.length);
+        return new EmbeddingVector(MODEL, values);
+    }
+
+    private static EmbeddingVector axis(int dimension) {
+        var values = new float[1024];
+        values[dimension] = 1;
         return new EmbeddingVector(MODEL, values);
     }
 

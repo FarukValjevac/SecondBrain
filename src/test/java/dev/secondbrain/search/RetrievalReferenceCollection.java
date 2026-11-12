@@ -22,7 +22,6 @@ record RetrievalReferenceCollection(
         List<Document> documents,
         List<Source> sources,
         List<QueryCase> cases) {
-    private static final String ROOT = "/retrieval/reference-v1/";
     private static final int MAXIMUM_RESOURCE_BYTES = 65_536;
 
     RetrievalReferenceCollection {
@@ -33,17 +32,28 @@ record RetrievalReferenceCollection(
     }
 
     static RetrievalReferenceCollection load() throws IOException {
+        return load("reference-v1");
+    }
+
+    static RetrievalReferenceCollection loadRelease() throws IOException {
+        return load("reference-v2");
+    }
+
+    private static RetrievalReferenceCollection load(String version) throws IOException {
         var collection =
                 JsonMapper.builder()
                         .build()
-                        .readValue(resource("collection.json"), RetrievalReferenceCollection.class);
+                        .readValue(
+                                resource("/retrieval/" + version + "/", "collection.json"),
+                                RetrievalReferenceCollection.class);
         collection.validate();
         return collection;
     }
 
     void validate() throws IOException {
         require(
-                schemaVersion == 1 && corpusVersion.equals("java-study-v1"),
+                (schemaVersion == 1 && corpusVersion.equals("java-study-v1"))
+                        || (schemaVersion == 2 && corpusVersion.equals("java-study-v2")),
                 "Unsupported reference version");
         require(!documents.isEmpty() && documents.size() <= 10, "Invalid reference document count");
         require(!sources.isEmpty() && sources.size() <= 32, "Invalid reference source count");
@@ -65,7 +75,10 @@ record RetrievalReferenceCollection(
             usedSources.addAll(query.expectedSources());
         }
         require(
-                coveredKinds.equals(EnumSet.allOf(Kind.class)),
+                coveredKinds.equals(
+                        schemaVersion == 1
+                                ? EnumSet.range(Kind.DIRECT, Kind.DELETION)
+                                : EnumSet.allOf(Kind.class)),
                 "Reference case coverage is incomplete");
         require(usedSources.equals(labeledSources.keySet()), "Unused reference source");
         require(
@@ -91,11 +104,35 @@ record RetrievalReferenceCollection(
 
     private Map<String, Source> validateSources(Map<String, List<String>> texts) {
         var labeledSources = new HashMap<String, Source>();
+        var coordinates = new HashSet<String>();
         for (var source : sources) {
             identifier(source.id());
             require(
                     labeledSources.putIfAbsent(source.id(), source) == null,
                     "Duplicate source label");
+            var owner =
+                    documents.stream()
+                            .filter(document -> document.id().equals(source.document()))
+                            .findFirst()
+                            .orElseThrow(
+                                    () ->
+                                            new IllegalArgumentException(
+                                                    "Source refers to an unknown document"));
+            require(
+                    owner.file().endsWith(".pdf")
+                            ? Integer.valueOf(1).equals(source.pageNumber())
+                            : source.pageNumber() == null,
+                    "Source page does not match its document format");
+            require(
+                    coordinates.add(
+                            source.document()
+                                    + ":"
+                                    + source.startLine()
+                                    + ":"
+                                    + source.endLine()
+                                    + ":"
+                                    + source.pageNumber()),
+                    "Ambiguous duplicate source coordinates");
             var lines = texts.get(source.document());
             require(lines != null, "Source refers to an unknown document");
             require(
@@ -172,6 +209,30 @@ record RetrievalReferenceCollection(
                                                             .quote()
                                                             .contains(fact)),
                     "Expected fact is not anchored in labeled evidence");
+        if (query.kind() == Kind.PDF_REFERENCE)
+            require(
+                    query.evidence() == Evidence.EXPECTED
+                            && query.expectedSources().stream()
+                                    .allMatch(
+                                            label ->
+                                                    labeledSources.get(label).pageNumber() != null),
+                    "PDF case requires physical-page evidence");
+        if (query.kind() == Kind.INSTRUCTION_TEXT)
+            require(
+                    query.evidence() == Evidence.EXPECTED,
+                    "Instruction case requires factual evidence");
+        for (var fact : query.expectedFacts())
+            require(
+                    query.expectedSources().stream()
+                                    .filter(
+                                            label ->
+                                                    labeledSources
+                                                            .get(label)
+                                                            .quote()
+                                                            .contains(fact))
+                                    .count()
+                            == 1,
+                    "Expected fact has ambiguous source attribution");
         for (var label : query.expectedSources())
             require(
                     query.expectedFacts().stream()
@@ -190,11 +251,59 @@ record RetrievalReferenceCollection(
     }
 
     String content(Document document) throws IOException {
+        var bytes = bytes(document);
+        final String text;
+        if (document.file().endsWith(".pdf")) {
+            try (var pdf = org.apache.pdfbox.Loader.loadPDF(bytes)) {
+                require(
+                        !pdf.isEncrypted() && pdf.getNumberOfPages() == 1,
+                        "Reference PDF requires one unencrypted physical page");
+                var stripper = new org.apache.pdfbox.text.PDFTextStripper();
+                stripper.setSortByPosition(true);
+                stripper.setShouldSeparateByBeads(false);
+                stripper.setLineSeparator("\n");
+                stripper.setPageStart("");
+                stripper.setPageEnd("");
+                text = stripper.getText(pdf);
+            }
+        } else text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
         require(
-                document.file().matches("documents/[a-z][a-z0-9-]*\\.(txt|md)"),
+                !text.isBlank()
+                        && (text.endsWith("\n") || document.file().endsWith(".pdf"))
+                        && !text.contains("\r")
+                        && text.indexOf('\0') < 0,
+                "Reference documents require nonempty UTF-8 and LF lines");
+        if (schemaVersion == 2) {
+            require(
+                    document.passageSha256() != null
+                            && document.passageSha256().matches("[a-f0-9]{64}"),
+                    "Missing extracted passage checksum");
+            try {
+                require(
+                        HexFormat.of()
+                                .formatHex(
+                                        MessageDigest.getInstance("SHA-256")
+                                                .digest(text.getBytes(StandardCharsets.UTF_8)))
+                                .equals(document.passageSha256()),
+                        "Extracted passage checksum changed");
+            } catch (NoSuchAlgorithmException unavailable) {
+                throw new IllegalStateException("SHA-256 is required", unavailable);
+            }
+        }
+        return text;
+    }
+
+    byte[] bytes(Document document) throws IOException {
+        require(
+                document.file().matches("documents/[a-z][a-z0-9-]*\\.(txt|md|pdf)"),
                 "Unsafe reference resource path");
         require(document.sha256().matches("[a-f0-9]{64}"), "Invalid reference checksum");
-        var bytes = resource(document.file());
+        var bytes =
+                resource(
+                        schemaVersion == 1
+                                ? "/retrieval/reference-v1/"
+                                : "/retrieval/reference-v2/",
+                        document.file());
         try {
             require(
                     HexFormat.of()
@@ -204,18 +313,11 @@ record RetrievalReferenceCollection(
         } catch (NoSuchAlgorithmException unavailable) {
             throw new IllegalStateException("SHA-256 is required", unavailable);
         }
-        var text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
-        require(
-                !text.isBlank()
-                        && text.endsWith("\n")
-                        && !text.contains("\r")
-                        && text.indexOf('\0') < 0,
-                "Reference documents require nonempty UTF-8 and LF lines");
-        return text;
+        return bytes;
     }
 
-    private static byte[] resource(String name) throws IOException {
-        try (var input = RetrievalReferenceCollection.class.getResourceAsStream(ROOT + name)) {
+    private static byte[] resource(String root, String name) throws IOException {
+        try (var input = RetrievalReferenceCollection.class.getResourceAsStream(root + name)) {
             if (input == null) throw new IOException("Missing reference resource");
             var bytes = input.readNBytes(MAXIMUM_RESOURCE_BYTES + 1);
             require(bytes.length <= MAXIMUM_RESOURCE_BYTES, "Reference resource exceeds budget");
@@ -243,7 +345,11 @@ record RetrievalReferenceCollection(
         return "ReferenceCollection[version=" + corpusVersion + ", cases=" + cases.size() + "]";
     }
 
-    record Document(String id, String file, String sha256) {
+    record Document(String id, String file, String sha256, String passageSha256) {
+        Document(String id, String file, String sha256) {
+            this(id, file, sha256, null);
+        }
+
         Document {
             Objects.requireNonNull(id);
             Objects.requireNonNull(file);
@@ -256,7 +362,17 @@ record RetrievalReferenceCollection(
         }
     }
 
-    record Source(String id, String document, int startLine, int endLine, String quote) {
+    record Source(
+            String id,
+            String document,
+            int startLine,
+            int endLine,
+            String quote,
+            Integer pageNumber) {
+        Source(String id, String document, int startLine, int endLine, String quote) {
+            this(id, document, startLine, endLine, quote, null);
+        }
+
         Source {
             Objects.requireNonNull(id);
             Objects.requireNonNull(document);
@@ -320,6 +436,8 @@ record RetrievalReferenceCollection(
         ABSENT_EVIDENCE,
         DOCUMENT_FILTER,
         EMPTY_SELECTION,
-        DELETION
+        DELETION,
+        PDF_REFERENCE,
+        INSTRUCTION_TEXT
     }
 }

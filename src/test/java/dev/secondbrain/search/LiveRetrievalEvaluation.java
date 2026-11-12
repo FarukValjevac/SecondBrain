@@ -30,7 +30,7 @@ class LiveRetrievalEvaluation {
     void evaluateReferenceRetrieval() throws Exception {
         // Validate consent, budgets, fixtures and credentials before Docker or inference.
         var limits = EvaluationBudget.Limits.from(System.getProperties());
-        var index = ReferenceIndex.prepare(RetrievalReferenceCollection.load());
+        var index = ReferenceIndex.prepare(RetrievalReferenceCollection.loadRelease());
         EvaluationBudget.preflight(index, limits);
         var settings =
                 new CloudflareEmbeddingSettings(
@@ -39,12 +39,14 @@ class LiveRetrievalEvaluation {
                         new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024),
                         Duration.ofSeconds(5),
                         Duration.ofSeconds(20),
-                        3);
+                        EvaluationBudget.PASSAGE_BATCH_SIZE);
         var clock = Clock.systemUTC();
         var evaluation = new RetrievalEvaluation(index, limits, clock);
         var root = Path.of("evaluation-runs");
         Files.createDirectories(root);
-        var path = Files.createTempDirectory(root, "java-study-v1-live-").resolve("report.json");
+        var path =
+                Files.createTempDirectory(root, index.collection().corpusVersion() + "-live-")
+                        .resolve("report.json");
         var meters = new SimpleMeterRegistry();
         var observations = ObservationRegistry.create();
         observations
@@ -68,11 +70,7 @@ class LiveRetrievalEvaluation {
                     new CloudflareEmbeddingProvider(
                             settings, clock, new EmbeddingTelemetry(meters, observations))) {
                 budget = new EvaluationBudget(provider, limits, meters);
-                var vectors =
-                        budget.embed(
-                                index.documents().stream()
-                                        .map(ReferenceIndex.Document::text)
-                                        .toList());
+                var vectors = budget.embedReferencePassages(index);
                 database.seed(index, vectors, clock.instant());
                 var service =
                         new SearchService(

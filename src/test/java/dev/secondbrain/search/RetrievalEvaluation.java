@@ -64,7 +64,8 @@ final class RetrievalEvaluation {
             int startLine,
             int startColumn,
             int endLine,
-            int endColumn) {
+            int endColumn,
+            Integer pageNumber) {
         Binding {
             sourceLabels = List.copyOf(sourceLabels);
         }
@@ -77,6 +78,7 @@ final class RetrievalEvaluation {
             long extractionVersion,
             long indexingVersion,
             int passageConfigurationVersion,
+            int passageEmbeddingBatchSize,
             int topK,
             double minimumScore,
             EvaluationBudget.Limits limits,
@@ -274,11 +276,14 @@ final class RetrievalEvaluation {
                                             location.startLine(),
                                             location.startColumn(),
                                             location.endLine(),
-                                            location.endColumn());
+                                            location.endColumn(),
+                                            location.pageNumber().isPresent()
+                                                    ? location.pageNumber().getAsInt()
+                                                    : null);
                                 })
                         .toList();
         return new Report(
-                1,
+                index.collection().schemaVersion(),
                 "LIVE_EMBEDDINGS",
                 index.collection().corpusVersion(),
                 index.collection().schemaVersion(),
@@ -294,6 +299,7 @@ final class RetrievalEvaluation {
                         1,
                         ReferenceIndex.INDEXING_VERSION,
                         ReferenceIndex.PASSAGE_CONFIGURATION,
+                        EvaluationBudget.PASSAGE_BATCH_SIZE,
                         SearchQuery.DEFAULT_RESULTS,
                         MINIMUM_SCORE,
                         limits,

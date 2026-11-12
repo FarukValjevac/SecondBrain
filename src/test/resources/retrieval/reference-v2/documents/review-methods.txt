@@ -1,0 +1,4 @@
+Example review methods
+
+Retrieval practice means recalling information before rereading notes.
+A practice answer should be checked against the original notes afterwards.
