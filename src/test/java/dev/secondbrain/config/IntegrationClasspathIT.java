@@ -31,6 +31,7 @@ class IntegrationClasspathIT {
                     "templates/library.html",
                     "templates/document.html",
                     "templates/document-delete.html",
+                    "templates/document-cleanup.html",
                     "templates/search.html",
                     "templates/questions.html",
                     "templates/document-source.html",

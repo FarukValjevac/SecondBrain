@@ -1501,7 +1501,7 @@ Lifetime `attempts` provides unique history numbers. `cycle_attempts` governs bo
 
 The original envelope remains unchanged, so consumer attempts retain its event/correlation/causation/trace context. A small audit row and safe ID-only log connect the manual request correlation to that delivery. Metrics use a closed outcome, not IDs or document content. Retention and deletion may remove operational history later; this is not event sourcing or an unlimited audit archive.
 
-Retry is different from reindexing: retry continues the same work, keeping saved passage IDs and embedding batches; `DocumentIndexingService.requestNext` deliberately allocates a new generation. Neither action can revive a tombstoned document. Read-only cleanup totals explain that removed content can still await cleanup, without making it visible again. The [development guide](../docs/development.md#processing-progress-and-manual-retry) contains usage and verification commands. Real database tests are needed for locking, restart and atomicity; MVC tests prove binding and escaped rendering, while browser layout and live provider quality remain separate checks.
+Retry is different from reindexing: retry continues the same work, keeping saved passage IDs and embedding batches; `DocumentIndexingService.requestNext` deliberately allocates a new generation. Neither action can revive a tombstoned document. Cleanup totals link to a separate bounded recovery page for removed documents; retrying cleanup never makes them visible again. The [development guide](../docs/development.md#processing-progress-and-manual-retry) contains usage and verification commands. Real database tests are needed for locking, restart and atomicity; MVC tests prove binding and escaped rendering, while browser layout and live provider quality remain separate checks.
 
 
 ## 45. Understanding failure limits across the provider and worker
@@ -1540,3 +1540,38 @@ A constructor parameter of type `EmbeddingProvider` asks Spring for an object of
 A `RootBeanDefinition` separates three things: the class identifies the bean's type, a supplier explains how to create it when needed, and a destroy method identifies owned-resource cleanup. The supplier can resolve the real meter and observation registries after the container has registered configuration. Each restarted test context creates and closes its own client, while the deliberately external stub/clock controls the simulated remote behavior across restarts. The fast configuration test checks a single provider, absence of production settings, and correct closure without requiring PostgreSQL.
 
 Test scope also matters. A passage-only test disables embeddings explicitly and checks the saved downstream fact. A full-pipeline test enables the later stages and expects their deliveries. Disabling a stage in a scoped fixture does not disable it in the application or remove the full-pipeline coverage. Tests using disposable local PostgreSQL can also specify their own connection mode without changing the application's database configuration.
+
+
+## 47. Why deleting a document has two stages
+
+A database transaction can undo SQL changes, but cannot put a deleted file back. SecondBrain therefore separates **hide now** from **remove stored content**, using the same durable event delivery mechanism as indexing.
+
+```mermaid
+flowchart TD
+    A[Confirm deletion] --> B[Transaction: mark deleted, advance version, publish request]
+    B --> C[Library, retrieval and source reads exclude the document]
+    B --> D[Cleanup worker: remove original outside a transaction]
+    D --> E[Lease-checked transaction: remove obsolete work and document-owned data]
+    E --> F[Acknowledge the delivery]
+    D -->|Storage error| G[Bounded automatic retry]
+    E -->|Database error| G
+    G -->|Budget exhausted| H[Hidden document, failed delivery retained]
+    H --> I[Fix the cause, then Retry cleanup]
+    I --> D
+```
+
+The deletion marker is often called a **tombstone**: the row still exists so the worker knows what to clean up, while normal reads treat it as absent. If the process stops after removing the original but before the SQL transaction succeeds, the next attempt treats the missing original as success and finishes the database cleanup. Foreign-key cascades remove text, index generations, passages and vectors together with their owner. Old prepared workers must still pass their version and lease checks; a missing or deleted owner prevents publication.
+
+[DocumentCleanupService](../src/main/java/dev/secondbrain/documents/DocumentCleanupService.java) reads only outstanding tombstones and their current deletion delivery. It presents age, state and lifetime attempts on `/documents/cleanup`; it does not read filenames or stored text. Its `Page` record copies its list so callers cannot mutate the saved projection. A `Supplier` obtains the currently registered handlers when needed, allowing the view and command to honor paused cleanup.
+
+The retry command reuses `EventRetryService`. The event store first locks the failed delivery and verifies the displayed retry cycle. The document service then locks the matching tombstone and checks its version. That order matches other handlers, reducing deadlock risk. Requeue and its audit record commit atomically. Two clicks for the same cycle cannot both win. Retry preserves deletion, the event identity, lifetime attempts and the original correlation/causation context; only the automatic attempt budget starts a new cycle.
+
+Three different cleanup policies serve different purposes:
+
+| Policy | What it removes | What it protects |
+|---|---|---|
+| Durable document cleanup | Original plus document-owned text, passages, vectors and obsolete work | Hidden recovery state until finalization succeeds |
+| Completed-event retention | Old completed/skipped payloads and associated history, in bounded batches | Pending/running/failed and unconsumed work; compact deduplication keys |
+| Abandoned-file reconciliation | Old generated files without database ownership | Active uploads, owned originals, recent files and unknown filesystem entries |
+
+A compact event key contains identity/version information, not the uploaded text. Keeping it after content removal prevents replay from creating a new envelope for the same logical fact. The cleanup-age gauge measures how long physical removal has been outstanding; it does not measure how long a document remains searchable, because visibility ends when the deletion request transaction succeeds.

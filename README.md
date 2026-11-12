@@ -49,6 +49,8 @@ Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose a TXT, Markdown, o
 
 To remove a saved document, select **Delete** beside its status in **Your documents**, or **Delete document** on its detail page, and confirm. It disappears from the library immediately; saved content is cleaned up in the background. Your source file is unchanged.
 
+If removal needs attention, follow **Inspect cleanup and retry failures** in the library to check outstanding cleanup and retry it after resolving the storage or database problem.
+
 To ask questions, enable embeddings and configure [questions](docs/development.md#question-provider-boundary), restart, then select **Ask your documents**. Choose the whole library or selected documents and submit a question. Questions send query text and bounded relevant passages to the configured Cloudflare account; search and answering share its allowance.
 
 Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, with a default limit of 10 MB per file. TXT/Markdown extraction requires valid UTF-8. PDFs require selectable text and support up to 200 physical pages; encrypted files and scanned documents without text are unsupported. See [PDF support and limits](docs/development.md#pdf-support-and-limits) for extraction budgets and failure behavior. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.

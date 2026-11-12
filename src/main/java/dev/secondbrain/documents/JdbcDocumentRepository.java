@@ -360,5 +360,61 @@ final class JdbcDocumentRepository {
                 .single();
     }
 
+    /** Only tombstones and their current cleanup delivery; no names or stored content. */
+    List<CleanupRow> cleanupRequests(int page) {
+        return jdbc.sql(
+                        """
+                SELECT d.document_id, d.deleted_at, delivery.delivery_id, delivery.state,
+                    COALESCE(delivery.attempts, 0) AS attempts,
+                    COALESCE(delivery.retry_cycle, 0) AS cycle, k.schema_version
+                FROM documents d
+                LEFT JOIN event_keys k ON k.document_id = d.document_id
+                    AND k.processing_version = d.processing_version
+                    AND k.event_type = 'DocumentDeletionRequested'
+                LEFT JOIN event_deliveries delivery ON delivery.event_id = k.event_id
+                    AND delivery.handler_id = :handler
+                WHERE d.deleted_at IS NOT NULL
+                ORDER BY d.deleted_at, d.document_id LIMIT 51 OFFSET :offset
+                """)
+                .withQueryTimeout(5)
+                .param("handler", DocumentDeletionHandler.ID)
+                .param("offset", (long) page * 50)
+                .query(
+                        (row, index) ->
+                                new CleanupRow(
+                                        row.getObject("document_id", UUID.class),
+                                        row.getTimestamp("deleted_at").toInstant(),
+                                        row.getObject("delivery_id", UUID.class),
+                                        row.getString("state"),
+                                        row.getInt("attempts"),
+                                        row.getInt("cycle"),
+                                        row.getInt("schema_version")))
+                .list();
+    }
+
+    /** Called after the failed delivery is locked, preserving delivery-before-document ordering. */
+    boolean lockDeletion(UUID id, long version) {
+        return jdbc.sql(
+                        """
+                SELECT 1 FROM documents WHERE document_id = :id
+                    AND processing_version = :version AND deleted_at IS NOT NULL FOR UPDATE
+                """)
+                .withQueryTimeout(5)
+                .param("id", id)
+                .param("version", version)
+                .query(Integer.class)
+                .optional()
+                .isPresent();
+    }
+
+    record CleanupRow(
+            UUID documentId,
+            Instant requestedAt,
+            UUID deliveryId,
+            String state,
+            int attempts,
+            int cycle,
+            int schemaVersion) {}
+
     record CleanupBacklog(long pending, long failed, double age) {}
 }
