@@ -1616,3 +1616,30 @@ Tracing follows a request through observations. A durable worker starts a new ro
 The normal sampling rate is 10%; the explicit local profile uses 100% for a short walkthrough. Trace buffers and HTTP deadlines remain bounded. Backend errors never make an upload, search, acknowledgment or readiness check depend on Grafana. The application can be healthy while one document is failed, cleanup needs attention, or telemetry is unavailable. Diagnose those conditions with their distinct signals rather than turning every individual failure into application downtime.
 
 The [local observability guide](../docs/development.md#local-observability-dashboard) owns startup/shutdown, safe synthetic success/failure/retry examples, correlation lookup and optional question checks. Logs stay in the terminal; Loki in the development image is unused. Telemetry history is disposable and kept separately from originals and PostgreSQL. A dashboard supports diagnosis, while the database delivery history remains the authority for durable processing.
+
+
+## 49. Evaluating search and answers separately
+
+An answer key describes what should happen. An evaluation result describes what actually happened. Our synthetic Java study documents and twenty questions are an answer key; tests using invented vectors prove software rules, not language understanding.
+
+```mermaid
+flowchart TD
+    Q[Reference question and scope] --> R[Retrieve real ranked passages]
+    R --> M[Compare returned IDs with gold sources]
+    M --> RG[Retrieval recall and visibility gates]
+    Q --> A[Production question workflow searches again]
+    A --> C[Select bounded whole passages]
+    C --> L[Chat model generates a candidate]
+    L --> V[Check citation IDs and fresh source visibility]
+    V --> E[Save actual context and accepted answer]
+    E --> H[Human reviews each claim and expected fact]
+    H --> G[Separate grounding gates]
+```
+
+Suppose a passage says “ArrayList permits duplicates.” The model could answer “ArrayList forbids duplicates” and attach that passage's valid ID. The application can prove the ID came from its evidence and the source remains visible. It cannot infer that the sentence is true from those checks. The grounding reviewer marks this claim CONTRADICTED even though its citation passed. A retrieval hit also does not guarantee the model used it correctly or included every requested fact.
+
+The live release command runs independent retrieval first. It then exercises actual context selection, generation and source validation. The exact supplied passages and replies are saved only in ignored evaluation artifacts. Human review records supported/unsupported/contradicted claims, present/omitted/misinterpreted expected facts, insufficient-information behavior and any obedience to quoted reference instructions. Hash binding keeps a review attached to the outputs it inspected. No human review means pending support, not zero errors.
+
+Budgets count attempted requests before sending them, including failed attempts. Output reservations bound requested chat output. Reported token totals describe only responses with usable counts; no usage report means unknown, not free. These counters cannot read the account's remaining neuron balance. A quota failure leaves later questions unrun; changing models to finish would make a different experiment.
+
+The [development guide](../docs/development.md#separate-retrieval-and-answer-grounding-evaluation) owns current commands, report files, limits and the review format. Ordinary verification uses controlled providers and needs no real account.

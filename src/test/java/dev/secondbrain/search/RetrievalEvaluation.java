@@ -45,6 +45,7 @@ final class RetrievalEvaluation {
             Double recallAtK,
             Boolean absenceMatched,
             Double durationSeconds,
+            Integer embeddingRequests,
             String failureCode,
             String retryAt) {
         CaseResult {
@@ -52,6 +53,23 @@ final class RetrievalEvaluation {
             deletedDocuments = List.copyOf(deletedDocuments);
             expectedPassages = List.copyOf(expectedPassages);
             returnedPassages = List.copyOf(returnedPassages);
+        }
+
+        CaseResult withRequests(int requests) {
+            return new CaseResult(
+                    id,
+                    scope,
+                    selectedDocuments,
+                    deletedDocuments,
+                    expectedPassages,
+                    status,
+                    returnedPassages,
+                    recallAtK,
+                    absenceMatched,
+                    durationSeconds,
+                    requests,
+                    failureCode,
+                    retryAt);
         }
     }
 
@@ -64,7 +82,8 @@ final class RetrievalEvaluation {
             int startLine,
             int startColumn,
             int endLine,
-            int endColumn) {
+            int endColumn,
+            Integer pageNumber) {
         Binding {
             sourceLabels = List.copyOf(sourceLabels);
         }
@@ -77,6 +96,7 @@ final class RetrievalEvaluation {
             long extractionVersion,
             long indexingVersion,
             int passageConfigurationVersion,
+            int passageEmbeddingBatchSize,
             int topK,
             double minimumScore,
             EvaluationBudget.Limits limits,
@@ -134,6 +154,7 @@ final class RetrievalEvaluation {
         for (int i = 0; i < index.collection().cases().size(); i++) {
             var reference = index.collection().cases().get(i);
             var before = measurement(meters);
+            int requestsBefore = budget.usage().attemptedRequests();
             try {
                 applyDeletions.accept(reference.deletedDocuments());
                 var found =
@@ -143,7 +164,10 @@ final class RetrievalEvaluation {
                 var after = measurement(meters);
                 if (after.count() - before.count() != 1)
                     throw new IllegalStateException("Missing search observation");
-                cases.set(i, score(reference, found, after.seconds() - before.seconds()));
+                cases.set(
+                        i,
+                        score(reference, found, after.seconds() - before.seconds())
+                                .withRequests(budget.usage().attemptedRequests() - requestsBefore));
             } catch (SearchFailure failed) {
                 String code = budget.stopped() ? "BUDGET_EXHAUSTED" : failed.reason().name();
                 var duration = measuredFailure(meters, before);
@@ -230,6 +254,7 @@ final class RetrievalEvaluation {
                 recall,
                 absent,
                 seconds,
+                null,
                 code,
                 retry);
     }
@@ -274,11 +299,14 @@ final class RetrievalEvaluation {
                                             location.startLine(),
                                             location.startColumn(),
                                             location.endLine(),
-                                            location.endColumn());
+                                            location.endColumn(),
+                                            location.pageNumber().isPresent()
+                                                    ? location.pageNumber().getAsInt()
+                                                    : null);
                                 })
                         .toList();
         return new Report(
-                1,
+                index.collection().schemaVersion(),
                 "LIVE_EMBEDDINGS",
                 index.collection().corpusVersion(),
                 index.collection().schemaVersion(),
@@ -294,6 +322,7 @@ final class RetrievalEvaluation {
                         1,
                         ReferenceIndex.INDEXING_VERSION,
                         ReferenceIndex.PASSAGE_CONFIGURATION,
+                        EvaluationBudget.PASSAGE_BATCH_SIZE,
                         SearchQuery.DEFAULT_RESULTS,
                         MINIMUM_SCORE,
                         limits,

@@ -32,7 +32,10 @@ record ReferenceIndex(
         var documents = new ArrayList<Document>();
         for (var input : collection.documents()) {
             var content = collection.content(input);
-            var lines = content.lines().toList();
+            var lines =
+                    collection.schemaVersion() == 2
+                            ? List.of(content.split("\\n", -1))
+                            : content.lines().toList();
             var text = String.join("\n", lines);
             if (text.codePointCount(0, text.length()) > MAXIMUM_PASSAGE_CODE_POINTS)
                 throw new IllegalArgumentException(
@@ -54,14 +57,16 @@ record ReferenceIndex(
                             passageId,
                             input.file().substring("documents/".length()),
                             input.sha256(),
-                            content.getBytes(StandardCharsets.UTF_8).length,
+                            collection.bytes(input).length,
                             text,
                             new SearchResult.SourceLocation(
                                     1,
                                     0,
                                     lines.size(),
                                     last.codePointCount(0, last.length()),
-                                    OptionalInt.empty())));
+                                    input.file().endsWith(".pdf")
+                                            ? OptionalInt.of(1)
+                                            : OptionalInt.empty())));
         }
         var sources = new HashMap<String, UUID>();
         for (var source : collection.sources()) {
@@ -70,7 +75,13 @@ record ReferenceIndex(
                             .filter(document -> document.label().equals(source.document()))
                             .findFirst()
                             .orElseThrow();
-            if (!owner.text().contains(source.quote()))
+            if (!owner.text().contains(source.quote())
+                    || owner.location().startLine() > source.startLine()
+                    || owner.location().endLine() < source.endLine()
+                    || (source.pageNumber() != null
+                            && !owner.location()
+                                    .pageNumber()
+                                    .equals(OptionalInt.of(source.pageNumber()))))
                 throw new IllegalArgumentException(
                         "Reference passage does not contain its gold evidence");
             sources.put(source.id(), owner.passageId());
@@ -142,7 +153,7 @@ record ReferenceIndex(
         }
 
         String type() {
-            return name.endsWith(".md") ? "MARKDOWN" : "TXT";
+            return name.endsWith(".pdf") ? "PDF" : name.endsWith(".md") ? "MARKDOWN" : "TXT";
         }
 
         @Override

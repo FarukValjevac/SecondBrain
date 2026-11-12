@@ -733,43 +733,117 @@ The fixture uses extraction/indexing/passage-configuration version 1, a BGE-M3/1
 
 The checks also require one query-embedding call per nonempty search, none for empty selection, unchanged stored vectors and no interactive event jobs. Real search observations record fixed outcomes, result counts and elapsed time in a local test registry; they use the interactive service boundary and export nothing. No latency target, real model quality, recall percentage, token usage or allowance consumption is established by these scripted directions. A real semantic evaluation uses the explicit command below. Full `./mvnw verify` remains the build gate.
 
+## Release reference corpus and quality gates
+
+The frozen `java-study-v2` collection has seven small, non-sensitive TXT/Markdown/PDF documents, eleven labeled source spans, and twenty questions: fourteen with expected evidence and six without it. It covers paraphrases, four multi-document comparisons, similar collection names, selected-document scope, deletion, one selectable-text PDF page, and instruction-like reference text. The manifest pins original and canonical passage SHA-256 values. Stable document/passage IDs and source line/page bindings make reports reproducible. The older `java-study-v1` remains a regression fixture.
+
+Controlled vectors and fake replies test software mechanics; they do not measure model quality. Run the credential-free checks with:
+
+```sh
+./mvnw -Dtest=ReleaseReferenceCollectionTest,ReleaseReferencePreparationTest,ReleaseQualityGatesTest,GroundingBudgetTest,GroundingEvaluationTest,RetrievalEvaluationTest test
+./mvnw -Dit.test=ReferenceRetrievalIT,ReleaseGroundingIT verify
+./mvnw verify
+```
+
+The integration commands require Docker. They use owned disposable databases, never the running library. Reference seeding publishes bounded read fixtures directly; ingestion and durable delivery have their own tests. These tiny English documents do not establish performance on long or multilingual material.
+
+`release-gates-v1` was declared before live measurements against manifest SHA-256 `04536def7b981dcf50476b7d51e8bc3cb3707c3695c1a5eb7115178211c8b308`. The release command refuses a changed manifest. A changed corpus or policy needs a deliberate new version, rather than adjusting the answer key to match results.
+
+| Gate | Required result |
+|---|---|
+| Execution | All 20 cases measured; missing/interrupted cases stay pending |
+| Retrieval recall | Macro recall@5 at least 0.90 over the 14 positive cases |
+| Full evidence | All expected passages in at least 13/14 positive cases |
+| Multi-document evidence | Complete evidence in at least 3/4 comparisons |
+| Visibility | Zero out-of-scope/deleted passages; empty selection has no results or inference calls |
+| Supported answers | Fully supported and complete in at least 13/14 positive cases |
+| Insufficient information | All 6 absent-evidence cases decline to answer |
+| Material failures | Zero unsupported/contradicted claims, invalid/deleted citations, quoted-instruction obedience or confusable-source substitutions |
+
+Recall uses gold passage IDs, deduplicated when multiple spans share a passage. Related visible passages for an absent-evidence question are not automatically a scope leak; retrieval's `absenceMatched` means no returned passages, while answer sufficiency is assessed separately. Latency and token coverage are recorded without an invented performance threshold or account-balance estimate.
+
 ## Opt-in retrieval evaluation
 
-The `retrieval-evaluation` Maven profile runs the same `java-study-v1` cases using actual Cloudflare embeddings and real pgvector retrieval. It is separate from ordinary `test`/`verify`, uses no chat model and never starts the application or touches your document library. It creates a disposable PostgreSQL container, embeds the three reference passages in one batch, publishes only those fixture rows and searches them independently for each case. Deletion scenarios reset only this temporary fixture's tombstones.
+The `retrieval-evaluation` profile runs only release-v2 retrieval with real `@cf/baai/bge-m3` embeddings (1024 dimensions), pgvector, top five results and minimum score 0.3. The seven passages use batches of 3/3/1. It starts no application or background workers, uses no chat model and leaves the personal library untouched.
 
-Before running it, Docker must be available and `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` must be **exported environment variables** in that terminal. This command does not load `.env`; values stored only in that file are not exported automatically. Keep credentials out of command arguments and Git. It uses the existing fixed Cloudflare endpoint, pinned `@cf/baai/bge-m3`/1024 contract and normal bounded adapter, with a five-second connect timeout and twenty-second request timeout.
-
-Use a Workers Free account with enough remaining allowance. `evaluation.allowLive=true` explicitly authorizes sending these public sample passages/questions and confirms that prerequisite. The command cannot inspect or change your billing plan. Cloudflare documents the free allowance and account-plan behavior in its [pricing guide](https://developers.cloudflare.com/workers-ai/platform/pricing/), and lists the current [BGE-M3 model](https://developers.cloudflare.com/workers-ai/models/bge-m3/); recheck those before live use.
+Docker and exported `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` are prerequisites. Evaluation commands **do not load `.env`**. Keep credentials out of arguments and Git. Recheck Cloudflare's [pricing/Free-plan policy](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [BGE-M3 eligibility](https://developers.cloudflare.com/workers-ai/models/bge-m3/) before use; neither a successful test nor this command confirms the account's billing plan or remaining allowance.
 
 ```sh
 ./mvnw -Pretrieval-evaluation \
   -Devaluation.allowLive=true \
-  -Devaluation.maxRequests=11 \
-  -Devaluation.maxInputBytes=4096 \
-  -Devaluation.maxReportedTokens=4096 \
-  test
+  -Devaluation.maxRequests=22 \
+  -Devaluation.maxInputBytes=8192 \
+  -Devaluation.maxReportedTokens=8192 test
 ```
 
-The profile alone refuses to run without consent and explicit integer budgets. For this exact corpus, a complete run needs eleven provider attempts: one three-passage batch and ten query calls; empty selected scope makes no inference call. It submits 1,258 UTF-8 text bytes in total, excluding JSON metadata. Preflight rejects an insufficient request/byte budget before any provider call. Hard supported ceilings are 32 attempts, 16,384 text bytes and 8,192 reported tokens; the example chooses smaller limits. Failed or ambiguous attempts still consume the local request/byte allowance. Any provider/quota/storage failure stops the run; there is no automatic retry, sleep, fallback or resume.
+This explicit invocation authorizes sending the synthetic fixture text/questions on Workers Free. The 22-request preflight is conservative; scope/deletion checks can avoid some query requests. Request and UTF-8 text-byte limits reserve allowance before I/O. Reported tokens are a post-response stop, may overshoot by one request, and cover only responses with usage. Missing usage is unknown. No retries, paid upgrade, extra credits or provider fallback are performed.
 
-Request and text-byte budgets are enforced **before** inference. A reported-token ceiling is checked after responses and before later requests: one response can cross it. When usage is absent, the report identifies incomplete usage coverage; it cannot treat unreported tokens as measured zero. These limits are not an exact tokenizer, an account-wide neuron balance or a monetary-cost measurement. Every new invocation re-embeds these fixtures and consumes allowance again.
+The ignored `evaluation-runs/java-study-v2-live-*/report.json` contains case IDs, scope/deletion selections, expected/returned passage IDs, recall, absence, durations, configuration, token-report coverage and safe failure codes. It contains no prompts, excerpts, credentials or answers. `COMPLETED` means the measurement finished, not that quality passed. Interrupted/quota-failed cases have no fabricated recall or latency; later cases remain `NOT_RUN`.
 
-The console prints the run status and a unique `evaluation-runs/java-study-v1-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
+## Separate retrieval and answer-grounding evaluation
 
-Review the report before drawing a quality conclusion:
+Use `release-evaluation` for the complete measurement. It saves independent retrieval first, then runs the production question/context/citation/fresh-source services against the same owned database and model provider. The answer phase searches again: it reuses stored corpus vectors, while each eligible question needs its own query embedding. This measures the actual question path rather than substituting the gold passages as context. A retrieval quality miss remains in the report and does not prevent recording answer failures; an interrupted retrieval run stops before generation.
 
-| Field | Meaning |
+Before invoking, personally check Workers Free eligibility for both [BGE-M3](https://developers.cloudflare.com/workers-ai/models/bge-m3/) and [Llama 3.3 70B](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/), the account plan and remaining dashboard allowance. The flags record your confirmation, not an automatic billing check. Set the checked-on date and authorization label to your actual review. There is no fallback or paid-plan support in this command.
+
+```sh
+./mvnw -Prelease-evaluation \
+  -Devaluation.allowLive=true \
+  -Devaluation.workersFreeConfirmed=true \
+  -Devaluation.authorization=local-owner-approved \
+  -Devaluation.eligibilityCheckedOn=2026-11-12 \
+  -Devaluation.maxRequests=22 \
+  -Devaluation.maxInputBytes=8192 \
+  -Devaluation.maxReportedTokens=8192 \
+  -Devaluation.chatRequests=20 \
+  -Devaluation.chatTextBytes=160000 \
+  -Devaluation.outputTokens=512 \
+  -Devaluation.reservedOutputTokens=10240 \
+  -Devaluation.chatReportedTokens=100000 test
+```
+
+The embedding limits apply **independently to each of the two phases**, so the declared ceiling is 44 embedding attempts plus 20 chat attempts. Chat reserves up to 512 output tokens before each request, within the cumulative 10,240-token reservation. A request includes at most five whole passages and 8,000 UTF-8 text bytes including the question. The cumulative text budget excludes protocol/system-prompt overhead. Embedding uses 5s connect/20s full-request deadlines; chat uses 5s/30s. The chat total-token ceiling is a post-response stop with potentially incomplete coverage; it is not an exact tokenizer or neuron budget. Failed/cancelled attempts still count locally and might consume remote allowance. Hosted IDs do not pin weights, and adapters expose no provider revision identifier.
+
+Each unique ignored `evaluation-runs/java-study-v2-release-*` directory contains:
+
+| Artifact | Purpose |
 |---|---|
-| `status` | `COMPLETED` means execution finished. `FAILED` records an interrupted measurement; later cases stay `NOT_RUN`. Maven success alone is not a semantic-quality pass. |
-| `recallAtK` | Fraction of unique expected passage IDs found within the configured top five: 1 means all, 0.5 means one of two, and 0 means none. Extra unrelated passages do not reduce recall, so inspect them separately. |
-| `absenceMatched` | For absent-evidence cases, true means results were empty; recall is null because there is no expected-passage denominator. |
-| `durationSeconds` | Search-service observation time, including query inference and retrieval; excludes passage embedding, fixture setup and tombstone setup. Null means no measured service observation. |
-| `failureCode` / `retryAt` | Safe failure classification and optional UTC retry hint. A hint does not schedule a retry or guarantee a reset time. Failed/not-run cases have no recall or absence measurement. |
-| `usage` | Attempts and submitted UTF-8 text bytes are reserved before calls. `reportedInputTokens` sums only the `usageReports` responses that supplied counts; compare that coverage with `successfulRequests` and `attemptedRequests`. Zero reported tokens with zero usage reports means unknown usage. |
+| `configuration.json` | Authorization/date, corpus digest/gate version, chat model, budgets and limitations |
+| `retrieval.json`, `retrieval-score.json` | Independent case measurements/configuration and frozen retrieval gates |
+| `grounding.json` | Accepted outcomes, citation/freshness checks, supplied/cited IDs, per-case duration/request counts, failures and chat usage coverage |
+| `grounding-embedding-usage.json` | Separate query-embedding usage for the answer phase |
+| `evidence.json` | Actual supplied question/passages, candidate reply, accepted answer and expected facts for review |
+| `review.json` | Editable human review template bound to configuration, grounding and evidence hashes |
+| `grounding-score.json` | Separate support/absence/instruction/citation gates; pending until reviewed |
 
-For comparisons, keep corpus hashes, model contract, index/passage versions, top-K and score threshold fixed unless one is the variable under study. Read missing expected evidence, unexpected sources, filters and deletion outcomes case by case; high recall alone does not establish precise ranking or factual support. The small collection, provisional score threshold and hosted model changes limit what one run establishes. Extraction/indexing-pipeline correctness and answer grounding are separate checks.
+Raw text stays only in the explicitly requested ignored evidence/review artifacts, outside default logs/metrics/traces. Do not publish run directories casually. Model failures stop the remaining cases without retry, fallback or fabricated absence. Partial artifacts survive a caught failure; a process killed before saving can still lose in-flight measurements. Completed live execution can return successfully while factual support is pending; inspect both score files before release acceptance.
 
-Use the [offline tooling check](#retrieval-reference-collection) to exercise the runner and scoring with controlled providers/results. The opt-in live command is never needed to make ordinary `./mvnw verify` pass.
+### Human grounding review
+
+Read the exact supplied context and candidate/accepted answer in `evidence.json`, then edit `review.json`. Inspect all supplied passages, including uncited text that could have influenced an answer. Keep its binding hash and case IDs. Set a non-sensitive `reviewer` label. For every completed case:
+
+1. Enumerate every material answer claim in `claims`: `text`, `support` (`SUPPORTED`, `UNSUPPORTED`, `CONTRADICTED`), `evidencePassages` (supplied passage UUIDs), and `rationale` identifying the exact supporting or conflicting text. A supported claim must cite supporting evidence present in the accepted citation list. A valid UUID alone earns no support credit.
+2. Review every existing `facts` entry once: retain `expectedFact`, set `coverage` (`PRESENT`, `OMITTED`, `MISINTERPRETED`), `evidencePassages`, and a precise `rationale`. Record missing/misinterpreted facts even when citations are mechanically valid. `PRESENT` needs actual supplied evidence.
+3. Set `obeyedReferenceInstructions` to whether the reply followed instructions inside reference text, add `notes` about support, sufficiency and confusable sources, and set `allClaimsReviewed=true` only after inspecting the entire answer. An insufficient-information reply has no claims; positive cases still need each expected fact marked omitted. For an absent-evidence case, judge the decline independently of related retrieved material.
+
+A claim entry looks like this (use the actual passage UUID and exact evidence in your run):
+
+```json
+{"text":"The answer's material claim", "support":"SUPPORTED",
+ "evidencePassages":["<actual-supplied-and-cited-UUID>"],
+ "rationale":"The supplied passage explicitly states …"}
+```
+
+Then score the saved review without Docker, credentials or network:
+
+```sh
+./mvnw -Pgrounding-review \
+  -Devaluation.run=evaluation-runs/java-study-v2-release-YOUR_RUN test
+```
+
+The command rejects a mismatched evidence/configuration hash, unknown/duplicate case IDs, incomplete fact inventories and foreign evidence IDs. It writes the separate grounding score and fails if gates fail or remain pending. Human judgments remain accountable review assertions, not a machine proof of truth. No similarity score, citation-validity test, substring matcher or model judge is treated as factual support.
+
+No live release-quality measurements are bundled with the code. Tests deliberately include valid citations with a contradicted claim: citation checks pass while grounding fails. Run the live command and complete the review before claiming measured quality; quota interruption, missing prerequisites and unreviewed answers leave acceptance open.
 
 ## Browser search input
 
