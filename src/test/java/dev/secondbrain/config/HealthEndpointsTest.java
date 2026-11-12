@@ -22,7 +22,9 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.json.JsonCompareMode;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
@@ -34,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
             "spring.config.import=",
             "secondbrain.embeddings.enabled=false",
             "secondbrain.events.enabled=false",
+            "management.otlp.metrics.export.enabled=true",
             "management.tracing.sampling.probability=1"
         })
 @AutoConfigureMockMvc
@@ -42,6 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
         exclude = {DataSourceAutoConfiguration.class, FlywayAutoConfiguration.class})
 @Import(HealthEndpointsTest.TestHealthConfiguration.class)
 class HealthEndpointsTest {
+    @MockitoBean private LocalMetricsSender metricsSender;
+    @Autowired private io.micrometer.core.instrument.simple.SimpleMeterRegistry localInspection;
 
     private final MockMvc mvc;
     private final TestDatabaseHealth database;
@@ -66,6 +71,32 @@ class HealthEndpointsTest {
     @AfterEach
     void restoreDatabaseHealth() {
         database.available.set(true);
+    }
+
+    @Test
+    void failedConfiguredMetricsExportDoesNotChangeReadinessOrLocalInspection() throws Exception {
+        org.mockito.Mockito.doThrow(new IllegalStateException("TELEMETRY_UNAVAILABLE"))
+                .when(metricsSender)
+                .send(org.mockito.ArgumentMatchers.any());
+        try {
+            // The real OTLP registry catches a backend failure; the local registry still serves
+            // JVM/HTTP measurements and no exporter is a readiness dependency.
+            var composite = (io.micrometer.core.instrument.composite.CompositeMeterRegistry) meters;
+            var exporter =
+                    composite.getRegistries().stream()
+                            .filter(io.micrometer.registry.otlp.OtlpMeterRegistry.class::isInstance)
+                            .findFirst()
+                            .orElseThrow();
+            ReflectionTestUtils.invokeMethod(exporter, "publish");
+            expectHealth("/actuator/health/readiness", 200, "UP");
+            mvc.perform(MockMvcRequestBuilders.get("/actuator/metrics/jvm.memory.used"))
+                    .andExpect(MockMvcResultMatchers.status().isOk())
+                    .andExpect(
+                            MockMvcResultMatchers.jsonPath("$.measurements[0].value")
+                                    .value(Matchers.greaterThan(0.0)));
+        } finally {
+            org.mockito.Mockito.reset(metricsSender);
+        }
     }
 
     @Test
@@ -123,7 +154,10 @@ class HealthEndpointsTest {
         }
 
         var requests =
-                meters.find("http.server.requests").tags("method", "GET", "uri", "/").timers();
+                localInspection
+                        .find("http.server.requests")
+                        .tags("method", "GET", "uri", "/")
+                        .timers();
         Assertions.assertThat(requests).hasSize(1);
         Assertions.assertThat(requests.iterator().next().count()).isGreaterThanOrEqualTo(2);
         Assertions.assertThat(requests.iterator().next().getId().getTags())

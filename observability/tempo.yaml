@@ -1,0 +1,31 @@
+# Match the pinned LGTM internal ports; traces stay on local disk for one day.
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9096
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 127.0.0.1:4418
+        grpc:
+          endpoint: 127.0.0.1:4417
+memberlist:
+  bind_addr: [127.0.0.1]
+  bind_port: 7947
+querier:
+  frontend_worker:
+    frontend_address: 127.0.0.1:9096
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /data/tempo/wal
+    local:
+      path: /data/tempo/blocks
+overrides:
+  defaults:
+    compaction:
+      block_retention: 24h
+usage_report:
+  reporting_enabled: false

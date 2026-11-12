@@ -176,7 +176,7 @@ class ObservabilityIT {
     void failingExporterAndRolledBackEffectsDoNotPreventRetryOrLeakPrivateData(
             CapturedOutput output) {
         context.close();
-        start(true);
+        start(true, true);
         var sink = context.getBean(TraceSink.class);
         sink.fail.set(true);
         context.getBean(ProbeHandler.class).failEffect.set(true);
@@ -194,6 +194,9 @@ class ObservabilityIT {
                                     .isZero();
                         });
         context.getBean(ProbeHandler.class).failEffect.set(false);
+        // The configured bounded OTLP metrics sender also fails independently of domain work.
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                context.getBean(io.micrometer.registry.otlp.OtlpMeterRegistry.class), "publish");
         jdbc.sql("UPDATE event_deliveries SET eligible_at=:now WHERE state='PENDING'")
                 .param("now", Timestamp.from(NOW))
                 .update();
@@ -206,6 +209,8 @@ class ObservabilityIT {
                                 .single())
                 .isEqualTo(1);
         Assertions.assertThat(sink.failures.get()).isGreaterThan(0);
+        Assertions.assertThat(output.getAll())
+                .contains("Local metrics snapshot could not be exported");
         Assertions.assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
 
@@ -257,11 +262,17 @@ class ObservabilityIT {
     }
 
     private void start(boolean polling) {
+        start(polling, false);
+    }
+
+    private void start(boolean polling, boolean metrics) {
         context =
                 new SpringApplicationBuilder(SecondBrainApplication.class, ProbeConfiguration.class)
                         .web(WebApplicationType.NONE)
                         .run(
                                 "--spring.config.import=",
+                                "--management.otlp.metrics.export.enabled=" + metrics,
+                                "--management.otlp.metrics.export.url=http://127.0.0.1:1/v1/metrics",
                                 "--secondbrain.documents.cleanup.enabled=false",
                                 "--secondbrain.documents.indexing.enabled=false",
                                 // Probe fixtures reset event tables; document schedulers must not

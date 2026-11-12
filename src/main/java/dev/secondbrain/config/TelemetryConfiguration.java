@@ -88,6 +88,8 @@ class TelemetryConfiguration {
                                                                 "/documents/{documentId}/passages/{passageId}",
                                                                 "/documents/{id}/retry",
                                                                 "/documents/{id}/delete",
+                                                                "/documents/cleanup",
+                                                                "/documents/cleanup/{id}/retry",
                                                                 "NOT_FOUND",
                                                                 "UNKNOWN",
                                                                 "REDIRECTION",
