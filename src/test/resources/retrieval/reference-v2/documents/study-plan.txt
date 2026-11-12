@@ -1,0 +1,5 @@
+My Java study plan (example)
+
+I review Java collection notes one, three and seven days after a lesson.
+During each review, I recall the main ideas before checking my notes.
+I finish a review with a short practice exercise.

@@ -15,6 +15,8 @@ import java.util.Properties;
  * Per-run limits, reserved before I/O. Reported tokens are a post-response stop, not a tokenizer.
  */
 final class EvaluationBudget implements EmbeddingProvider {
+    static final int PASSAGE_BATCH_SIZE = 3;
+
     record Limits(int maximumRequests, long maximumInputBytes, long maximumReportedTokens) {
         Limits {
             if (maximumRequests < 1
@@ -66,7 +68,7 @@ final class EvaluationBudget implements EmbeddingProvider {
     static void preflight(ReferenceIndex index, Limits limits) {
         long bytes =
                 index.documents().stream().mapToLong(document -> byteCount(document.text())).sum();
-        int requests = 1; // One batch for all three current reference passages.
+        int requests = (index.documents().size() + PASSAGE_BATCH_SIZE - 1) / PASSAGE_BATCH_SIZE;
         for (var reference : index.collection().cases()) {
             var query = new SearchQuery(reference.query(), index.scopeFor(reference.scope()));
             if (query.scope() instanceof SearchScope.SelectedDocuments selected
@@ -82,6 +84,17 @@ final class EvaluationBudget implements EmbeddingProvider {
     @Override
     public EmbeddingModel model() {
         return delegate.model();
+    }
+
+    List<EmbeddingVector> embedReferencePassages(ReferenceIndex index) throws InterruptedException {
+        var inputs = index.documents().stream().map(ReferenceIndex.Document::text).toList();
+        var vectors = new java.util.ArrayList<EmbeddingVector>();
+        for (int first = 0; first < inputs.size(); first += PASSAGE_BATCH_SIZE)
+            vectors.addAll(
+                    embed(
+                            inputs.subList(
+                                    first, Math.min(first + PASSAGE_BATCH_SIZE, inputs.size()))));
+        return List.copyOf(vectors);
     }
 
     @Override

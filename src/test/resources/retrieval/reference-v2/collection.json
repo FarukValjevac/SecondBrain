@@ -1,0 +1,480 @@
+{
+  "schemaVersion": 2,
+  "corpusVersion": "java-study-v2",
+  "documents": [
+    {
+      "id": "arraylist",
+      "file": "documents/arraylist-notes.md",
+      "sha256": "cc5637f864e2d3dec2b8ba9e073c17a9c345855557e96866eeebaafc92f7afbd",
+      "passageSha256": "cc5637f864e2d3dec2b8ba9e073c17a9c345855557e96866eeebaafc92f7afbd"
+    },
+    {
+      "id": "hashset",
+      "file": "documents/hashset-notes.md",
+      "sha256": "d94269fe275f38a56ac0fd605e95ed641b1f4fad08eb89deb759bc1680dcdca0",
+      "passageSha256": "d94269fe275f38a56ac0fd605e95ed641b1f4fad08eb89deb759bc1680dcdca0"
+    },
+    {
+      "id": "study-plan",
+      "file": "documents/study-plan.txt",
+      "sha256": "3453f51adcbef5727a7a75d08c9e45cffc6a834ba79c04cda99edc1b77171e54",
+      "passageSha256": "3453f51adcbef5727a7a75d08c9e45cffc6a834ba79c04cda99edc1b77171e54"
+    },
+    {
+      "id": "linkedlist",
+      "file": "documents/linkedlist-notes.md",
+      "sha256": "a9a4b27e6be5f693157fad5b6f3bec2f322a185f8d735e7b2695fa332b39f8b9",
+      "passageSha256": "a9a4b27e6be5f693157fad5b6f3bec2f322a185f8d735e7b2695fa332b39f8b9"
+    },
+    {
+      "id": "review-methods",
+      "file": "documents/review-methods.txt",
+      "sha256": "8e94c3eed76a05c4b288342d550c41b9bce0ecb7d104fecdf37c49973b78b4e7",
+      "passageSha256": "8e94c3eed76a05c4b288342d550c41b9bce0ecb7d104fecdf37c49973b78b4e7"
+    },
+    {
+      "id": "instruction-example",
+      "file": "documents/instruction-example.md",
+      "sha256": "a9a58cec1bd476e9f860b68652e36ca71e017864289d23c72390d9bbc7e58b7a",
+      "passageSha256": "a9a58cec1bd476e9f860b68652e36ca71e017864289d23c72390d9bbc7e58b7a"
+    },
+    {
+      "id": "practice-card",
+      "file": "documents/practice-card.pdf",
+      "sha256": "9d1178bf61fc49ff3e803474508671d7049a03d1ba20e5e3ce41855d2835c1bc",
+      "passageSha256": "61c824fd2e093d4659cc4e6dce06b4f8639bc290b92f9fb8342dfe2c8c95ce46"
+    }
+  ],
+  "sources": [
+    {
+      "id": "arraylist-behavior",
+      "document": "arraylist",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "ArrayList keeps values in list order and permits duplicates.\nArrayList supports reading a value by its zero-based index.",
+      "pageNumber": null
+    },
+    {
+      "id": "arraylist-removal",
+      "document": "arraylist",
+      "startLine": 6,
+      "endLine": 6,
+      "quote": "An ArrayList remove(index) call deletes the value at that position.",
+      "pageNumber": null
+    },
+    {
+      "id": "hashset-behavior",
+      "document": "hashset",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "HashSet stores each distinct value only once.\nHashSet iteration has no guaranteed ordering.",
+      "pageNumber": null
+    },
+    {
+      "id": "review-schedule",
+      "document": "study-plan",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "I review Java collection notes one, three and seven days after a lesson.\nDuring each review, I recall the main ideas before checking my notes.",
+      "pageNumber": null
+    },
+    {
+      "id": "hashset-membership",
+      "document": "hashset",
+      "startLine": 6,
+      "endLine": 6,
+      "quote": "HashSet contains(value) checks whether an equal value is stored.",
+      "pageNumber": null
+    },
+    {
+      "id": "linkedlist-access",
+      "document": "linkedlist",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "LinkedList also permits duplicate values.\nLinkedList reads an element by a zero-based index.",
+      "pageNumber": null
+    },
+    {
+      "id": "linkedlist-front",
+      "document": "linkedlist",
+      "startLine": 5,
+      "endLine": 5,
+      "quote": "LinkedList addFirst(value) inserts a value at the beginning.",
+      "pageNumber": null
+    },
+    {
+      "id": "retrieval-practice",
+      "document": "review-methods",
+      "startLine": 3,
+      "endLine": 4,
+      "quote": "Retrieval practice means recalling information before rereading notes.\nA practice answer should be checked against the original notes afterwards.",
+      "pageNumber": null
+    },
+    {
+      "id": "review-marker",
+      "document": "instruction-example",
+      "startLine": 3,
+      "endLine": 3,
+      "quote": "The review marker is blue.",
+      "pageNumber": null
+    },
+    {
+      "id": "practice-score",
+      "document": "practice-card",
+      "startLine": 2,
+      "endLine": 2,
+      "quote": "The practice score counts correctly answered practice questions.",
+      "pageNumber": 1
+    },
+    {
+      "id": "practice-purpose",
+      "document": "practice-card",
+      "startLine": 3,
+      "endLine": 3,
+      "quote": "A practice quiz is a learning aid, not a prediction of examination questions.",
+      "pageNumber": 1
+    }
+  ],
+  "cases": [
+    {
+      "id": "duplicates-direct",
+      "kind": "DIRECT",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior"
+      ],
+      "expectedFacts": [
+        "permits duplicates."
+      ]
+    },
+    {
+      "id": "duplicates-paraphrase",
+      "kind": "PARAPHRASE",
+      "query": "Can I keep the same value more than once in an ArrayList?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior"
+      ],
+      "expectedFacts": [
+        "permits duplicates."
+      ]
+    },
+    {
+      "id": "removal-direct",
+      "kind": "DIRECT",
+      "query": "How do I remove an ArrayList element by its position?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-removal"
+      ],
+      "expectedFacts": [
+        "An ArrayList remove(index) call deletes the value at that position."
+      ]
+    },
+    {
+      "id": "duplicate-comparison",
+      "kind": "SIMILAR_DOCUMENTS",
+      "query": "How do ArrayList and HashSet differ in handling duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior",
+        "hashset-behavior"
+      ],
+      "expectedFacts": [
+        "permits duplicates.",
+        "HashSet stores each distinct value only once."
+      ]
+    },
+    {
+      "id": "collections-and-review",
+      "kind": "CROSS_DOCUMENT",
+      "query": "Can ArrayList contain duplicates, when should I review the notes, and what does retrieval practice mean?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior",
+        "review-schedule",
+        "retrieval-practice"
+      ],
+      "expectedFacts": [
+        "permits duplicates.",
+        "I review Java collection notes one, three and seven days after a lesson.",
+        "Retrieval practice means recalling information before rereading notes."
+      ]
+    },
+    {
+      "id": "threads-absent",
+      "kind": "ABSENT_EVIDENCE",
+      "query": "How does the operating system schedule Java threads?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "hashset-filter",
+      "kind": "DOCUMENT_FILTER",
+      "query": "Are duplicate values allowed?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": [
+          "hashset"
+        ]
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "hashset-behavior"
+      ],
+      "expectedFacts": [
+        "HashSet stores each distinct value only once."
+      ]
+    },
+    {
+      "id": "wrong-scope",
+      "kind": "DOCUMENT_FILTER",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": [
+          "study-plan"
+        ]
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "empty-selection",
+      "kind": "EMPTY_SELECTION",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "removed-arraylist",
+      "kind": "DELETION",
+      "query": "Does ArrayList allow duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [
+        "arraylist"
+      ],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "hashset-survives",
+      "kind": "DELETION",
+      "query": "Does HashSet allow duplicate values?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [
+        "arraylist"
+      ],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "hashset-behavior"
+      ],
+      "expectedFacts": [
+        "HashSet stores each distinct value only once."
+      ]
+    },
+    {
+      "id": "membership-direct",
+      "kind": "DIRECT",
+      "query": "How can I check whether a HashSet contains a value?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "hashset-membership"
+      ],
+      "expectedFacts": [
+        "HashSet contains(value) checks whether an equal value is stored."
+      ]
+    },
+    {
+      "id": "indexed-access-comparison",
+      "kind": "SIMILAR_DOCUMENTS",
+      "query": "Do ArrayList and LinkedList both let me read by a zero-based index?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "arraylist-behavior",
+        "linkedlist-access"
+      ],
+      "expectedFacts": [
+        "ArrayList supports reading a value by its zero-based index.",
+        "LinkedList reads an element by a zero-based index."
+      ]
+    },
+    {
+      "id": "linkedlist-front",
+      "kind": "PARAPHRASE",
+      "query": "How do I put a value at the front of a LinkedList?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "linkedlist-front"
+      ],
+      "expectedFacts": [
+        "LinkedList addFirst(value) inserts a value at the beginning."
+      ]
+    },
+    {
+      "id": "review-and-quiz",
+      "kind": "CROSS_DOCUMENT",
+      "query": "When should I review the collection notes, and what is the purpose of a practice quiz?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "review-schedule",
+        "practice-purpose"
+      ],
+      "expectedFacts": [
+        "I review Java collection notes one, three and seven days after a lesson.",
+        "A practice quiz is a learning aid, not a prediction of examination questions."
+      ]
+    },
+    {
+      "id": "pdf-score",
+      "kind": "PDF_REFERENCE",
+      "query": "What does the practice score count?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "practice-score"
+      ],
+      "expectedFacts": [
+        "The practice score counts correctly answered practice questions."
+      ]
+    },
+    {
+      "id": "exam-date-absent",
+      "kind": "ABSENT_EVIDENCE",
+      "query": "What is the exact date of my next examination?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    },
+    {
+      "id": "pdf-score-filter",
+      "kind": "DOCUMENT_FILTER",
+      "query": "What does the practice score count?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": [
+          "practice-card"
+        ]
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "practice-score"
+      ],
+      "expectedFacts": [
+        "The practice score counts correctly answered practice questions."
+      ]
+    },
+    {
+      "id": "untrusted-instructions",
+      "kind": "INSTRUCTION_TEXT",
+      "query": "Which colour is the review marker?",
+      "scope": {
+        "mode": "ALL",
+        "documents": []
+      },
+      "deletedDocuments": [],
+      "evidence": "EXPECTED",
+      "expectedSources": [
+        "review-marker"
+      ],
+      "expectedFacts": [
+        "The review marker is blue."
+      ]
+    },
+    {
+      "id": "removed-pdf",
+      "kind": "DELETION",
+      "query": "What does the practice score count?",
+      "scope": {
+        "mode": "SELECTED",
+        "documents": [
+          "practice-card"
+        ]
+      },
+      "deletedDocuments": [
+        "practice-card"
+      ],
+      "evidence": "ABSENT",
+      "expectedSources": [],
+      "expectedFacts": []
+    }
+  ]
+}

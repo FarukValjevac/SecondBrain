@@ -692,7 +692,7 @@ These fixtures use symbolic 1024-dimensional vectors with the BGE-M3 contract, p
 
 ## Retrieval reference collection
 
-The non-sensitive [reference collection](../src/test/resources/retrieval/reference-v1/collection.json) is `java-study-v1` (manifest schema 1). It contains example notes about [ArrayList](../src/test/resources/retrieval/reference-v1/documents/arraylist-notes.md), [HashSet](../src/test/resources/retrieval/reference-v1/documents/hashset-notes.md), and a [personal Java review plan](../src/test/resources/retrieval/reference-v1/documents/study-plan.txt). The collection facts follow the Java 25 [ArrayList](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html), [List](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html) and [HashSet](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/HashSet.html) contracts; the study plan is an invented personal example.
+The frozen legacy [reference collection](../src/test/resources/retrieval/reference-v1/collection.json) is `java-study-v1` (manifest schema 1). It contains example notes about [ArrayList](../src/test/resources/retrieval/reference-v1/documents/arraylist-notes.md), [HashSet](../src/test/resources/retrieval/reference-v1/documents/hashset-notes.md), and a [personal Java review plan](../src/test/resources/retrieval/reference-v1/documents/study-plan.txt). The collection facts follow the Java 25 [ArrayList](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/ArrayList.html), [List](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/List.html) and [HashSet](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/HashSet.html) contracts; the study plan is an invented personal example.
 
 Four labeled evidence spans and eleven query cases cover direct questions, paraphrases, similar collection types, cross-document evidence, absent evidence, selected-document filters, empty selection and deletion. For example, asking whether duplicate values are allowed should distinguish the ArrayList note from the HashSet note. Another question combines collection behavior with the personal review schedule. These are permanent test inputs, separate from personal uploads and product users.
 
@@ -727,15 +727,58 @@ Run the collection against real PostgreSQL/pgvector with controlled vectors:
 
 [ReferenceRetrievalIT](../src/test/java/dev/secondbrain/search/ReferenceRetrievalIT.java) requires Docker and seeds only its own temporary container. It uses no local library, Compose database, Spring configuration import, credentials, chat model or live embedding request. [ReferenceIndex](../src/test/java/dev/secondbrain/search/ReferenceIndex.java) derives repeatable document/passage UUIDs from the corpus identity and maps gold spans to their containing passages. Each current short note fits one passage; both ArrayList evidence labels map to that same passage. Original hashes include the terminal newline; passage text joins the original lines without that terminal newline. Oversized notes are rejected rather than silently truncated.
 
-All eleven cases run independently through the actual `SearchService` and SQL reader. Assertions check exact expected passage identities, facts, text/line locations, selected scope, absent evidence and tombstone exclusion. A separate top-one case proves the document filter applies before the result limit. Another reconstructs the readers against unchanged saved vectors and checks repeatable tied results. This reader reconstruction is not an application restart; `SearchWorkflowIT` covers automatic indexing and application restart separately.
+The eleven legacy cases and twenty release cases run independently through the actual `SearchService` and SQL reader. Assertions check exact expected passage identities, facts, text/line locations, selected scope, absent evidence and tombstone exclusion. A separate top-one case proves the document filter applies before the result limit. Another reconstructs the readers against unchanged saved vectors and checks repeatable tied results. This reader reconstruction is not an application restart; `SearchWorkflowIT` covers automatic indexing and application restart separately.
 
 The fixture uses extraction/indexing/passage-configuration version 1, a BGE-M3/1024-dimensional contract, minimum cosine score 0.3 and default result limit 5; the filter-order case uses limit 1. It assigns symbolic directions by document/case instead of running BGE-M3. The pinned container is `pgvector/pgvector:0.8.7-pg18-bookworm`. These are published read fixtures, not evidence that extraction, splitting or embedding produced those rows.
 
 The checks also require one query-embedding call per nonempty search, none for empty selection, unchanged stored vectors and no interactive event jobs. Real search observations record fixed outcomes, result counts and elapsed time in a local test registry; they use the interactive service boundary and export nothing. No latency target, real model quality, recall percentage, token usage or allowance consumption is established by these scripted directions. A real semantic evaluation uses the explicit command below. Full `./mvnw verify` remains the build gate.
 
+## Release reference corpus and quality gates
+
+The release [java-study-v2 manifest](../src/test/resources/retrieval/reference-v2/collection.json) adds a separate, reproducible answer key rather than editing the legacy set. It has **20 questions, seven documents and eleven source labels**: four Markdown notes (ArrayList, HashSet, confusable LinkedList and quoted instructions), two TXT study/review examples, and one selectable-text PDF practice card. Fourteen cases expect evidence and six declare evidence absent. Coverage includes direct/paraphrased questions, cross-document and similar-document comparisons, document filters, explicit empty selection, deletion, physical PDF pages and instruction-like reference data. These are invented examples; no private uploads or real students are represented.
+
+Manifest schema 2 pins each original's SHA-256 and its canonical extracted-passage SHA-256. Every case records query, scope/deletion actions, expected evidence or absence, and verbatim supporting facts. Labels bind exact inclusive source lines and physical PDF page 1 where appropriate; a fact must have one unambiguous declared source. Duplicate labels/coordinates, wrong quotes/pages, unsupported facts, unknown/deleted/out-of-scope sources, missing assets or hashes, and missing scenario categories fail offline validation.
+
+The small release documents deliberately fit one passage each. This is not a chunk-boundary or long-document benchmark. `ReferenceIndex` records extraction/indexing/passage configuration 1 and the production UUID recipe, and deduplicates source aliases sharing a passage. Version2 preserves terminal empty text lines; this PDF's extracted text has no trailing newline. A separate seven-document test runs the actual private file store, TXT/Markdown/PDF extractors, splitter and stable passage constructor, checking the pinned passage hashes, source locations and UUID recipe. Database fixtures retain PDF document/line/passage page metadata. Reports record bindings and indexing configuration, not a promise that seeded retrieval rows exercise the background pipeline.
+
+Run without credentials or live inference:
+
+```sh
+./mvnw -Dtest=RetrievalReferenceCollectionTest, ReleaseReferenceCollectionTest, ReleaseReferencePreparationTest, RetrievalEvaluationTest, EvaluationBudgetTest test
+./mvnw -Dit.test=ReferenceRetrievalIT verify
+./mvnw verify
+```
+
+The first command validates assets/labels/preparation/reporting/budgets. The second requires Docker and now runs all 11 legacy and 20 release cases plus the two existing filter/order checks against real pgvector with fixed symbolic vectors. Those vectors are hand-assigned independently of the gold facts and demonstrate mechanics only. They must never be reported as a semantic-quality score. Routine verification has no model or dashboard dependency.
+
+The following **release-gates-v1** criteria are declared before the first real-model release measurement. Freeze the corpus bytes, model/settings and rubric for that run. Publish failures instead of lowering thresholds after seeing results. A changed corpus, embedding contract, index/passage configuration, score threshold or rubric requires a newly identified baseline and a complete reevaluation.
+
+| Gate | Predeclared acceptance |
+|---|---|
+| Measurement completeness | All 20 cases assessed; missing, quota-interrupted or not-run measurements leave the release gate pending |
+| Expected-evidence retrieval | Macro mean recall@5 across14 expected-evidence cases at least 0.90, with complete expected evidence in at least 13 of 14 cases |
+| Multi-document retrieval | All required passages present for at least 3 of the 4 cross-document/similar-document cases; count unique passage IDs rather than source aliases |
+| Scope/deletion safety | Zero returned IDs outside the declared visible scope;zero deleted-source IDs;explicit empty selection returns no results and makes no provider call |
+| Expected-evidence answers | At least 13 of 14 answers are fully supported and cover every expected fact;every material claim must have support in the actual supplied and cited evidence |
+| Unanswerable answers | All 6 evidence-absent cases produce insufficient information, even if retrieval returns topically similar material |
+| Citation and instruction safety | Zero fabricated/foreign citations, deleted sources, instruction-following from quoted data, confusable-document fact substitution or material unsupported claims |
+| Performance/usage | Record actual per-case latency and available usage/coverage;no invented cost, remaining allowance or latency claim. There is no predeclared latency pass threshold |
+
+`absenceMatched` in a retrieval report means **no returned passages**, not factual absence. With related notes in the library, a genuinely unanswerable question can still retrieve plausible neighbours. Review those results; do not count a neighbouring visible HashSet passage as a deleted ArrayList leak. Empty selection and selected-only deleted documents have strict empty-result expectations. The six answer-absence cases still require insufficient information. Retrieval recall alone cannot measure answer support or penalize extra distractors.
+
+Review each answer manually against its actual supplied evidence and returned citations, using these separate fields:
+
+- **Claim support:** mark every material factual claim `SUPPORTED`, `UNSUPPORTED` or `CONTRADICTED`, with the exact cited source/location or explanation. Valid IDs alone are not support.
+- **Fact coverage:** mark each expected fact present, omitted or misinterpreted; a partially correct answer does not pass full coverage.
+- **Citation validity:** require cited IDs to belong to this question's supplied passages and remain visible; distinguish that mechanical check from claim support.
+- **Absence and instructions:** require insufficient information where evidence is absent; quoted instructions are reference text and must never control the answer. Mixing up ArrayList/LinkedList/HashSet facts is a failure.
+- **Final disposition:** `PASS` only when support, coverage, citation and absence/instruction checks all pass;otherwise `FAIL` with a concrete reason. `NOT_RUN` is never a pass. An automatic judge may assist review but does not replace it.
+
+The local premeasurement report is `evaluation-runs/java-study-v2-plan.md` (ignored), with the manifest digest, case IDs/configuration, gates and explicit `NOT_RUN` observations. The committed manifest and this rubric are the reproducible source of truth. Actual retrieval uses the opt-in command below. A separate automated answer-grounding command is not available. Review actual supplied passages and answers with the rubric separately; this retrieval command does not produce a grounding score. Do not invent an answer score from fixture checks or claim the grounding evaluation ran.
+
 ## Opt-in retrieval evaluation
 
-The `retrieval-evaluation` Maven profile runs the same `java-study-v1` cases using actual Cloudflare embeddings and real pgvector retrieval. It is separate from ordinary `test`/`verify`, uses no chat model and never starts the application or touches your document library. It creates a disposable PostgreSQL container, embeds the three reference passages in one batch, publishes only those fixture rows and searches them independently for each case. Deletion scenarios reset only this temporary fixture's tombstones.
+The `retrieval-evaluation` Maven profile now runs the release `java-study-v2` cases using actual Cloudflare embeddings and real pgvector retrieval. It is separate from ordinary `test`/`verify`, uses no chat model and never starts the application or touches your document library. It creates a disposable PostgreSQL container, embeds the seven reference passages in batches of three, three and one, publishes only those fixture rows and searches them independently for each case. Deletion scenarios reset only this temporary fixture's tombstones.
 
 Before running it, Docker must be available and `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` must be **exported environment variables** in that terminal. This command does not load `.env`; values stored only in that file are not exported automatically. Keep credentials out of command arguments and Git. It uses the existing fixed Cloudflare endpoint, pinned `@cf/baai/bge-m3`/1024 contract and normal bounded adapter, with a five-second connect timeout and twenty-second request timeout.
 
@@ -744,17 +787,17 @@ Use a Workers Free account with enough remaining allowance. `evaluation.allowLiv
 ```sh
 ./mvnw -Pretrieval-evaluation \
   -Devaluation.allowLive=true \
-  -Devaluation.maxRequests=11 \
-  -Devaluation.maxInputBytes=4096 \
-  -Devaluation.maxReportedTokens=4096 \
+  -Devaluation.maxRequests=22 \
+  -Devaluation.maxInputBytes=8192 \
+  -Devaluation.maxReportedTokens=8192 \
   test
 ```
 
-The profile alone refuses to run without consent and explicit integer budgets. For this exact corpus, a complete run needs eleven provider attempts: one three-passage batch and ten query calls; empty selected scope makes no inference call. It submits 1,258 UTF-8 text bytes in total, excluding JSON metadata. Preflight rejects an insufficient request/byte budget before any provider call. Hard supported ceilings are 32 attempts, 16,384 text bytes and 8,192 reported tokens; the example chooses smaller limits. Failed or ambiguous attempts still consume the local request/byte allowance. Any provider/quota/storage failure stops the run; there is no automatic retry, sleep, fallback or resume.
+The profile alone refuses to run without consent and explicit integer budgets. For this release corpus, the preflight conservatively reserves 22 attempts: three passage batches and up to19 query calls. Empty selection makes no inference call; eligibility can also avoid a query for a selected-only deleted document, so actual usage can be lower. Preflight sums canonical passage/query UTF-8 bytes (not original PDF bytes or JSON metadata) and rejects an insufficient declared request/byte budget before any provider call. Hard supported ceilings are 32 attempts, 16,384 text bytes and 8,192 reported tokens; the example stays within these limits. Failed or ambiguous attempts still consume the local request/byte allowance. Any provider/quota/storage failure stops the run; there is no automatic retry, sleep, fallback or resume.
 
 Request and text-byte budgets are enforced **before** inference. A reported-token ceiling is checked after responses and before later requests: one response can cross it. When usage is absent, the report identifies incomplete usage coverage; it cannot treat unreported tokens as measured zero. These limits are not an exact tokenizer, an account-wide neuron balance or a monetary-cost measurement. Every new invocation re-embeds these fixtures and consumes allowance again.
 
-The console prints the run status and a unique `evaluation-runs/java-study-v1-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
+The console prints the run status and a unique `evaluation-runs/java-study-v2-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, batch size, physical PDF page bindings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
 
 Review the report before drawing a quality conclusion:
 
