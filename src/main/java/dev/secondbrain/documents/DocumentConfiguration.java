@@ -32,6 +32,25 @@ import java.time.Clock;
         matchIfMissing = true)
 class DocumentConfiguration {
     @Bean
+    DocumentCleanupService documentCleanupService(
+            JdbcDocumentRepository documents,
+            EventRetryService retries,
+            ObjectProvider<EventHandler> handlers,
+            @Value("${secondbrain.events.polling-enabled:true}") boolean polling,
+            PlatformTransactionManager transactions,
+            Clock clock,
+            DocumentTelemetry telemetry) {
+        return new DocumentCleanupService(
+                documents,
+                retries,
+                () -> handlers.orderedStream().toList(),
+                polling,
+                transactions,
+                clock,
+                telemetry);
+    }
+
+    @Bean
     DocumentProcessingService documentProcessingService(
             JdbcClient jdbc,
             JdbcDocumentRepository documents,

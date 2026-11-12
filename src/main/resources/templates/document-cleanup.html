@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deleted-document cleanup | SecondBrain</title>
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+</head>
+<body>
+  <header class="site-header"><a class="brand" th:href="@{/}">SecondBrain</a></header>
+  <main>
+    <h1>Deleted-document cleanup</h1>
+    <p>These documents stay removed from the library, search, questions and source pages. Saved content is removed in the background.</p>
+    <p><a th:href="@{/documents/cleanup(page=${cleanup.page})}">Refresh cleanup status</a></p>
+    <p class="notice notice-success" role="status" th:if="${cleanupMessage != null}" th:text="${cleanupMessage}">Cleanup queued.</p>
+    <p class="notice notice-info" th:unless="${cleanup.enabled}">Cleanup is paused. Enable event polling and document deletion in the application configuration, then restart.</p>
+    <p th:if="${cleanup.requests.isEmpty()}">No outstanding cleanup on this page.</p>
+    <ul class="document-list" th:unless="${cleanup.requests.isEmpty()}">
+      <li th:each="request : ${cleanup.requests}">
+        <div class="document-summary">
+          <strong th:text="${request.state.label}">Awaiting cleanup</strong>
+          <span>Requested <time th:datetime="${request.requestedAt}" th:text="${request.requestedAt}">time</time></span>
+          <span th:text="|Waiting ${request.ageSeconds} seconds; ${request.attempts} attempts.|">Waiting.</span>
+        </div>
+        <p th:if="${request.state.name() == 'FAILED'}">Cleanup could not finish. Check storage permissions and database availability before retrying.</p>
+        <form th:if="${request.retry.isPresent()}" method="post"
+              th:action="@{/documents/cleanup/{id}/retry(id=${request.documentId})}">
+          <input type="hidden" name="deliveryId" th:value="${request.retry.get().deliveryId}">
+          <input type="hidden" name="cycle" th:value="${request.retry.get().cycle}">
+          <button type="submit">Retry cleanup</button>
+        </form>
+      </li>
+    </ul>
+    <nav class="library-pages" aria-label="Cleanup pages" th:if="${cleanup.page > 0 or cleanup.hasNext}">
+      <a rel="prev" th:if="${cleanup.page > 0}" th:href="@{/documents/cleanup(page=${cleanup.page - 1})}">Previous</a>
+      <span th:text="|Page ${cleanup.page + 1L}|">Page 1</span>
+      <a rel="next" th:if="${cleanup.hasNext}" th:href="@{/documents/cleanup(page=${cleanup.page + 1L})}">Next</a>
+    </nav>
+    <p><a th:href="@{/}">Back to document library</a></p>
+  </main>
+</body>
+</html>

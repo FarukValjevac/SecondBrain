@@ -1,9 +1,11 @@
 package dev.secondbrain.events;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.documents.DocumentAcceptanceService;
+import dev.secondbrain.documents.DocumentCleanupService;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentIndexingService;
 import dev.secondbrain.documents.DocumentInspectionService;
@@ -94,6 +96,176 @@ class DocumentDeletionDeliveryIT {
                                 POSTGRES.getPassword()))
                 .sql("TRUNCATE documents, event_keys CASCADE")
                 .update();
+    }
+
+    @Test
+    void exhaustedCleanupCanBeRetriedAfterRestartAndRetentionKeepsOnlyContentFreeFences()
+            throws Exception {
+        Fixture fixture;
+        DeliveryLease failed;
+        Path obstruction;
+        try (var context = start(true, true)) {
+            fixture = published(context);
+            Files.delete(original(fixture));
+            Files.createDirectory(original(fixture));
+            obstruction = Files.writeString(original(fixture).resolve("obstruction"), "test only");
+            requestDeletion(context, fixture);
+            failed = claimCleanup(context);
+            var store = context.getBean(JdbcEventStore.class);
+            context.getBean(EventDispatcher.class).dispatch(failed);
+            clock.advance(Duration.ofSeconds(2));
+            context.getBean(EventDispatcher.class).dispatch(claimCleanup(context));
+            assertThat(deliveryState(context, fixture)).isEqualTo("FAILED");
+            clock.advance(Duration.ofDays(31));
+            store.cleanup();
+            assertThat(deliveryState(context, fixture)).isEqualTo("FAILED");
+            assertHidden(context, fixture);
+            assertThat(count(context, "documents", fixture.id())).isEqualTo(1);
+        }
+        try (var context = start(true, true)) {
+            var service = context.getBean(DocumentCleanupService.class);
+            var page = service.read(0);
+            assertThat(page.requests()).hasSize(1);
+            var row = page.requests().getFirst();
+            assertThat(row.state()).isEqualTo(DocumentCleanupService.State.FAILED);
+            assertThat(row.ageSeconds()).isGreaterThanOrEqualTo(Duration.ofDays(31).toSeconds());
+            assertThat(row.retry().orElseThrow().deliveryId()).isEqualTo(failed.deliveryId());
+            // Audit and requeue must roll back together; a failed command never unhides content.
+            jdbc(context)
+                    .sql(
+                            "ALTER TABLE event_delivery_retries ADD CONSTRAINT reject_cleanup_retry CHECK(retry_cycle < 0)")
+                    .update();
+            try {
+                assertThatThrownBy(
+                                () ->
+                                        service.retry(
+                                                fixture.id(),
+                                                failed.deliveryId(),
+                                                0,
+                                                UUID.randomUUID()))
+                        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+                assertThat(deliveryState(context, fixture)).isEqualTo("FAILED");
+                assertThat(service.read(0).requests().getFirst().retry().orElseThrow().cycle())
+                        .isZero();
+                assertHidden(context, fixture);
+            } finally {
+                jdbc(context)
+                        .sql(
+                                "ALTER TABLE event_delivery_retries DROP CONSTRAINT reject_cleanup_retry")
+                        .update();
+            }
+            Files.delete(obstruction);
+            Files.delete(original(fixture));
+            var correlation = UUID.randomUUID();
+            assertThat(service.retry(fixture.id(), failed.deliveryId(), 0, correlation)).isTrue();
+            assertThat(service.retry(fixture.id(), failed.deliveryId(), 0, correlation)).isFalse();
+            assertHidden(context, fixture);
+            var recovered = claimCleanup(context);
+            assertThat(recovered.deliveryId()).isEqualTo(failed.deliveryId());
+            assertThat(recovered.event()).isEqualTo(failed.event());
+            assertThat(recovered.attempt()).isEqualTo(3);
+            context.getBean(EventDispatcher.class).dispatch(recovered);
+            assertCleaned(context, fixture);
+            assertThat(service.read(0).requests()).isEmpty();
+            assertThat(attempts(context, fixture)).containsExactly("FAILED", "FAILED", "COMPLETED");
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT correlation_id FROM event_delivery_retries WHERE delivery_id = :id")
+                                    .param("id", failed.deliveryId())
+                                    .query(UUID.class)
+                                    .single())
+                    .isEqualTo(correlation);
+            clock.advance(Duration.ofDays(31));
+            var store = context.getBean(JdbcEventStore.class);
+            store.cleanup();
+            assertThat(payloadCount(context, fixture, "DocumentDeletionRequested")).isZero();
+            assertThat(eventCount(context, fixture, "DocumentDeletionRequested")).isEqualTo(1);
+            // Replaying a deleted document's retained request must not create another envelope.
+            var transaction =
+                    new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
+            UUID replayed =
+                    transaction.execute(
+                            status ->
+                                    context.getBean(EventPublisher.class).publish(failed.event()));
+            assertThat(replayed).isEqualTo(failed.event().eventId());
+            assertThat(payloadCount(context, fixture, "DocumentDeletionRequested")).isZero();
+            assertThat(service.retry(fixture.id(), failed.deliveryId(), 1, UUID.randomUUID()))
+                    .isFalse();
+            assertHidden(context, fixture);
+        }
+    }
+
+    @Test
+    void cleanupListingAndConcurrentRetrySelectOnlyTheCurrentDeletedOwner() throws Exception {
+        try (var context = start(false, true);
+                var callers = Executors.newFixedThreadPool(2)) {
+            var visible = upload(context);
+            var deleted = upload(context);
+            requestDeletion(context, deleted);
+            var store = context.getBean(JdbcEventStore.class);
+            var current = claimCleanup(context);
+            store.fail(current, DeliveryFailure.Code.HANDLER_PERMANENT, false);
+            // A retained obsolete cleanup delivery cannot recover against a newer tombstone.
+            transaction(context)
+                    .executeWithoutResult(
+                            status ->
+                                    context.getBean(EventPublisher.class)
+                                            .publish(
+                                                    new EventEnvelope(
+                                                            UUID.randomUUID(),
+                                                            current.event().type(),
+                                                            deleted.id(),
+                                                            current.event().processingVersion() - 1,
+                                                            clock.instant(),
+                                                            UUID.randomUUID(),
+                                                            null,
+                                                            null,
+                                                            Map.of())));
+            var obsolete = claimCleanup(context);
+            store.fail(obsolete, DeliveryFailure.Code.HANDLER_PERMANENT, false);
+            var service = context.getBean(DocumentCleanupService.class);
+            assertThat(service.read(0).requests()).hasSize(1);
+            var row = service.read(0).requests().getFirst();
+            assertThat(row.documentId()).isEqualTo(deleted.id());
+            assertThat(row.retry().orElseThrow().deliveryId()).isEqualTo(current.deliveryId());
+            assertThat(service.retry(deleted.id(), obsolete.deliveryId(), 0, UUID.randomUUID()))
+                    .isFalse();
+            assertThat(service.retry(visible.id(), current.deliveryId(), 0, UUID.randomUUID()))
+                    .isFalse();
+            var barrier = new CyclicBarrier(2);
+            java.util.concurrent.Callable<Boolean> retry =
+                    () -> {
+                        barrier.await(5, TimeUnit.SECONDS);
+                        return service.retry(
+                                deleted.id(), current.deliveryId(), 0, UUID.randomUUID());
+                    };
+            var outcomes = callers.invokeAll(List.of(retry, retry));
+            assertThat(
+                            List.of(
+                                    outcomes.getFirst().get(5, TimeUnit.SECONDS),
+                                    outcomes.getLast().get(5, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT count(*) FROM event_delivery_retries WHERE delivery_id = :id")
+                                    .param("id", current.deliveryId())
+                                    .query(Integer.class)
+                                    .single())
+                    .isEqualTo(1);
+            assertThat(
+                            jdbc(context)
+                                    .sql(
+                                            "SELECT state FROM event_deliveries WHERE delivery_id = :id")
+                                    .param("id", current.deliveryId())
+                                    .query(String.class)
+                                    .single())
+                    .isEqualTo("PENDING");
+            assertHidden(context, deleted);
+            assertThat(context.getBean(DocumentInspectionService.class).find(visible.id()))
+                    .isPresent();
+        }
     }
 
     @Test
@@ -698,30 +870,50 @@ class DocumentDeletionDeliveryIT {
     }
 
     private ConfigurableApplicationContext start(boolean indexed) {
-        return new SpringApplicationBuilder(SecondBrainApplication.class)
-                .web(WebApplicationType.NONE)
-                .initializers(
-                        context -> {
-                            context.getBeanFactory().registerSingleton("deletionTestClock", clock);
-                            if (indexed)
-                                context.getBeanFactory()
-                                        .registerSingleton("deletionTestEmbeddings", embeddings);
-                        })
-                .run(
-                        "--spring.config.import=",
-                        "--secondbrain.events.polling-enabled=false",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.enabled=" + indexed,
-                        "--secondbrain.embeddings.enabled=" + indexed,
-                        "--secondbrain.documents.indexing.reconcile-enabled=false",
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--secondbrain.events.initial-backoff=1s",
-                        "--secondbrain.events.max-backoff=1s",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+        return start(indexed, false);
+    }
+
+    private ConfigurableApplicationContext start(boolean indexed, boolean recovery) {
+        var context =
+                new SpringApplicationBuilder(SecondBrainApplication.class)
+                        .web(WebApplicationType.NONE)
+                        .initializers(
+                                application -> {
+                                    application
+                                            .getBeanFactory()
+                                            .registerSingleton("deletionTestClock", clock);
+                                    if (indexed)
+                                        application
+                                                .getBeanFactory()
+                                                .registerSingleton(
+                                                        "deletionTestEmbeddings", embeddings);
+                                })
+                        .run(
+                                "--spring.config.import=",
+                                "--secondbrain.events.enabled=true",
+                                "--secondbrain.documents.extraction.enabled=true",
+                                "--secondbrain.documents.deletion.enabled=true",
+                                "--secondbrain.documents.indexing.passages.enabled=true",
+                                "--secondbrain.events.polling-enabled=" + recovery,
+                                "--secondbrain.events.poll-interval=30s",
+                                "--secondbrain.events.lease-duration=90s",
+                                "--secondbrain.questions.enabled=false",
+                                "--secondbrain.telemetry.otlp-endpoint=",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.enabled=" + indexed,
+                                "--secondbrain.embeddings.enabled=" + indexed,
+                                "--secondbrain.documents.indexing.reconcile-enabled=false",
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--secondbrain.events.initial-backoff=1s",
+                                "--secondbrain.events.max-backoff=1s",
+                                "--secondbrain.events.max-attempts=" + (recovery ? 2 : 5),
+                                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
+                                "--spring.datasource.username=" + POSTGRES.getUsername(),
+                                "--spring.datasource.password=" + POSTGRES.getPassword(),
+                                "--secondbrain.documents.storage-directory=" + storage);
+        if (recovery) context.getBean(DurableEventWorker.class).stop();
+        return context;
     }
 
     private record Fixture(UUID id, UUID storageId) {}

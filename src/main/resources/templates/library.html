@@ -59,6 +59,7 @@
         <h3>Deleted-document cleanup</h3>
         <p><span th:text="${cleanup.pending}">0</span> awaiting cleanup;
           <span th:text="${cleanup.failed}">0</span> need attention. These documents stay removed from the library and search.</p>
+        <p><a th:href="@{/documents/cleanup}">Inspect cleanup and retry failures</a></p>
       </section>
       <p th:if="${library.documents.isEmpty()}">No documents on this page.</p>
       <ul class="document-list" th:unless="${library.documents.isEmpty()}">
