@@ -23,6 +23,8 @@ class IntegrationClasspathIT {
             settings.load(input);
         }
         assertThat(settings).containsKey("secondbrain.documents.max-upload-size");
+        assertThat(resources.getResource("classpath:application-observability.properties").exists())
+                .isTrue();
         assertThat(resources.getResources("classpath*:db/migration/V*__*.sql"))
                 .as("Flyway migrations on the integration classpath")
                 .isNotEmpty();

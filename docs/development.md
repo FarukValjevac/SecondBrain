@@ -1155,7 +1155,7 @@ Workers rebuild log context from each persisted delivery: `correlation_id`, `eve
 
 Delivery summaries use `operation=event_delivery` and `outcome=acknowledged`, `failure_recorded`, or `lease_lost`. `acknowledged` means the database accepted completion; it also covers a handler that skipped obsolete work. `failure_recorded` means a failure was saved; the database retry policy determines whether it will retry or remain terminal. Safe `code` fields describe failures without raw exception messages. Worker polling/cleanup failures use `operation=event_worker`. No event payload, unknown handler/type text, or provider error body is added to these summaries.
 
-There are no production event handlers yet. Exercise the logging/context behavior with the focused tests:
+Production extraction, indexing and deletion handlers share this context boundary. Isolate the logging/context behavior with the focused tests:
 
 ```sh
 ./mvnw -Dtest=DeliveryLogContextTest,EventDispatcherTest,DurableEventWorkerTest test
@@ -1178,6 +1178,93 @@ The endpoint must use HTTP(S) without credentials, query parameters, or fragment
 Default tracing samples 10% of traces. Export uses a 256-span queue, batches of at most 64, a one-second schedule, a two-second export deadline, a one-second connection deadline, and one transport attempt. Queue overflow or backend failure may discard telemetry while delivery continues. Spans allow at most 24 attributes, 128 characters per attribute, one producer link, and zero events. Baggage propagation is disabled.
 
 HTTP observations omit full URLs and query strings. Export allows only valid UUID/version/attempt fields and fixed delivery outcomes; it strips exception events, status descriptions, link baggage/attributes, and arbitrary resource metadata. Other span names are normalized to `application.operation`. The exported resource identifies only `service.name=secondbrain`. IDs stay in logs/traces and never become metric tags.
+
+## Local observability dashboard
+
+The optional Compose `observability` profile uses [Grafana's LGTM development backend](https://github.com/grafana/docker-otel-lgtm/releases/tag/v0.39.0), pinned to `grafana/otel-lgtm:0.39.0`. It bundles Grafana, an OpenTelemetry Collector, Prometheus and Tempo (plus unused Loki/Pyroscope services). It requires no Grafana Cloud account. Application logs stay in the terminal; log shipping, profiling and eBPF instrumentation are disabled. The profile is independent of PostgreSQL and never starts or configures the Java application for you.
+
+### Start, inspect and stop
+
+Start PostgreSQL as in the README. Validate the Compose configuration without reading private configuration, if desired:
+
+```sh
+docker compose --env-file .env.example --profile observability config --quiet
+```
+
+Start only the diagnostic service, then restart the Java application with the Spring `observability` profile:
+
+```sh
+docker compose --profile observability up -d --wait --wait-timeout 180 observability
+./mvnw spring-boot:run -Dspring-boot.run.profiles=observability
+```
+
+For automatic Java/HTML development reload as well, use `./mvnw -Pdev spring-boot:run -Dspring-boot.run.profiles=dev,observability`. No additional `.env` values or AI credentials are needed for the dashboard. Existing embedding/question settings still govern inference; an enabled provider can process retained uploads on startup. Use the explicit provider-disabled arguments in the walkthrough below for a no-inference check.
+
+Open [SecondBrain processing and recovery](http://127.0.0.1:3000/d/secondbrain-processing), or browse **Dashboards → SecondBrain**. Anonymous local access has Viewer permissions; provisioning owns the dashboard. Grafana listens on `127.0.0.1:3000` and the OTLP/HTTP receiver on `127.0.0.1:4318`; other bundled service ports are not published. No PostgreSQL or application port changes are needed. A port conflict must be resolved before starting this optional service.
+
+The dashboard refreshes every ten seconds. Exported metrics use cumulative counters, seconds for timing and fixed labels, with one `service_name="secondbrain"` scope. Five-minute rates/mean durations need at least two snapshots and actual activity; give a new panel 20–30 seconds. No data means no received measurement, disabled functionality or no matching activity; it does not mean healthy or zero. The freshness and backlog-availability panels distinguish stale snapshots and unavailable database projections. Retrying overlaps ready/delayed work; do not sum all backlog states. Mean provider latency is not p95. Final `answered` outcomes establish citation/source validation, not factual support. Provider token measurements elsewhere in Actuator are reported usage, not authoritative remaining allowance.
+
+Stop only the diagnostic service, preserving database/application state:
+
+```sh
+docker compose --profile observability stop observability
+```
+
+The application keeps working. Start the same service again with the earlier `up` command; current cumulative counters and database-derived gauges resume, while spans dropped during downtime are not replayed. To disable both exports, stop Java and restart with the ordinary README command, without the Spring `observability` profile.
+
+Generated backend state lives in ignored `data/observability`, separate from `data/documents` and the database volume. Prometheus retains about 24 hours or 256 MB of samples, whichever limit is reached first; Tempo uses a 24-hour block-retention override with asynchronous cleanup. These are retention policies, not a strict aggregate disk-size quota: WAL, indexes, Grafana state and backend housekeeping add storage. The container is limited to 2 GB RAM, two CPUs and 512 processes; Docker logs rotate at two 5 MB files. Historical telemetry is disposable and is not document data or the durable delivery audit. Removing/recreating this one service preserves its bind-mounted history. To reset history, stop/remove only `observability`, then remove only `data/observability` before recreating it; never remove `data/documents` or the PostgreSQL volume for a dashboard reset.
+
+### Export bounds and privacy
+
+Normal startup exports neither metrics nor traces; local JSON logs, health and Actuator metrics remain available. The Spring profile enables the Micrometer OTLP registry and existing safe trace exporter. [Micrometer provides OTLP protobuf serialization](https://docs.micrometer.io/micrometer/reference/implementations/otlp.html); Spring Boot 4.1.1 manages registry version 1.17.1. `LocalMetricsConfiguration` pins cumulative aggregation, ten-second publication, at most 512 export meters per registry/batch, seconds, no HTTP headers and only the fixed `service.name` resource. It ignores environment-provided telemetry headers/resource attributes. `SafeMetricsFilter` exports known feature names and closed outcome/state/kind/error values, and removes descriptions/arbitrary units. Unknown labels or metric names are denied only in the export registry. Actuator explicitly reads the complete local registry so an export-denied meter cannot mask local HTTP/JVM values through a composite no-op meter.
+
+`LocalMetricsSender` accepts only a loopback `/v1/metrics` endpoint. It uses one in-flight permit, one bounded HTTP executor (one thread/four queued internal tasks), a 256 KiB serialized-payload ceiling, one-second connection timeout and two-second full-response deadline. It does not follow redirects, forward request-supplied headers/addresses, retain response bodies, or retry a failed snapshot. Busy/failed snapshots are dropped with a fixed `TELEMETRY_UNAVAILABLE` warning. There is no additional snapshot queue; the registry's one scheduled publisher rereads current values. Database-backed gauges retain their existing bounded SQL reads/cache, so the entire snapshot can take longer than the HTTP deadline when the database is unavailable. Shutdown cancels owned HTTP work and closes both registries/transport; it does not wait for remote recovery.
+
+Trace export reuses `SafeSpanExporter`: queue 256, batch 64, one-second flush interval, two-second export timeout, one-second connection timeout and no transport retries. It strips document text, queries, prompts, answers, names, exception events, raw URLs, baggage and arbitrary resource fields; permitted UUIDs appear only as trace/log context, never metric labels. Normal sampling is 10%; this explicit local Spring profile samples 100% to make a short walkthrough inspectable. Return to normal startup after diagnosis. Health does not depend on either exporter. A failed document or telemetry backend is not itself failed readiness; database, original-storage and worker health still have their usual meanings.
+
+### No-inference success, failure and cleanup walkthrough
+
+Use disposable non-sensitive files. These commands disable both hosted capabilities explicitly and do not spend provider allowance. Stop an existing Java instance before starting:
+
+```sh
+./mvnw spring-boot:run -Dspring-boot.run.profiles=observability \
+  -Dspring-boot.run.arguments='--secondbrain.embeddings.enabled=false --secondbrain.questions.enabled=false'
+```
+
+1. Create two synthetic notes and upload them separately:
+
+   ```sh
+   printf 'Observability check.\nThe demonstration colour is green.\n' > /tmp/secondbrain-observe.txt
+   printf '\303(' > /tmp/secondbrain-observe-invalid.txt
+   walkthrough_correlation=$(uuidgen | tr '[:upper:]' '[:lower:]')
+   curl -i -H "X-Correlation-ID: $walkthrough_correlation" \
+     -F 'file=@/tmp/secondbrain-observe.txt' http://127.0.0.1:8080/documents
+   printf '%s\n' "$walkthrough_correlation"
+   curl -i -F 'file=@/tmp/secondbrain-observe-invalid.txt' http://127.0.0.1:8080/documents
+   ```
+
+2. Open both document IDs in the browser. The first should extract successfully and prepare passages; embeddings remain paused, so it is not search-ready. The invalid note is accepted, then fails extraction with a safe encoding message. Use **Retry processing** once on that failure. It fails again because retry cannot repair invalid bytes. Inspect delivery `completed`/`failed` outcomes, failed backlog, manual-retry counters, and safe local logs. `/actuator/health/readiness` should remain HTTP 200/UP. No provider-latency or question samples are expected in this disabled-capability walkthrough.
+3. In Grafana **Explore**, select **Tempo**, choose TraceQL and search with `{ resource.service.name = "secondbrain" && span.correlation_id = "<the-printed-UUID>" }`. Replace the placeholder with the printed UUID. Open `document.upload`/`event.delivery` spans. Consumer attempts are separate root traces with links to the saved producer span, rather than one span kept open over a restart. Follow span links and compare `event_id`, `delivery_id`, `causation_id`, `document_id` and `correlation_id` as available. Each retry has a new attempt span; the durable event and delivery identity stay fixed. Console `traceId`/`spanId` values also let you open the corresponding trace directly in Tempo. Inspect attributes and verify that neither note name nor content appears.
+4. To demonstrate delayed cleanup safely, restart the same provider-disabled application command with `--secondbrain.documents.deletion.enabled=false` appended inside `spring-boot.run.arguments`. Delete the two disposable notes through the UI. Their saved detail/source URLs must remain unavailable immediately; `/documents/cleanup` shows paused requests while the pending-cleanup count and oldest age rise. After 20 seconds, restart with the original provider-disabled command so deletion is enabled again. Cleanup should finish, counts/age return to zero, and the old URLs stay unavailable. No file permission tampering or delivery-table edits are needed.
+5. Stop the observability service while Java remains running. Upload another valid disposable note and refresh its document page/readiness. Results should be unchanged; only a fixed exporter warning and stale/missing dashboard samples are expected. Restart the service and wait for fresh metrics, then delete the disposable note. Ending this check with the ordinary application command disables export again.
+
+For simulated provider quota/authentication/timeout, restart recovery and retained successful batches, run `./mvnw -Dit.test=ProviderRecoveryIT,DocumentDeletionDeliveryIT,ObservabilityIT verify`. These required tests use deterministic provider doubles/local HTTP stubs and temporary PostgreSQL/files, never Cloudflare credentials or a telemetry service. They are the failure-injection checks; no failure injector is installed in the application and the dashboard is not required by `verify`.
+
+### Optional question trace and troubleshooting
+
+If embeddings/questions are already explicitly configured for your free account, a separate deliberate browser check can use one indexed disposable note and one question about it. This is a live inference action: document embeddings, the query embedding and the answer share the account allowance. Do not enable providers merely to test the dashboard. For that deliberate check, restart with the ordinary configured provider settings plus the Spring `observability` profile, choose only the disposable indexed document, submit one question, and inspect `search.retrieval`, `embedding.request`, `question.generate`, `chat.request` and `question.answer` in the HTTP request's trace. They may be sibling observations of the HTTP request; question generation is synchronous and has no durable job. Use safe console trace IDs to find the trace, then open the returned citation/source and assess support separately. Do not expect raw question text, answers or provider bodies in Grafana. The deterministic `QuestionHttpIT`/`QuestionAnswerIT` tests cover this routing and source acceptance without live inference; semantic quality requires a separate evaluation.
+
+| Symptom | Check |
+|---|---|
+| All panels are empty/stale | Backend healthy, Spring profile active, correct local ports, last 30-minute range, and 20–30 seconds for snapshots |
+| Some panels have no data | Corresponding capability/activity may be absent; query Actuator and distinguish missing from zero |
+| Backlog query availability is 0 | Database access failed; count/age can be NaN. Inspect readiness and safe database/worker diagnostics |
+| Failed/retrying deliveries rise | Library processing status, safe reason/quota hint, retained attempt history; retry only after resolving the cause |
+| Cleanup age rises | `/documents/cleanup`, deletion/polling settings and storage/database availability; restart never resets an exhausted budget |
+| No trace for an otherwise successful operation | Sampling/profile, exporter queue loss/outage, time range; delivery attempts are linked roots, not children in one long trace |
+| Backend health/startup fails | `docker compose --profile observability logs --tail 100 observability`; check port conflicts, resources, mounts and pinned-image configuration |
+
+Run `./mvnw verify` for the completion gate. `LocalMetricsConfigurationTest`, `ObservabilityAssetsTest`, `HealthEndpointsTest` and `TelemetryPrivacyTest` verify configuration/serialization/privacy/readiness without a backend; `LocalMetricsHttpIT` exercises real local transport statuses, full-body timeout, saturation, interruption and shutdown without LGTM. Starting LGTM, checking actual PromQL/Tempo queries and visually inspecting the provisioned dashboard remain separate manual acceptance checks; compiling these files or passing unit tests alone does not establish that the stack started.
 
 ## Durable event processing
 

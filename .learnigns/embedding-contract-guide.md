@@ -1575,3 +1575,44 @@ Three different cleanup policies serve different purposes:
 | Abandoned-file reconciliation | Old generated files without database ownership | Active uploads, owned originals, recent files and unknown filesystem entries |
 
 A compact event key contains identity/version information, not the uploaded text. Keeping it after content removal prevents replay from creating a new envelope for the same logical fact. The cleanup-age gauge measures how long physical removal has been outstanding; it does not measure how long a document remains searchable, because visibility ends when the deletion request transaction succeeds.
+
+
+## 48. Seeing what the application is doing
+
+Observability gives you three different views of the same work:
+
+| Signal | Simple example | Where it lives |
+|---|---|---|
+| Metric | Three deliveries failed; the oldest cleanup is 90 seconds old | Actuator locally, optionally Prometheus/Grafana |
+| Trace | Which request published an event, and which attempt called a provider | Optional Tempo/Grafana |
+| Structured log | This attempt failed with a safe code and correlation ID | Java terminal |
+
+```mermaid
+flowchart LR
+    A[Application operations] --> M[Micrometer meters]
+    A --> O[Micrometer observations]
+    A --> L[JSON console logs]
+    M --> I[Full local registry / Actuator]
+    M --> F[Filtered OTLP metrics registry]
+    F --> C[Local collector]
+    O --> S[Safe bounded span exporter]
+    S --> C
+    C --> P[Prometheus: numbers over time]
+    C --> T[Tempo: spans and links]
+    P --> G[Grafana dashboard]
+    T --> G
+```
+
+The Compose **observability profile** starts the diagnostic container. The Spring **observability profile** loads `application-observability.properties`, telling the already separate Java process to export to it. Neither profile implies the other. The ordinary application needs neither profile, and the dashboard needs no model account. Embeddings/questions still have their own explicit enablement and credentials.
+
+The Maven `micrometer-registry-otlp` dependency adds the metrics exporter implementation. Spring Boot supplies and manages the compatible version. `LocalMetricsConfiguration` is conditional on the export-enabled property; its `@Bean` methods provide the fixed OTLP configuration, owned sender and registry customization. Boot constructs the push registry and fans recording out through its composite registry. A second complete local registry keeps JVM/HTTP diagnostics available even when they are intentionally excluded from export. Actuator reads that local registry explicitly: otherwise a composite read could choose an export-denied no-op meter and display zero.
+
+Exported metrics allow known names and closed labels such as `outcome=failed`, never a filename, question, document UUID or exception text. Descriptions and arbitrary unit strings are also removed. The export registry has a hard 512-meter ceiling and publishes cumulative snapshots every ten seconds. A bounded sender performs at most one local request at a time and drops unavailable/busy snapshots; it does not accumulate a retry queue. When the backend returns, current gauges/counters can appear again. Individual lost spans are different: they are not durable jobs and are not replayed after an outage.
+
+A counter answers how often something happened; a gauge answers what is true now. Delivery/cleanup gauges come from committed database state, so they survive an application restart conceptually even though the in-memory registry is new. Counters and duration samples can reset. The dashboard uses rates that account for counter resets, and explicitly shows query availability and snapshot age. Missing data and zero are different. A five-minute mean duration is not a percentile or a guarantee for the next request.
+
+Tracing follows a request through observations. A durable worker starts a new root span for each attempt and links it to the producer saved in the event. That is why you may need to follow a link rather than expand one enormous request trace. Correlation IDs join safe logs/events across restart; event/delivery IDs identify durable work; trace/span IDs identify individual diagnostic observations. These IDs are useful in traces and logs, but would make metric label sets grow with every document.
+
+The normal sampling rate is 10%; the explicit local profile uses 100% for a short walkthrough. Trace buffers and HTTP deadlines remain bounded. Backend errors never make an upload, search, acknowledgment or readiness check depend on Grafana. The application can be healthy while one document is failed, cleanup needs attention, or telemetry is unavailable. Diagnose those conditions with their distinct signals rather than turning every individual failure into application downtime.
+
+The [local observability guide](../docs/development.md#local-observability-dashboard) owns startup/shutdown, safe synthetic success/failure/retry examples, correlation lookup and optional question checks. Logs stay in the terminal; Loki in the development image is unused. Telemetry history is disposable and kept separately from originals and PostgreSQL. A dashboard supports diagnosis, while the database delivery history remains the authority for durable processing.

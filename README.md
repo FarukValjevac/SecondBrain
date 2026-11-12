@@ -59,6 +59,15 @@ On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw
 
 ## Development checks
 
+For the optional local Grafana dashboard, start PostgreSQL as above, then run:
+
+```sh
+docker compose --profile observability up -d --wait --wait-timeout 180 observability
+./mvnw spring-boot:run -Dspring-boot.run.profiles=observability
+```
+
+Open [the processing dashboard](http://127.0.0.1:3000/d/secondbrain-processing). See [local observability](docs/development.md#local-observability-dashboard) for recovery checks, trace lookup, sampling, retention, and shutdown. Normal startup requires no telemetry backend.
+
 For automatic development restarts and HTML/CSS refreshes, start with `./mvnw -Pdev spring-boot:run`. See [development reload](docs/development.md#development-reload) for the edit/compile workflow.
 
 ```sh
