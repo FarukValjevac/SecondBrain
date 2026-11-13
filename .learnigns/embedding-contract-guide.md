@@ -1622,6 +1622,12 @@ The [local observability guide](../docs/development.md#local-observability-dashb
 
 An answer key describes what should happen. An evaluation result describes what actually happened. Our synthetic Java study documents and twenty questions are an answer key; tests using invented vectors prove software rules, not language understanding.
 
+`java-study-v1` preserves the original regression examples. `java-study-v2` is the release answer key: twenty cases across seven documents, including selectable PDF text and a deliberately quoted instruction. Document and source labels are stable human-readable names. The fixture binds them to deterministic document/passage UUIDs for extraction/index/passage configuration1. Several source quotes can live in one passage, so finding that passage once should not count as several independent retrieval hits.
+
+There are two hashes for a release document. The original hash checks the uploaded bytes; the passage hash checks the canonical extracted text. A PDF's original bytes are completely different from its extracted words. A final newline also changes the text hash and final source position. Offline tests exercise the actual storage/extractors/splitter so that the gold answer key cannot silently drift from application behavior. The deliberately short examples each fit one passage; this is not a long-document or chunk-overlap benchmark.
+
+A case carries a question, explicit search scope, any independently deleted documents, evidence expected/absent, source labels and expected facts. Those facts are anchored in quoted source locations. For example, an ArrayList fact must not accidentally be justified by a similar LinkedList sentence. A quoted instruction is still document data; the system should answer the factual question rather than follow that instruction.
+
 ```mermaid
 flowchart TD
     Q[Reference question and scope] --> R[Retrieve real ranked passages]
@@ -1635,6 +1641,8 @@ flowchart TD
     E --> H[Human reviews each claim and expected fact]
     H --> G[Separate grounding gates]
 ```
+
+Recall@5 measures how many distinct expected passages were retrieved among the first five. It does not penalize unrelated extra passages. An unanswerable question can still retrieve a topically similar passage; empty retrieval and absent factual support are different. Check scope/deletion safety independently, and require an insufficient-information answer when the supplied evidence cannot answer the question.
 
 Suppose a passage says “ArrayList permits duplicates.” The model could answer “ArrayList forbids duplicates” and attach that passage's valid ID. The application can prove the ID came from its evidence and the source remains visible. It cannot infer that the sentence is true from those checks. The grounding reviewer marks this claim CONTRADICTED even though its citation passed. A retrieval hit also does not guarantee the model used it correctly or included every requested fact.
 
