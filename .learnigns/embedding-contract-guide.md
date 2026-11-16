@@ -1153,7 +1153,7 @@ The controller maps absent/stale sources to the same 404, malformed links to 400
 | The embedding request timed out | Try again later | 504 |
 | Storage/provider/configuration is unavailable | Follow the specific guidance | 503 |
 
-A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
+A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A selection made only of deleted documents is different: deletion removes them immediately, so it behaves like an empty selection (no embedding call, empty result, `empty_scope`). A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
 
 The controller restores a parsed `DocumentQueryForm` before trying retrieval. This preserves valid text, scope, checked IDs and page when a provider or database operation fails. If labels cannot load, the page uses generic checked selection controls rather than losing those IDs or displaying old filenames. This state lives only in the request's view model; it is not query history or a server session.
 
@@ -1618,20 +1618,9 @@ The normal sampling rate is 10%; the explicit local profile uses 100% for a shor
 The [local observability guide](../docs/development.md#local-observability-dashboard) owns startup/shutdown, safe synthetic success/failure/retry examples, correlation lookup and optional question checks. Logs stay in the terminal; Loki in the development image is unused. Telemetry history is disposable and kept separately from originals and PostgreSQL. A dashboard supports diagnosis, while the database delivery history remains the authority for durable processing.
 
 
-## 49. An answer key is different from an evaluation result
+## 49. Evaluating search and answers separately
 
-The reference collection is a small public set of invented documents and questions with known evidence. It acts like an answer key: it says what a successful result should contain. It does not tell us whether a model has succeeded.
-
-```mermaid
-flowchart LR
-    D[Versioned TXT / Markdown / PDF bytes] --> X[Actual extraction and passage preparation checks]
-    D --> G[Gold source quotes / lines / pages / facts]
-    G --> C[Cases: question + scope + deletion + evidence expectation]
-    C --> R[Retrieval-only run]
-    R --> Q[Did expected passage IDs appear within top five?]
-    R --> A[Separate answer and citation review]
-    A --> S[Are actual claims supported, complete and correctly cited?]
-```
+An answer key describes what should happen. An evaluation result describes what actually happened. Our synthetic Java study documents and twenty questions are an answer key; tests using invented vectors prove software rules, not language understanding.
 
 `java-study-v1` preserves the original regression examples. `java-study-v2` is the release answer key: twenty cases across seven documents, including selectable PDF text and a deliberately quoted instruction. Document and source labels are stable human-readable names. The fixture binds them to deterministic document/passage UUIDs for extraction/index/passage configuration1. Several source quotes can live in one passage, so finding that passage once should not count as several independent retrieval hits.
 
@@ -1639,10 +1628,29 @@ There are two hashes for a release document. The original hash checks the upload
 
 A case carries a question, explicit search scope, any independently deleted documents, evidence expected/absent, source labels and expected facts. Those facts are anchored in quoted source locations. For example, an ArrayList fact must not accidentally be justified by a similar LinkedList sentence. A quoted instruction is still document data; the system should answer the factual question rather than follow that instruction.
 
-Controlled vectors let ordinary tests verify SQL ranking, scope, deletion, pages and IDs without calling a model. They do not demonstrate understanding of the words. A real retrieval run uses the same answer key with hosted embeddings, under explicit consent and request/text/token budgets. Seven passage inputs are batched3/3/1 to respect the provider boundary. The conservative preflight reserves twenty-two request slots, including possible query embeddings, before doing inference.
+```mermaid
+flowchart TD
+    Q[Reference question and scope] --> R[Retrieve real ranked passages]
+    R --> M[Compare returned IDs with gold sources]
+    M --> RG[Retrieval recall and visibility gates]
+    Q --> A[Production question workflow searches again]
+    A --> C[Select bounded whole passages]
+    C --> L[Chat model generates a candidate]
+    L --> V[Check citation IDs and fresh source visibility]
+    V --> E[Save actual context and accepted answer]
+    E --> H[Human reviews each claim and expected fact]
+    H --> G[Separate grounding gates]
+```
 
 Recall@5 measures how many distinct expected passages were retrieved among the first five. It does not penalize unrelated extra passages. An unanswerable question can still retrieve a topically similar passage; empty retrieval and absent factual support are different. Check scope/deletion safety independently, and require an insufficient-information answer when the supplied evidence cannot answer the question.
 
-Grounding review is separate again. Check each material claim against the passages actually supplied to that answer, verify citations belong to that context and remain visible, and check that all expected facts were covered. A citation can be a valid ID while the answer says something unsupported or contradictory. An automated judge may assist but cannot turn ID validity into factual correctness.
+Suppose a passage says “ArrayList permits duplicates.” The model could answer “ArrayList forbids duplicates” and attach that passage's valid ID. The application can prove the ID came from its evidence and the source remains visible. It cannot infer that the sentence is true from those checks. The grounding reviewer marks this claim CONTRADICTED even though its citation passed. A retrieval hit also does not guarantee the model used it correctly or included every requested fact.
 
-The [release quality gates](../docs/development.md#release-reference-corpus-and-quality-gates) declare the thresholds and review rubric before a live measurement. Reports start with `NOT_RUN`; they contain no invented recall, latency or token/cost results. Later failures should produce concrete follow-up work and another evaluation, rather than quietly changing the answer key or lowering thresholds to make an existing run pass.
+The live release command runs independent retrieval first. It then exercises actual context selection, generation and source validation. The exact supplied passages and replies are saved only in ignored evaluation artifacts. Human review records supported/unsupported/contradicted claims, present/omitted/misinterpreted expected facts, insufficient-information behavior and any obedience to quoted reference instructions. Hash binding keeps a review attached to the outputs it inspected. No human review means pending support, not zero errors.
+
+Budgets count attempted requests before sending them, including failed attempts. Output reservations bound requested chat output. Reported token totals describe only responses with usable counts; no usage report means unknown, not free. These counters cannot read the account's remaining neuron balance. A quota failure leaves later questions unrun; changing models to finish would make a different experiment.
+
+The [development guide](../docs/development.md#separate-retrieval-and-answer-grounding-evaluation) owns current commands, report files, limits and the review format. Ordinary verification uses controlled providers and needs no real account.
+
+
+An unavailable index and insufficient information are different outcomes. The first means the search cannot run for that scope; the second means a completed question workflow declined to answer from its evidence. Deleting the only selected document can leave no searchable index. The evaluator records that response and continues other cases, but does not invent an empty successful search or an insufficient-information answer. A completed experiment can therefore still fail a quality requirement. The report keeps execution status, failure reason and factual review separate.

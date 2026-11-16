@@ -197,10 +197,11 @@ class SearchWorkflowIT {
                                     context.getBean(DocumentInspectionService.class)
                                             .source(match.documentId(), match.passageId()))
                             .isEmpty();
-                assertFailure(
-                        service,
-                        query(ALPHA, SearchScope.selected(Set.of(alpha))),
-                        SearchFailure.Reason.NO_COMPATIBLE_INDEX);
+                // Tombstoned-only selections exclude the document like an empty selection.
+                assertThat(
+                                service.search(query(ALPHA, SearchScope.selected(Set.of(alpha))))
+                                        .matches())
+                        .isEmpty();
                 assertThat(provider.calls.size()).isEqualTo(before + 5);
                 assertThat(service.search(query(ALPHA, SearchScope.all())).matches()).isEmpty();
                 assertThat(provider.calls.size()).isEqualTo(before + 6);

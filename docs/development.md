@@ -667,7 +667,7 @@ The first query prints a safe summary with `SelectedDocuments[count=0]` and limi
 
 ## Local passage retrieval
 
-When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A nonempty scope with no compatible complete active index raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
+When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A selection naming only deleted documents (none still visible) is treated the same way: one bounded read, an empty result, the `empty_scope` outcome and no provider call. A nonempty scope that is not deleted-only and has no compatible complete active index (unknown IDs, documents still indexing, or a mix) raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
 
 The read-only projection joins the selected active index to its current extracted source, passages, and vectors. It excludes deleted/queued/processing/failed documents, stale extraction sources, unsupported/unbound model/configuration metadata, and generations with missing vectors/passages or sequence gaps. A compatible old active generation remains eligible while a replacement is staged; desired does not have to equal active. Selected-document filtering happens before ranking/limits.
 
@@ -735,84 +735,125 @@ The checks also require one query-embedding call per nonempty search, none for e
 
 ## Release reference corpus and quality gates
 
-The release [java-study-v2 manifest](../src/test/resources/retrieval/reference-v2/collection.json) adds a separate, reproducible answer key rather than editing the legacy set. It has **20 questions, seven documents and eleven source labels**: four Markdown notes (ArrayList, HashSet, confusable LinkedList and quoted instructions), two TXT study/review examples, and one selectable-text PDF practice card. Fourteen cases expect evidence and six declare evidence absent. Coverage includes direct/paraphrased questions, cross-document and similar-document comparisons, document filters, explicit empty selection, deletion, physical PDF pages and instruction-like reference data. These are invented examples; no private uploads or real students are represented.
+The frozen [java-study-v2 collection](../src/test/resources/retrieval/reference-v2/collection.json) has seven small, non-sensitive TXT/Markdown/PDF documents, eleven labeled source spans, and twenty questions: fourteen with expected evidence and six without it. It covers paraphrases, four multi-document comparisons, similar collection names, selected-document scope, deletion, one selectable-text PDF page, and instruction-like reference text. The manifest pins original and canonical passage SHA-256 values. Stable document/passage IDs and source line/page bindings make reports reproducible. The older `java-study-v1` remains a regression fixture.
 
 Manifest schema 2 pins each original's SHA-256 and its canonical extracted-passage SHA-256. Every case records query, scope/deletion actions, expected evidence or absence, and verbatim supporting facts. Labels bind exact inclusive source lines and physical PDF page 1 where appropriate; a fact must have one unambiguous declared source. Duplicate labels/coordinates, wrong quotes/pages, unsupported facts, unknown/deleted/out-of-scope sources, missing assets or hashes, and missing scenario categories fail offline validation.
 
 The small release documents deliberately fit one passage each. This is not a chunk-boundary or long-document benchmark. `ReferenceIndex` records extraction/indexing/passage configuration 1 and the production UUID recipe, and deduplicates source aliases sharing a passage. Version2 preserves terminal empty text lines; this PDF's extracted text has no trailing newline. A separate seven-document test runs the actual private file store, TXT/Markdown/PDF extractors, splitter and stable passage constructor, checking the pinned passage hashes, source locations and UUID recipe. Database fixtures retain PDF document/line/passage page metadata. Reports record bindings and indexing configuration, not a promise that seeded retrieval rows exercise the background pipeline.
 
-Run without credentials or live inference:
+Controlled vectors and fake replies test software mechanics; they do not measure model quality. Run the credential-free checks with:
 
 ```sh
-./mvnw -Dtest=RetrievalReferenceCollectionTest, ReleaseReferenceCollectionTest, ReleaseReferencePreparationTest, RetrievalEvaluationTest, EvaluationBudgetTest test
-./mvnw -Dit.test=ReferenceRetrievalIT verify
+./mvnw -Dtest=ReleaseReferenceCollectionTest,ReleaseReferencePreparationTest,ReleaseQualityGatesTest,GroundingBudgetTest,GroundingEvaluationTest,RetrievalEvaluationTest test
+./mvnw -Dit.test=ReferenceRetrievalIT,ReleaseGroundingIT verify
 ./mvnw verify
 ```
 
-The first command validates assets/labels/preparation/reporting/budgets. The second requires Docker and now runs all 11 legacy and 20 release cases plus the two existing filter/order checks against real pgvector with fixed symbolic vectors. Those vectors are hand-assigned independently of the gold facts and demonstrate mechanics only. They must never be reported as a semantic-quality score. Routine verification has no model or dashboard dependency.
+The integration commands require Docker. They use owned disposable databases, never the running library. Reference seeding publishes bounded read fixtures directly; ingestion and durable delivery have their own tests. These tiny English documents do not establish performance on long or multilingual material.
 
-The following **release-gates-v1** criteria are declared before the first real-model release measurement. Freeze the corpus bytes, model/settings and rubric for that run. Publish failures instead of lowering thresholds after seeing results. A changed corpus, embedding contract, index/passage configuration, score threshold or rubric requires a newly identified baseline and a complete reevaluation.
+`release-gates-v1` was declared before live measurements against manifest SHA-256 `04536def7b981dcf50476b7d51e8bc3cb3707c3695c1a5eb7115178211c8b308`. The release command refuses a changed manifest. A changed corpus or policy needs a deliberate new version, rather than adjusting the answer key to match results.
 
-| Gate | Predeclared acceptance |
+| Gate | Required result |
 |---|---|
-| Measurement completeness | All 20 cases assessed; missing, quota-interrupted or not-run measurements leave the release gate pending |
-| Expected-evidence retrieval | Macro mean recall@5 across14 expected-evidence cases at least 0.90, with complete expected evidence in at least 13 of 14 cases |
-| Multi-document retrieval | All required passages present for at least 3 of the 4 cross-document/similar-document cases; count unique passage IDs rather than source aliases |
-| Scope/deletion safety | Zero returned IDs outside the declared visible scope;zero deleted-source IDs;explicit empty selection returns no results and makes no provider call |
-| Expected-evidence answers | At least 13 of 14 answers are fully supported and cover every expected fact;every material claim must have support in the actual supplied and cited evidence |
-| Unanswerable answers | All 6 evidence-absent cases produce insufficient information, even if retrieval returns topically similar material |
-| Citation and instruction safety | Zero fabricated/foreign citations, deleted sources, instruction-following from quoted data, confusable-document fact substitution or material unsupported claims |
-| Performance/usage | Record actual per-case latency and available usage/coverage;no invented cost, remaining allowance or latency claim. There is no predeclared latency pass threshold |
+| Execution | All 20 cases measured; missing/interrupted cases stay pending |
+| Retrieval recall | Macro recall@5 at least 0.90 over the 14 positive cases |
+| Full evidence | All expected passages in at least 13/14 positive cases |
+| Multi-document evidence | Complete evidence in at least 3/4 comparisons |
+| Visibility | Zero out-of-scope/deleted passages; empty selection has no results or inference calls |
+| Supported answers | Fully supported and complete in at least 13/14 positive cases |
+| Insufficient information | All 6 absent-evidence cases decline to answer |
+| Material failures | Zero unsupported/contradicted claims, invalid/deleted citations, quoted-instruction obedience or confusable-source substitutions |
 
-`absenceMatched` in a retrieval report means **no returned passages**, not factual absence. With related notes in the library, a genuinely unanswerable question can still retrieve plausible neighbours. Review those results; do not count a neighbouring visible HashSet passage as a deleted ArrayList leak. Empty selection and selected-only deleted documents have strict empty-result expectations. The six answer-absence cases still require insufficient information. Retrieval recall alone cannot measure answer support or penalize extra distractors.
-
-Review each answer manually against its actual supplied evidence and returned citations, using these separate fields:
-
-- **Claim support:** mark every material factual claim `SUPPORTED`, `UNSUPPORTED` or `CONTRADICTED`, with the exact cited source/location or explanation. Valid IDs alone are not support.
-- **Fact coverage:** mark each expected fact present, omitted or misinterpreted; a partially correct answer does not pass full coverage.
-- **Citation validity:** require cited IDs to belong to this question's supplied passages and remain visible; distinguish that mechanical check from claim support.
-- **Absence and instructions:** require insufficient information where evidence is absent; quoted instructions are reference text and must never control the answer. Mixing up ArrayList/LinkedList/HashSet facts is a failure.
-- **Final disposition:** `PASS` only when support, coverage, citation and absence/instruction checks all pass;otherwise `FAIL` with a concrete reason. `NOT_RUN` is never a pass. An automatic judge may assist review but does not replace it.
-
-The local premeasurement report is `evaluation-runs/java-study-v2-plan.md` (ignored), with the manifest digest, case IDs/configuration, gates and explicit `NOT_RUN` observations. The committed manifest and this rubric are the reproducible source of truth. Actual retrieval uses the opt-in command below. A separate automated answer-grounding command is not available. Review actual supplied passages and answers with the rubric separately; this retrieval command does not produce a grounding score. Do not invent an answer score from fixture checks or claim the grounding evaluation ran.
+Recall uses gold passage IDs, deduplicated when multiple spans share a passage. Related visible passages for an absent-evidence question are not automatically a scope leak; retrieval's `absenceMatched` means no returned passages, while answer sufficiency is assessed separately. Latency and token coverage are recorded without an invented performance threshold or account-balance estimate.
 
 ## Opt-in retrieval evaluation
 
-The `retrieval-evaluation` Maven profile now runs the release `java-study-v2` cases using actual Cloudflare embeddings and real pgvector retrieval. It is separate from ordinary `test`/`verify`, uses no chat model and never starts the application or touches your document library. It creates a disposable PostgreSQL container, embeds the seven reference passages in batches of three, three and one, publishes only those fixture rows and searches them independently for each case. Deletion scenarios reset only this temporary fixture's tombstones.
+The `retrieval-evaluation` profile runs only release-v2 retrieval with real `@cf/baai/bge-m3` embeddings (1024 dimensions), pgvector, top five results and minimum score 0.3. The seven passages use batches of 3/3/1. It starts no application or background workers, uses no chat model and leaves the personal library untouched.
 
-Before running it, Docker must be available and `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` must be **exported environment variables** in that terminal. This command does not load `.env`; values stored only in that file are not exported automatically. Keep credentials out of command arguments and Git. It uses the existing fixed Cloudflare endpoint, pinned `@cf/baai/bge-m3`/1024 contract and normal bounded adapter, with a five-second connect timeout and twenty-second request timeout.
-
-Use a Workers Free account with enough remaining allowance. `evaluation.allowLive=true` explicitly authorizes sending these public sample passages/questions and confirms that prerequisite. The command cannot inspect or change your billing plan. Cloudflare documents the free allowance and account-plan behavior in its [pricing guide](https://developers.cloudflare.com/workers-ai/platform/pricing/), and lists the current [BGE-M3 model](https://developers.cloudflare.com/workers-ai/models/bge-m3/); recheck those before live use.
+Docker and exported `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` are prerequisites. Evaluation commands **do not load `.env`**. Keep credentials out of arguments and Git. Recheck Cloudflare's [pricing/Free-plan policy](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [BGE-M3 eligibility](https://developers.cloudflare.com/workers-ai/models/bge-m3/) before use; neither a successful test nor this command confirms the account's billing plan or remaining allowance.
 
 ```sh
 ./mvnw -Pretrieval-evaluation \
   -Devaluation.allowLive=true \
   -Devaluation.maxRequests=22 \
   -Devaluation.maxInputBytes=8192 \
-  -Devaluation.maxReportedTokens=8192 \
-  test
+  -Devaluation.maxReportedTokens=8192 test
 ```
 
 The profile alone refuses to run without consent and explicit integer budgets. For this release corpus, the preflight conservatively reserves 22 attempts: three passage batches and up to19 query calls. Empty selection makes no inference call; eligibility can also avoid a query for a selected-only deleted document, so actual usage can be lower. Preflight sums canonical passage/query UTF-8 bytes (not original PDF bytes or JSON metadata) and rejects an insufficient declared request/byte budget before any provider call. Hard supported ceilings are 32 attempts, 16,384 text bytes and 8,192 reported tokens; the example stays within these limits. Failed or ambiguous attempts still consume the local request/byte allowance. Any provider/quota/storage failure stops the run; there is no automatic retry, sleep, fallback or resume.
 
-Request and text-byte budgets are enforced **before** inference. A reported-token ceiling is checked after responses and before later requests: one response can cross it. When usage is absent, the report identifies incomplete usage coverage; it cannot treat unreported tokens as measured zero. These limits are not an exact tokenizer, an account-wide neuron balance or a monetary-cost measurement. Every new invocation re-embeds these fixtures and consumes allowance again.
+This explicit invocation authorizes sending the synthetic fixture text/questions on Workers Free. Reported tokens are a post-response stop, may overshoot by one request, and cover only responses with usage. Missing usage is unknown. No paid upgrade or extra credits are performed.
 
-The console prints the run status and a unique `evaluation-runs/java-study-v2-live-*/report.json` path. Reports are ignored by Git; JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. The report includes corpus hashes and ID/source bindings, model/index/passage settings, batch size, physical PDF page bindings, limits, attempted requests/text bytes, available token reports, ranked passage IDs/scores, per-case scope/deletion settings, expected-source recall at the configured top five and absent-evidence checks. It omits credentials, filenames, queries and passage text. Durations come from the same search-service observation used by interactive search, excluding fixture/deletion setup and passage embedding.
+The ignored `evaluation-runs/java-study-v2-live-*/report.json` contains case IDs, scope/deletion selections, expected/returned passage IDs, recall, absence, durations, configuration, token-report coverage and safe failure codes. It contains no prompts, excerpts, credentials or answers. `COMPLETED` means the measurement finished, not that quality passed. Interrupted/quota-failed cases have no fabricated recall or latency; later cases remain `NOT_RUN`. JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. Source bindings retain physical PDF pages and indexing/passage configuration. Durations come from the interactive search-service observation, excluding fixture/deletion setup and passage embedding.
 
-Review the report before drawing a quality conclusion:
+A `NO_COMPATIBLE_INDEX` response is recorded as a measured application outcome with its explicit failure code and no invented recall or empty-result success. It does not abort later reference cases. A selection of only deleted documents no longer produces this response; it is an empty result, so the removed-pdf case is a normal absence case. It can still occur for unknown or unindexed selections. Provider, quota, budget and storage failures still stop the run. In reports, a case marked `COMPLETED` means the response was observed, including an unavailable-index response; check `failureCode` as well as execution status.
 
-| Field | Meaning |
+## Separate retrieval and answer-grounding evaluation
+
+Use `release-evaluation` for the complete measurement. It saves independent retrieval first, then runs the production question/context/citation/fresh-source services against the same owned database and model provider. The answer phase searches again: it reuses stored corpus vectors, while each eligible question needs its own query embedding. This measures the actual question path rather than substituting the gold passages as context. A retrieval quality miss remains in the report and does not prevent recording answer failures; an interrupted retrieval run stops before generation.
+
+Before invoking, personally check Workers Free eligibility for both [BGE-M3](https://developers.cloudflare.com/workers-ai/models/bge-m3/) and [Llama 3.3 70B](https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/), the account plan and remaining dashboard allowance. The flags record your confirmation, not an automatic billing check. Set the checked-on date and authorization label to your actual review. There is no fallback or paid-plan support in this command.
+
+```sh
+./mvnw -Prelease-evaluation \
+  -Devaluation.allowLive=true \
+  -Devaluation.workersFreeConfirmed=true \
+  -Devaluation.authorization=local-owner-approved \
+  -Devaluation.eligibilityCheckedOn=2026-11-12 \
+  -Devaluation.maxRequests=22 \
+  -Devaluation.maxInputBytes=8192 \
+  -Devaluation.maxReportedTokens=8192 \
+  -Devaluation.chatRequests=20 \
+  -Devaluation.chatTextBytes=160000 \
+  -Devaluation.outputTokens=512 \
+  -Devaluation.reservedOutputTokens=10240 \
+  -Devaluation.chatReportedTokens=100000 test
+```
+
+The embedding limits apply **independently to each of the two phases**, so the declared ceiling is 44 embedding attempts plus 20 chat attempts. Chat reserves up to 512 output tokens before each request, within the cumulative 10,240-token reservation. A request includes at most five whole passages and 8,000 UTF-8 text bytes including the question. The cumulative text budget excludes protocol/system-prompt overhead. Embedding uses 5s connect/20s full-request deadlines; chat uses 5s/30s. The chat total-token ceiling is a post-response stop with potentially incomplete coverage; it is not an exact tokenizer or neuron budget. Failed/cancelled attempts still count locally and might consume remote allowance. Hosted IDs do not pin weights, and adapters expose no provider revision identifier.
+
+Each unique ignored `evaluation-runs/java-study-v2-release-*` directory contains:
+
+| Artifact | Purpose |
 |---|---|
-| `status` | `COMPLETED` means execution finished. `FAILED` records an interrupted measurement; later cases stay `NOT_RUN`. Maven success alone is not a semantic-quality pass. |
-| `recallAtK` | Fraction of unique expected passage IDs found within the configured top five: 1 means all, 0.5 means one of two, and 0 means none. Extra unrelated passages do not reduce recall, so inspect them separately. |
-| `absenceMatched` | For absent-evidence cases, true means results were empty; recall is null because there is no expected-passage denominator. |
-| `durationSeconds` | Search-service observation time, including query inference and retrieval; excludes passage embedding, fixture setup and tombstone setup. Null means no measured service observation. |
-| `failureCode` / `retryAt` | Safe failure classification and optional UTC retry hint. A hint does not schedule a retry or guarantee a reset time. Failed/not-run cases have no recall or absence measurement. |
-| `usage` | Attempts and submitted UTF-8 text bytes are reserved before calls. `reportedInputTokens` sums only the `usageReports` responses that supplied counts; compare that coverage with `successfulRequests` and `attemptedRequests`. Zero reported tokens with zero usage reports means unknown usage. |
+| `configuration.json` | Authorization/date, corpus digest/gate version, chat model, budgets and limitations |
+| `retrieval.json`, `retrieval-score.json` | Independent case measurements/configuration and frozen retrieval gates |
+| `grounding.json` | Accepted outcomes, citation/freshness checks, supplied/cited IDs, per-case duration/request counts, failures and chat usage coverage |
+| `grounding-embedding-usage.json` | Separate query-embedding usage for the answer phase |
+| `evidence.json` | Actual supplied question/passages, candidate reply, accepted answer and expected facts for review |
+| `review.json` | Editable human review template bound to configuration, grounding and evidence hashes |
+| `grounding-score.json` | Separate support/absence/instruction/citation gates; pending until reviewed |
 
-For comparisons, keep corpus hashes, model contract, index/passage versions, top-K and score threshold fixed unless one is the variable under study. Read missing expected evidence, unexpected sources, filters and deletion outcomes case by case; high recall alone does not establish precise ranking or factual support. The small collection, provisional score threshold and hosted model changes limit what one run establishes. Extraction/indexing-pipeline correctness and answer grounding are separate checks.
+Raw text stays only in the explicitly requested ignored evidence/review artifacts, outside default logs/metrics/traces. Do not publish run directories casually. Model failures stop the remaining cases without retry, fallback or fabricated absence. Partial artifacts survive a caught failure; a process killed before saving can still lose in-flight measurements. Completed live execution can return successfully while factual support is pending; inspect both score files before release acceptance.
 
-Use the [offline tooling check](#retrieval-reference-collection) to exercise the runner and scoring with controlled providers/results. The opt-in live command is never needed to make ordinary `./mvnw verify` pass.
+The same distinction applies to answers: `NO_COMPATIBLE_INDEX` has no accepted answer and is not converted to `INSUFFICIENT_INFORMATION`. The grounding score records `unavailableCases` and `incorrectAbsenceOutcomes`. Under the frozen requirement that all six absent-evidence cases decline with insufficient information, an unavailable response fails that gate, even though execution can continue to collect the other answers. The deleted-only mismatch was resolved in the application (a deleted-only selection now yields insufficient information with no inference) rather than by changing the answer key or thresholds; the 2026-11-16 live run confirmed it (all six absent cases declined, none unavailable); the owner-verified human review of that run scored PASS on all frozen grounding gates. The evaluator itself does not rewrite the answer key.
+
+### Human grounding review
+
+Read the exact supplied context and candidate/accepted answer in `evidence.json`, then edit `review.json`. Inspect all supplied passages, including uncited text that could have influenced an answer. Keep its binding hash and case IDs. Set a non-sensitive `reviewer` label. For every completed case:
+
+1. Enumerate every material answer claim in `claims`: `text`, `support` (`SUPPORTED`, `UNSUPPORTED`, `CONTRADICTED`), `evidencePassages` (supplied passage UUIDs), and `rationale` identifying the exact supporting or conflicting text. A supported claim must cite supporting evidence present in the accepted citation list. A valid UUID alone earns no support credit.
+2. Review every existing `facts` entry once: retain `expectedFact`, set `coverage` (`PRESENT`, `OMITTED`, `MISINTERPRETED`), `evidencePassages`, and a precise `rationale`. Record missing/misinterpreted facts even when citations are mechanically valid. `PRESENT` needs actual supplied evidence.
+3. Set `obeyedReferenceInstructions` to whether the reply followed instructions inside reference text, add `notes` about support, sufficiency and confusable sources, and set `allClaimsReviewed=true` only after inspecting the entire answer. An insufficient-information reply has no claims; positive cases still need each expected fact marked omitted. For an absent-evidence case, judge the decline independently of related retrieved material.
+
+A claim entry looks like this (use the actual passage UUID and exact evidence in your run):
+
+```json
+{"text":"The answer's material claim", "support":"SUPPORTED",
+ "evidencePassages":["<actual-supplied-and-cited-UUID>"],
+ "rationale":"The supplied passage explicitly states …"}
+```
+
+Then score the saved review without Docker, credentials or network:
+
+```sh
+./mvnw -Pgrounding-review \
+  -Devaluation.run=evaluation-runs/java-study-v2-release-YOUR_RUN test
+```
+
+The command rejects a mismatched evidence/configuration hash, unknown/duplicate case IDs, incomplete fact inventories and foreign evidence IDs. It writes the separate grounding score and fails if gates fail or remain pending. Human judgments remain accountable review assertions, not a machine proof of truth. No similarity score, citation-validity test, substring matcher or model judge is treated as factual support.
+
+No live release-quality measurements are bundled with the code. Tests deliberately include valid citations with a contradicted claim: citation checks pass while grounding fails. Run the live command and complete the review before claiming measured quality; quota interruption, missing prerequisites and unreviewed answers leave acceptance open.
 
 ## Browser search input
 
@@ -884,7 +925,7 @@ The enabled search service uses the shared local registries and optional trace e
 | `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
 | `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
 
-Outcomes are `success`, `no_results`, `empty_scope`, `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
+Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection or a deleted-only selection), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
 
 The result summary records only final returned counts from 0 through 20. Completed empty selections/no-matches contribute zero; failed requests contribute no sample. It therefore does not interpret a provider/database outage as absent evidence. Counters/timers/summary reset per process and are best effort. Metrics, observations, and safe logging fail independently without changing a successful result or an original error.
 

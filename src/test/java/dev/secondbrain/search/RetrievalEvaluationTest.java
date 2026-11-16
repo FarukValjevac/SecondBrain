@@ -168,6 +168,50 @@ class RetrievalEvaluationTest {
     }
 
     @Test
+    void recordsUnavailableIndexesWithoutInventingEmptyResultsOrAbortingLaterCases()
+            throws Exception {
+        index = ReferenceIndex.prepare(RetrievalReferenceCollection.loadRelease());
+        var evaluation =
+                new RetrievalEvaluation(index, new EvaluationBudget.Limits(22, 8192, 8192), clock);
+        var budget = budget();
+        var number = new AtomicInteger();
+        evaluation.run(
+                query -> {
+                    var reference = index.collection().cases().get(number.getAndIncrement());
+                    try (var operation = telemetry.start()) {
+                        // Include a positive case: an unavailable required index must fail quality,
+                        // not disappear.
+                        if (reference.id().equals("duplicates-direct")
+                                || reference.id().equals("removed-pdf")) {
+                            operation.failure(SearchFailure.Reason.NO_COMPATIBLE_INDEX);
+                            throw new SearchFailure(
+                                    SearchFailure.Reason.NO_COMPATIBLE_INDEX, null, null);
+                        }
+                        var found = matches(reference.expectedSources());
+                        operation.success(found.matches().size());
+                        return found;
+                    }
+                },
+                labels -> {},
+                budget,
+                meters);
+        var report = evaluation.report(budget.usage());
+        assertThat(number).hasValue(20);
+        assertThat(report.status()).isEqualTo(RetrievalEvaluation.Status.COMPLETED);
+        for (String id : List.of("duplicates-direct", "removed-pdf")) {
+            var result = find(report, id);
+            assertThat(result.status()).isEqualTo(RetrievalEvaluation.Status.COMPLETED);
+            assertThat(result.failureCode()).isEqualTo("NO_COMPATIBLE_INDEX");
+            assertThat(result.recallAtK()).isNull();
+            assertThat(result.absenceMatched()).isNull();
+            assertThat(result.embeddingRequests()).isZero();
+        }
+        assertThat(find(report, "duplicates-paraphrase").recallAtK()).isEqualTo(1);
+        assertThat(ReleaseQualityGates.retrieval(index, report).verdict())
+                .isEqualTo(ReleaseQualityGates.Verdict.FAIL);
+    }
+
+    @Test
     void stopsAtQuotaFailureWithoutFabricatingEmptyEvidenceOrRetryingRemainingCases() {
         var evaluation = new RetrievalEvaluation(index, limits, clock);
         var budget = budget();

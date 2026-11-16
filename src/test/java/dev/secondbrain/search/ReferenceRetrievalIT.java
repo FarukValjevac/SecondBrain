@@ -158,9 +158,13 @@ class ReferenceRetrievalIT {
         for (var fact : reference.expectedFacts())
             assertThat(result.matches())
                     .anySatisfy(match -> assertThat(match.text()).contains(fact));
+        // A selection of only deleted documents behaves like an empty selection: no inference.
         boolean empty =
                 query.scope() instanceof SearchScope.SelectedDocuments selected
-                        && selected.documentIds().isEmpty();
+                        && (selected.documentIds().isEmpty()
+                                || reference
+                                        .deletedDocuments()
+                                        .containsAll(reference.scope().documents()));
         assertThat(provider.calls).hasSize(empty ? 0 : 1);
         if (!empty) assertThat(provider.calls).containsExactly(List.of(reference.query()));
         assertThat(storedVectors()).isEqualTo(saved);
