@@ -180,6 +180,15 @@ class SearchServiceTest {
     }
 
     @Test
+    void deletedOnlySelectionIsEmptyWithoutInferenceOrRetrieval() {
+        when(embedding.model()).thenReturn(model);
+        when(passages.selectionIsOnlyDeleted(query.scope())).thenReturn(true);
+        assertThat(search.search(query).matches()).isEmpty();
+        verify(embedding, never()).embed(any(), any());
+        verify(passages, never()).retrieve(any(), any(), anyDouble());
+    }
+
+    @Test
     void providerFailuresRemainTypedAndCannotFallThroughToDatabaseRetrieval() {
         when(embedding.model()).thenReturn(model);
         when(passages.hasCompatibleIndex(query.scope(), model)).thenReturn(true);

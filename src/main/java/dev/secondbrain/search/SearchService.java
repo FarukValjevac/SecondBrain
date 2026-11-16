@@ -40,8 +40,15 @@ public final class SearchService {
             try {
                 checkInterrupted();
                 var model = embedding.model();
-                if (!passages.hasCompatibleIndex(query.scope(), model))
+                if (!passages.hasCompatibleIndex(query.scope(), model)) {
+                    // Deleted documents are excluded immediately, exactly like an empty selection:
+                    // no evidence, no inference. Unknown or unindexed selections remain failures.
+                    if (passages.selectionIsOnlyDeleted(query.scope())) {
+                        operation.emptyScope();
+                        return new SearchResult(List.of());
+                    }
                     throw new SearchFailure(SearchFailure.Reason.NO_COMPATIBLE_INDEX, null, null);
+                }
                 var vector = embedding.embed(query, model).orElseThrow();
                 var ranked = passages.retrieve(query, vector, properties.minimumScore());
                 checkInterrupted();

@@ -1153,7 +1153,7 @@ The controller maps absent/stale sources to the same 404, malformed links to 400
 | The embedding request timed out | Try again later | 504 |
 | Storage/provider/configuration is unavailable | Follow the specific guidance | 503 |
 
-A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
+A missing index is a meaningful application outcome, even though the HTTP request itself is valid. That is why the page can return HTTP 200 with **No searchable documents**, while service telemetry records `no_compatible_index`. A selection made only of deleted documents is different: deletion removes them immediately, so it behaves like an empty selection (no embedding call, empty result, `empty_scope`). A provider failure never becomes an empty successful result. Zero-match output is reserved for completed retrieval or an explicit empty selection; a later visibility loss has its own explanation.
 
 The controller restores a parsed `DocumentQueryForm` before trying retrieval. This preserves valid text, scope, checked IDs and page when a provider or database operation fails. If labels cannot load, the page uses generic checked selection controls rather than losing those IDs or displaying old filenames. This state lives only in the request's view model; it is not query history or a server session.
 

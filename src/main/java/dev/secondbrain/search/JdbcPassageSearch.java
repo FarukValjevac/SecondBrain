@@ -68,6 +68,30 @@ final class JdbcPassageSearch {
                                         .single()));
     }
 
+    /**
+     * True only when an explicit selection names tombstoned documents and none that remain visible.
+     * Unknown or still-indexing selections stay distinguishable as unavailable indexes.
+     */
+    boolean selectionIsOnlyDeleted(SearchScope scope) {
+        Objects.requireNonNull(scope, "scope");
+        if (!(scope instanceof SearchScope.SelectedDocuments selected)
+                || selected.documentIds().isEmpty()) return false;
+        return Boolean.TRUE.equals(
+                reads.execute(
+                        status ->
+                                jdbc.sql(
+                                                """
+                                                SELECT EXISTS (SELECT 1 FROM documents
+                                                    WHERE document_id IN (:documents) AND deleted_at IS NOT NULL)
+                                                  AND NOT EXISTS (SELECT 1 FROM documents
+                                                    WHERE document_id IN (:documents) AND deleted_at IS NULL)
+                                                """)
+                                        .withQueryTimeout(5)
+                                        .param("documents", selected.documentIds())
+                                        .query(Boolean.class)
+                                        .single()));
+    }
+
     SearchResult retrieve(SearchQuery query, EmbeddingVector vector, double minimumScore) {
         Objects.requireNonNull(query, "query");
         Objects.requireNonNull(vector, "vector");
