@@ -1,6 +1,7 @@
 package dev.secondbrain.search;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingProvider;
@@ -134,6 +135,23 @@ class ReferenceRetrievalIT {
         var saved = storedVectors();
         var provider = new ScriptedQueryProvider(reference.query(), queryDirection(reference.id()));
         var query = new SearchQuery(reference.query(), index.scopeFor(reference.scope()));
+        if (reference.scope().mode() == RetrievalReferenceCollection.Mode.SELECTED
+                && !reference.scope().documents().isEmpty()
+                && reference.deletedDocuments().containsAll(reference.scope().documents())) {
+            assertThatThrownBy(() -> service(provider).search(query))
+                    .isInstanceOfSatisfying(
+                            SearchFailure.class,
+                            failure ->
+                                    assertThat(failure.reason())
+                                            .isEqualTo(SearchFailure.Reason.NO_COMPATIBLE_INDEX));
+            assertThat(provider.calls).isEmpty();
+            assertThat(storedVectors()).isEqualTo(saved);
+            assertNoInteractiveJobs();
+            // Unavailable searches record the attempt and duration, not a fabricated zero-result
+            // sample.
+            assertMeasurements("no_compatible_index", 0, 1, 0);
+            return;
+        }
         var result = service(provider).search(query);
         var expected = index.passagesForSources(reference.expectedSources());
         assertThat(result.matches())
@@ -244,12 +262,17 @@ class ReferenceRetrievalIT {
     }
 
     private void assertMeasurements(String outcome, int totalResults, int calls) {
+        assertMeasurements(outcome, totalResults, calls, calls);
+    }
+
+    private void assertMeasurements(
+            String outcome, int totalResults, int calls, int resultSamples) {
         var timer = meters.get("secondbrain.search.duration").tag("outcome", outcome).timer();
         assertThat(timer.count()).isEqualTo(calls);
         // Same whole-service observation boundary as interactive search; no performance threshold.
         assertThat(timer.totalTime(TimeUnit.SECONDS)).isFinite().isGreaterThanOrEqualTo(0);
         var summary = meters.get("secondbrain.search.results").summary();
-        assertThat(summary.count()).isEqualTo(calls);
+        assertThat(summary.count()).isEqualTo(resultSamples);
         assertThat(summary.totalAmount()).isEqualTo(totalResults);
         assertThat(
                         meters.get("secondbrain.search.requests")

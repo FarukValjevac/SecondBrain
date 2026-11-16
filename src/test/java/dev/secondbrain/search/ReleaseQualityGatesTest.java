@@ -276,6 +276,36 @@ class ReleaseQualityGatesTest {
         assertThat(score.unsupportedOrContradictedClaims()).isZero();
     }
 
+    @Test
+    void deletedOnlyUnavailableOutcomeCannotSatisfyTheFrozenAbsenceGate() {
+        var results = new ArrayList<>(report().cases());
+        int last = results.size() - 1;
+        var original = results.get(last);
+        assertThat(original.id()).isEqualTo("removed-pdf");
+        results.set(
+                last,
+                new GroundingEvaluation.CaseResult(
+                        original.id(),
+                        RetrievalEvaluation.Status.COMPLETED,
+                        null,
+                        false,
+                        List.of(),
+                        List.of(),
+                        0,
+                        0,
+                        .01,
+                        "NO_COMPATIBLE_INDEX"));
+        var measured =
+                new GroundingEvaluation.Report(
+                        GroundingEvaluation.Status.COMPLETED, null, "date", "date", null, results);
+        var score = ReleaseQualityGates.grounding(index, measured, reviews());
+        assertThat(score.verdict()).isEqualTo(ReleaseQualityGates.Verdict.FAIL);
+        assertThat(score.unavailableCases()).isEqualTo(1);
+        assertThat(score.incorrectAbsenceOutcomes()).isEqualTo(1);
+        assertThat(score.correctInsufficientAnswers()).isEqualTo(5);
+        assertThat(score.measuredCases()).isEqualTo(20);
+    }
+
     private GroundingEvaluation.Report report() {
         return new GroundingEvaluation.Report(
                 GroundingEvaluation.Status.COMPLETED,

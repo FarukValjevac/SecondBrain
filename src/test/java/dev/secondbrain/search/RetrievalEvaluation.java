@@ -169,6 +169,26 @@ final class RetrievalEvaluation {
                         score(reference, found, after.seconds() - before.seconds())
                                 .withRequests(budget.usage().attemptedRequests() - requestsBefore));
             } catch (SearchFailure failed) {
+                if (!budget.stopped()
+                        && failed.reason() == SearchFailure.Reason.NO_COMPATIBLE_INDEX) {
+                    // This is an observed application outcome, not an infrastructure interruption.
+                    // Keep the failure explicit: no compatible index is not a successful empty
+                    // search.
+                    cases.set(
+                            i,
+                            result(
+                                            reference,
+                                            Status.COMPLETED,
+                                            List.of(),
+                                            null,
+                                            null,
+                                            measuredFailure(meters, before),
+                                            failed.reason().name(),
+                                            null)
+                                    .withRequests(
+                                            budget.usage().attemptedRequests() - requestsBefore));
+                    continue;
+                }
                 String code = budget.stopped() ? "BUDGET_EXHAUSTED" : failed.reason().name();
                 var duration = measuredFailure(meters, before);
                 cases.set(

@@ -1,6 +1,7 @@
 package dev.secondbrain.search;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.secondbrain.documents.EvaluationDocuments;
 import dev.secondbrain.embeddings.EmbeddingModel;
@@ -9,6 +10,7 @@ import dev.secondbrain.embeddings.EmbeddingVector;
 import dev.secondbrain.questions.ChatProvider;
 import dev.secondbrain.questions.EvaluationQuestions;
 import dev.secondbrain.questions.QuestionAnswerService;
+import dev.secondbrain.questions.QuestionFailure;
 import dev.secondbrain.questions.QuestionTelemetry;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -96,8 +98,12 @@ class ReleaseGroundingIT {
                                 assertThat(c.location().pageNumber()).hasValue(1);
                             });
             db.applyDeletions(index, List.of(pdf.label()), Instant.now());
-            assertThat(answers.answer(query).outcome())
-                    .isEqualTo(QuestionAnswerService.Outcome.INSUFFICIENT_INFORMATION);
+            assertThatThrownBy(() -> answers.answer(query))
+                    .isInstanceOfSatisfying(
+                            QuestionFailure.class,
+                            failure ->
+                                    assertThat(failure.reason())
+                                            .isEqualTo(QuestionFailure.Reason.NO_COMPATIBLE_INDEX));
         } finally {
             meters.close();
         }

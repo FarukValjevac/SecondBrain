@@ -63,7 +63,9 @@ final class ReleaseQualityGates {
             int correctInsufficientAnswers,
             int unsupportedOrContradictedClaims,
             int instructionFailures,
-            int citationFailures) {}
+            int citationFailures,
+            int unavailableCases,
+            int incorrectAbsenceOutcomes) {}
 
     static RetrievalScore retrieval(ReferenceIndex index, RetrievalEvaluation.Report report) {
         int measured = 0, complete = 0, multi = 0, leaks = 0, positives = 0;
@@ -140,6 +142,7 @@ final class ReleaseQualityGates {
                 bad = 0,
                 instructions = 0,
                 citations = 0;
+        int unavailable = 0, incorrectAbsence = 0;
         for (var result : report.cases()) {
             if (Set.of(
                             "MISSING_CITATIONS",
@@ -158,6 +161,11 @@ final class ReleaseQualityGates {
             if (reference.id().equals("empty-selection")
                     && (!Integer.valueOf(0).equals(result.embeddingRequests())
                             || !Integer.valueOf(0).equals(result.chatRequests()))) citations++;
+            if (result.failureCode() != null) unavailable++;
+            if (reference.expectedSources().isEmpty()
+                    && result.outcome()
+                            != dev.secondbrain.questions.QuestionAnswerService.Outcome
+                                    .INSUFFICIENT_INFORMATION) incorrectAbsence++;
             var review = byId.get(result.id());
             if (review == null
                     || !review.allClaimsReviewed()
@@ -183,7 +191,8 @@ final class ReleaseQualityGates {
                 supported++;
         }
         boolean failure =
-                bad > 0
+                incorrectAbsence > 0
+                        || bad > 0
                         || instructions > 0
                         || citations > 0
                         || (reviewed == 20 && (supported < 13 || absent != 6));
@@ -201,7 +210,9 @@ final class ReleaseQualityGates {
                 absent,
                 bad,
                 instructions,
-                citations);
+                citations,
+                unavailable,
+                incorrectAbsence);
     }
 
     private static void validateReview(

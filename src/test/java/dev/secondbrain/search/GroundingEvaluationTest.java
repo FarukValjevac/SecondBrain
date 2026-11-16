@@ -68,6 +68,55 @@ class GroundingEvaluationTest {
     }
 
     @Test
+    void unavailableSelectionIsMeasuredButNeverCountedAsInsufficientInformation() throws Exception {
+        var index = ReferenceIndex.prepare(RetrievalReferenceCollection.loadRelease());
+        var evaluation = new GroundingEvaluation(index, Clock.systemUTC());
+        var failure = mock(QuestionFailure.class);
+        when(failure.reason()).thenReturn(QuestionFailure.Reason.NO_COMPATIBLE_INDEX);
+        var meters = new SimpleMeterRegistry();
+        try {
+            var calls = new AtomicInteger();
+            var embeddings =
+                    new EvaluationBudget(
+                            EvaluationBudgetTest.provider(meters, new AtomicInteger(), 0, false),
+                            new EvaluationBudget.Limits(22, 8192, 8192),
+                            meters);
+            var chat =
+                    new GroundingBudget(
+                            r -> {
+                                throw new AssertionError("No inference in this test");
+                            },
+                            new GroundingBudget.Limits(20, 160000, 512, 10240, 100000),
+                            meters);
+            evaluation.run(
+                    q -> {
+                        if (calls.getAndIncrement() == 0) throw failure;
+                        return new QuestionAnswerService.Answer(
+                                QuestionAnswerService.Outcome.INSUFFICIENT_INFORMATION,
+                                "",
+                                List.of());
+                    },
+                    labels -> {},
+                    chat,
+                    embeddings);
+            var report = evaluation.report(chat.usage());
+            assertThat(calls).hasValue(20);
+            assertThat(report.status()).isEqualTo(GroundingEvaluation.Status.COMPLETED);
+            var unavailable = report.cases().getFirst();
+            assertThat(unavailable.failureCode()).isEqualTo("NO_COMPATIBLE_INDEX");
+            assertThat(unavailable.status()).isEqualTo(RetrievalEvaluation.Status.COMPLETED);
+            assertThat(unavailable.outcome()).isNull();
+            assertThat(unavailable.citationsAndFreshnessAccepted()).isFalse();
+            assertThat(unavailable.chatRequests()).isZero();
+            assertThat(unavailable.embeddingRequests()).isZero();
+            assertThat(ReleaseQualityGates.grounding(index, report, List.of()).unavailableCases())
+                    .isEqualTo(1);
+        } finally {
+            meters.close();
+        }
+    }
+
+    @Test
     void completedExecutionWithoutReviewIsNotGroundingSuccess() throws Exception {
         var index = ReferenceIndex.prepare(RetrievalReferenceCollection.loadRelease());
         var evaluation = new GroundingEvaluation(index, Clock.systemUTC());

@@ -115,7 +115,7 @@ final class GroundingEvaluation {
                     i,
                     new CaseResult(
                             reference.id(),
-                            code == null
+                            (code == null || code.equals("NO_COMPATIBLE_INDEX"))
                                     ? RetrievalEvaluation.Status.COMPLETED
                                     : RetrievalEvaluation.Status.FAILED,
                             answer == null ? null : answer.outcome(),
@@ -143,7 +143,7 @@ final class GroundingEvaluation {
                             request,
                             chat.lastReply(),
                             answer == null ? null : answer.text()));
-            if (code != null) {
+            if (code != null && !code.equals("NO_COMPATIBLE_INDEX")) {
                 fail(code);
                 return;
             }

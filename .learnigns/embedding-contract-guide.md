@@ -1651,3 +1651,6 @@ The live release command runs independent retrieval first. It then exercises act
 Budgets count attempted requests before sending them, including failed attempts. Output reservations bound requested chat output. Reported token totals describe only responses with usable counts; no usage report means unknown, not free. These counters cannot read the account's remaining neuron balance. A quota failure leaves later questions unrun; changing models to finish would make a different experiment.
 
 The [development guide](../docs/development.md#separate-retrieval-and-answer-grounding-evaluation) owns current commands, report files, limits and the review format. Ordinary verification uses controlled providers and needs no real account.
+
+
+An unavailable index and insufficient information are different outcomes. The first means the search cannot run for that scope; the second means a completed question workflow declined to answer from its evidence. Deleting the only selected document can leave no searchable index. The evaluator records that response and continues other cases, but does not invent an empty successful search or an insufficient-information answer. A completed experiment can therefore still fail a quality requirement. The report keeps execution status, failure reason and factual review separate.

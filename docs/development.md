@@ -786,6 +786,8 @@ This explicit invocation authorizes sending the synthetic fixture text/questions
 
 The ignored `evaluation-runs/java-study-v2-live-*/report.json` contains case IDs, scope/deletion selections, expected/returned passage IDs, recall, absence, durations, configuration, token-report coverage and safe failure codes. It contains no prompts, excerpts, credentials or answers. `COMPLETED` means the measurement finished, not that quality passed. Interrupted/quota-failed cases have no fabricated recall or latency; later cases remain `NOT_RUN`. JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. Source bindings retain physical PDF pages and indexing/passage configuration. Durations come from the interactive search-service observation, excluding fixture/deletion setup and passage embedding.
 
+A `NO_COMPATIBLE_INDEX` response is recorded as a measured application outcome with its explicit failure code and no invented recall or empty-result success. It does not abort later reference cases. This can occur when the only selected document was deliberately deleted. Provider, quota, budget and storage failures still stop the run. In reports, a case marked `COMPLETED` means the response was observed, including an unavailable-index response; check `failureCode` as well as execution status.
+
 ## Separate retrieval and answer-grounding evaluation
 
 Use `release-evaluation` for the complete measurement. It saves independent retrieval first, then runs the production question/context/citation/fresh-source services against the same owned database and model provider. The answer phase searches again: it reuses stored corpus vectors, while each eligible question needs its own query embedding. This measures the actual question path rather than substituting the gold passages as context. A retrieval quality miss remains in the report and does not prevent recording answer failures; an interrupted retrieval run stops before generation.
@@ -823,6 +825,8 @@ Each unique ignored `evaluation-runs/java-study-v2-release-*` directory contains
 | `grounding-score.json` | Separate support/absence/instruction/citation gates; pending until reviewed |
 
 Raw text stays only in the explicitly requested ignored evidence/review artifacts, outside default logs/metrics/traces. Do not publish run directories casually. Model failures stop the remaining cases without retry, fallback or fabricated absence. Partial artifacts survive a caught failure; a process killed before saving can still lose in-flight measurements. Completed live execution can return successfully while factual support is pending; inspect both score files before release acceptance.
+
+The same distinction applies to answers: `NO_COMPATIBLE_INDEX` has no accepted answer and is not converted to `INSUFFICIENT_INFORMATION`. The grounding score records `unavailableCases` and `incorrectAbsenceOutcomes`. Under the frozen requirement that all six absent-evidence cases decline with insufficient information, an unavailable response fails that gate, even though execution can continue to collect the other answers. This is a reported release limitation to resolve and reevaluate; the evaluator does not rewrite the answer key or change application behavior to hide it.
 
 ### Human grounding review
 
