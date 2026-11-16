@@ -210,7 +210,7 @@ Safe request measurements are `secondbrain.document.indexing.requests` and `seco
 
 Embedding settings are opt-in. Enabling them constructs the Cloudflare HTTP adapter after validation; client construction and health probes make no inference request. The document embedding consumer is enabled by the same opt-in and can process new and retained passages when background polling runs. This sends bounded passage text to Cloudflare; normal disabled startup needs no AI credentials and makes no model calls. Run `./mvnw -Dtest=CloudflareEmbeddingProviderTest,EmbeddingConfigurationTest,EmbeddingVectorTest test` for configuration/protocol checks without an account.
 
-The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not yet a live-verified default. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
+The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not a default; select it explicitly. A bounded live evaluation on 2026-11-16 retrieved the expected passages for a small synthetic corpus, but that does not measure your own documents. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
 
 | Setting | Default | Accepted value or purpose |
 |---|---|---|
@@ -225,7 +225,7 @@ The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimens
 
 The uppercase settings work in the imported `.env` file; corresponding application properties use the `secondbrain.embeddings` prefix. The endpoint is fixed to the account-scoped HTTPS API on `api.cloudflare.com`. Credentials are excluded from settings diagnostics and validation messages. Each explicit Java `embed` call enforces those settings. An explicitly supplied `EmbeddingProvider` bean replaces the default adapter without requiring Cloudflare credentials, supporting controlled tests.
 
-Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). No live model quality, quota consumption, or account permissions have been verified.
+Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). Your own account permissions and remaining allowance are never verified by the application; the 2026-11-16 evaluation covers only a small synthetic corpus.
 
 ## Embedding HTTP adapter
 
@@ -285,7 +285,7 @@ Questions are available at `/questions` when embeddings and questions are enable
 |---|---|
 | `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in validates settings and creates the chat client; with embeddings enabled it also enables the answer service and question form. Construction makes no inference request. |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Same external account/token keys as embeddings; required when settings are enabled. |
-| `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; model quality remains unmeasured. |
+| `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; quality was measured only on a small synthetic corpus (see [grounding evaluation](#separate-retrieval-and-answer-grounding-evaluation)); inspect cited excerpts for your own documents. |
 | `CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS` | Defaults to 512; permitted range 1–2,048. |
 | `secondbrain.questions.connect-timeout` / `request-timeout` | Default 2s / 30s. Connect range 100ms–10s; request range connect-timeout–60s. |
 
@@ -590,7 +590,7 @@ Upload -> DocumentAccepted -> extracted text -> TextExtracted
        -> embedding batches -> active index + IndexPublished
 ```
 
-The upload returns `202 Accepted` with `QUEUED` after storing its original and durable request. The automatic worker handles later stages. A successful provider response alone does not make an index ready: all batches, guarded activation, publication, and acknowledgment must complete. Library pages currently show extraction status; use the active pointer or index metrics to inspect indexing. Semantic search is not yet implemented.
+The upload returns `202 Accepted` with `QUEUED` after storing its original and durable request. The automatic worker handles later stages. A successful provider response alone does not make an index ready: all batches, guarded activation, publication, and acknowledgment must complete. Library and document pages show processing stages and search readiness; the active pointer and index metrics remain available for deeper inspection. Browser search and questions use only active, complete indexes.
 
 Run the complete offline workflow checks with Docker and local HTTP listeners available:
 
@@ -618,6 +618,62 @@ ORDER BY d.created_at DESC;
 ```
 
 A null active version is expected with embeddings disabled or incomplete processing. An extracted document can still be waiting for embeddings. Do not set the active pointer manually. The offline tests prove deterministic processing boundaries; they do not establish live account permissions, remaining allowance, model quality, or semantic search quality. The separate [live embedding smoke check](#embedding-request-telemetry) remains explicitly invoked within its documented budget.
+
+## Example workflow: fresh checkout to deletion
+
+This is the reproducible path from a fresh checkout and empty database to upload, processing, search, questions, source inspection and deletion. Use only the disposable, non-sensitive files below.
+
+**Prerequisites:** the [README requirements](../README.md#requirements) and a private `.env` copied from `.env.example`. Steps 1–3 and 8 need no Cloudflare account. Steps 4–7 need embeddings and questions enabled with your own Workers Free account; they send the sample text and your questions to Cloudflare and consume its free allowance.
+
+1. Create the notes and start from an empty database. `docker compose down -v` deletes only this project's disposable Docker volume; skip it if you want to keep an existing library:
+
+   ```sh
+   printf '# Java study notes\n\nArrayList keeps values in list order and permits duplicates.\n' > /tmp/arraylist-notes.md
+   printf 'HashSet stores each distinct value only once.\n' > /tmp/hashset-notes.txt
+   docker compose down -v
+   docker compose up -d --wait --wait-timeout 60 postgres
+   ./mvnw spring-boot:run
+   ```
+
+   Flyway creates the schema on startup, so no manual database step is needed. `curl -i http://127.0.0.1:8080/actuator/health/readiness` should return `200`/`UP`.
+2. Upload both files in the browser at `http://127.0.0.1:8080/`, or with `curl -F 'file=@/tmp/arraylist-notes.md' http://127.0.0.1:8080/documents`. Expect `Saved and queued` (HTTP `202` for curl), then both names under **Your documents**.
+3. Open a document. With embeddings disabled it shows **Text available** with numbered lines; it is not search-ready. With embeddings enabled it becomes **Ready** after background indexing.
+4. Enable [embeddings](#embedding-configuration), restart, and wait for **Ready**. Search `Does ArrayList allow duplicates?` over the whole library: expect the ArrayList excerpt with its line range and **Open source passage**.
+5. Enable [questions](#question-provider-boundary), restart, and ask the same question. Expect an answer with a source link whose excerpt supports it. A citation proves only that the passage was supplied to the model; read the excerpt. Ask `What is the weather?`: expect **Insufficient information**.
+6. Select only the HashSet note and repeat the ArrayList question: expect **Insufficient information**, since the selected document does not contain the answer (a live model's wording is not guaranteed; the controlled test asserts it).
+7. Delete the ArrayList note and confirm. It leaves the library at once, its saved source link returns `404`, and search no longer finds it. Cleanup of saved text, passages, vectors and the original runs in the background.
+8. Stop with `Ctrl+C` and `docker compose down`.
+
+**Controlled versus live results.** `./mvnw -Dit.test=ExampleWorkflowIT verify` runs this workflow through real HTTP against an empty PostgreSQL/pgvector container, with deterministic embedding/chat providers and temporary storage. It asserts Flyway creates the schema from nothing, health endpoints report UP, upload through deletion works, and nothing private reaches default logs. It makes no Cloudflare request and needs no credentials; it does not show model quality. Steps 4–6 against Cloudflare are the only live parts. Live quality was measured separately on a different small synthetic corpus (see [grounding evaluation](#separate-retrieval-and-answer-grounding-evaluation)), not on these two notes.
+
+### Failed and retried deliveries
+
+The same test shows the diagnostic signals for a failed and a retried delivery:
+
+- A transient embedding failure retries the same delivery automatically with backoff and then succeeds. `secondbrain.event.delivery.attempts` shows `outcome=retry`, then `completed`; no manual action or new retry cycle is involved.
+- A file with invalid UTF-8 fails extraction permanently. The document page shows the safe message **The document must use valid UTF-8 encoding.** `outcome=failed` increments, and the `failed` backlog (`secondbrain.event.backlog{state=failed}`) rises within its five-second refresh. Readiness stays `UP`.
+- **Retry processing** requeues the failed delivery once: `secondbrain.document.processing.retries{outcome=requested}` and one `event_delivery_retries` audit row appear, and the unchanged bytes fail again. Upload a corrected file instead of expecting a retry to repair it.
+
+To see these by hand without a provider, upload `printf '\303(' > /tmp/broken-encoding.txt` and follow the [no-inference walkthrough](#no-inference-success-failure-and-cleanup-walkthrough). Metrics and logs omit filenames, text, queries and provider bodies.
+
+### Demonstration recording
+
+No demonstration recording exists in this repository. Record one only from disposable files above, without `.env` contents, tokens, account IDs or personal documents visible, and record its location here. A recording by the author does not count as another developer's reproduction.
+
+## Release capabilities and known limitations
+
+Implemented and verified by `./mvnw verify` without live credentials: TXT, Markdown and selectable-text PDF upload; background extraction, passage preparation and optional embeddings; atomic index activation; whole-library or selected-document search; cited answers with fresh source checks; processing status, manual retry and recoverable deletion; health, metrics, safe logs and optional local tracing.
+
+Known limitations:
+
+- Single user, loopback only, no authentication; not a public deployment.
+- Semantic search and answers need your own Cloudflare Workers AI account on the Workers Free plan. The application cannot check your plan or remaining allowance; calls fail once the allowance is exhausted. There is no fallback provider.
+- Passage text, queries and bounded evidence are sent to Cloudflare when those features are enabled. Originals and stored content remain local.
+- Exact vector search scans eligible vectors; it is not tuned for large libraries. Quality was measured only on a small synthetic corpus, once, on a hosted model whose revision is not pinned.
+- A valid citation shows which passage was supplied, not that the claim is true. Review the excerpt.
+- Scanned PDFs, encrypted PDFs, other formats, and files over the configured limits are rejected.
+- The event failure matrix, telemetry privacy and exporter-failure checks run in the required integration tests; telemetry backends are optional.
+- A separate developer has not yet reproduced this walkthrough from a fresh checkout.
 
 ## Search query contracts
 
@@ -1352,7 +1408,7 @@ Run `./mvnw verify` for the completion gate. `LocalMetricsConfigurationTest`, `O
 
 ## Durable event processing
 
-The application includes a PostgreSQL-backed event publisher and background delivery workers. Events and their registered deliveries commit with the caller's database changes. Delivery is at least once: interrupted work can be retried, while a current lease is required to commit handler effects and acknowledgment. The application currently has no production event handlers; test handlers run only in isolated integration tests.
+The application includes a PostgreSQL-backed event publisher and background delivery workers. Events and their registered deliveries commit with the caller's database changes. Delivery is at least once: interrupted work can be retried, while a current lease is required to commit handler effects and acknowledgment. Production handlers cover document extraction, passage preparation, embedding, index publication and deletion cleanup; isolated integration tests add their own handlers for generic delivery mechanics.
 
 Workers start with the application. Configure them using Spring properties or environment variables. For example, limit processing and each claim batch to one delivery:
 

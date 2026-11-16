@@ -1,12 +1,10 @@
-Work in progress...! 
-
 # SecondBrain
 
 SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts TXT, Markdown, and selectable-text PDF files through a browser form or HTTP endpoint, stores originals privately, and extracts text and prepares source-linked passages through durable background processing. The library lists uploads with processing status and links to document pages, which show numbered source lines, PDF page references, safe failure messages, retry controls, and deletion controls. Health checks, local metrics, and JSON console logs support diagnostics.
 
 ## Project goal
 
-The goal is to turn a personal collection of notes and study materials into a library you can search and ask questions about. When complete, SecondBrain will let you:
+The goal is to turn a personal collection of notes and study materials into a library you can search and ask questions about. SecondBrain lets you:
 
 - Upload TXT, Markdown, and PDFs containing selectable text, then inspect the extracted content.
 - Find relevant passages by meaning, even when you do not remember the exact words.
@@ -23,7 +21,7 @@ Optional background embeddings send passage batches to Cloudflare, store vectors
 - Java 25 JDK, available through `JAVA_HOME` or `PATH`.
 - Docker with Docker Compose and a running Docker-compatible engine, such as Docker Desktop.
 - Internet access for the initial Maven and Docker image downloads.
-- For semantic search and questions, Cloudflare Workers AI account credentials and configured models; uploads and text inspection work without them.
+- For semantic search and questions, your own Cloudflare Workers AI account on the **Workers Free** plan, an API token with Workers AI access, and configured models. Uploads, text inspection, retry and deletion work without them. Enabling them sends passage text, queries and bounded evidence to Cloudflare over the internet; originals and stored content stay local. The free allowance is finite and cannot be checked by the application, and there is no paid or fallback provider.
 - On macOS/Linux, `curl` or `wget` and `unzip` for Maven Wrapper.
 
 The included Maven Wrapper downloads Maven automatically; a separate Maven installation is not required.
@@ -53,9 +51,19 @@ If removal needs attention, follow **Inspect cleanup and retry failures** in the
 
 To ask questions, enable embeddings and configure [questions](docs/development.md#question-provider-boundary), restart, then select **Ask your documents**. Choose the whole library or selected documents and submit a question. Questions send query text and bounded relevant passages to the configured Cloudflare account; search and answering share its allowance.
 
+The [example workflow](docs/development.md#example-workflow-fresh-checkout-to-deletion) walks through a fresh database, upload, processing, search, questions, source inspection and deletion with non-sensitive files.
+
 Supported extensions are `.txt`, `.md`, `.markdown`, and `.pdf`, with a default limit of 10 MB per file. TXT/Markdown extraction requires valid UTF-8. PDFs require selectable text and support up to 200 physical pages; encrypted files and scanned documents without text are unsupported. See [PDF support and limits](docs/development.md#pdf-support-and-limits) for extraction budgets and failure behavior. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
 
 On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw`.
+
+## Diagnostics and recovery
+
+Check health at `http://127.0.0.1:8080/actuator/health/readiness` (database, original storage and background workers) and `/actuator/health/liveness`; metrics are at `/actuator/metrics`. Logs are JSON on the console and omit filenames, document text, queries and provider responses. Interrupted background work is retried automatically with backoff after a restart; a failed step can be retried once per click with **Retry processing**. See [health](docs/development.md#health-checks), [metrics](docs/development.md#local-metrics), [event recovery](docs/development.md#durable-event-processing) and [troubleshooting](docs/development.md#troubleshooting).
+
+## Limitations
+
+SecondBrain is a local single-user tool with no authentication, listening only on loopback. Search and answers rely on a hosted model whose quality was checked only on a small synthetic collection. A valid citation shows which passage was supplied, not that the answer is correct, so read the excerpt. See [release capabilities and known limitations](docs/development.md#release-capabilities-and-known-limitations).
 
 ## Development checks
 
@@ -75,7 +83,7 @@ For automatic development restarts and HTML/CSS refreshes, start with `./mvnw -P
 ./mvnw verify
 ```
 
-`test` runs the fast suite without Docker. `verify` also runs PostgreSQL integration tests, packages the application, and checks formatting; it requires a running Docker engine.
+`test` runs the fast suite without Docker. `verify` also runs PostgreSQL integration tests, including the example workflow from an empty database with deterministic providers, packages the application, and checks formatting; it requires a running Docker engine but no Cloudflare credentials.
 
 ## Shutdown
 
