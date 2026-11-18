@@ -158,10 +158,15 @@ class SearchWorkflowIT {
                 assertThat(service.search(query(ALPHA, SearchScope.all()))).isEqualTo(found);
                 assertThat(service.search(query(ALPHA, SearchScope.selected(Set.of()))).matches())
                         .isEmpty();
-                assertFailure(
-                        service,
-                        query(ALPHA, SearchScope.selected(Set.of(UUID.randomUUID()))),
-                        SearchFailure.Reason.NO_COMPATIBLE_INDEX);
+                // An ID that matches no document, such as one already cleaned up, has no evidence.
+                assertThat(
+                                service.search(
+                                                query(
+                                                        ALPHA,
+                                                        SearchScope.selected(
+                                                                Set.of(UUID.randomUUID()))))
+                                        .matches())
+                        .isEmpty();
                 assertThat(provider.calls.subList(before, provider.calls.size()))
                         .containsExactly(
                                 List.of(ALPHA),
@@ -172,7 +177,8 @@ class SearchWorkflowIT {
                 assertThat(vectors(context)).isEqualTo(vectors);
                 assertThat(jobs(context)).isEqualTo(jobs); // Queries never create delivery work.
                 var meters = context.getBean(MeterRegistry.class);
-                assertThat(meters.get("secondbrain.search.results").summary().count()).isEqualTo(7);
+                // Includes the zero-result sample for the selection that names no document.
+                assertThat(meters.get("secondbrain.search.results").summary().count()).isEqualTo(8);
                 assertThat(meters.get("secondbrain.search.results").summary().totalAmount())
                         .isEqualTo(alphaMatches * 2 + 1);
                 assertThat(
@@ -197,7 +203,7 @@ class SearchWorkflowIT {
                                     context.getBean(DocumentInspectionService.class)
                                             .source(match.documentId(), match.passageId()))
                             .isEmpty();
-                // Tombstoned-only selections exclude the document like an empty selection.
+                // Deleted selections exclude the document like an empty selection.
                 assertThat(
                                 service.search(query(ALPHA, SearchScope.selected(Set.of(alpha))))
                                         .matches())

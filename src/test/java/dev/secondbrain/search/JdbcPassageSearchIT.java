@@ -441,19 +441,25 @@ class JdbcPassageSearchIT {
     }
 
     @Test
-    void selectionIsOnlyDeletedRequiresTombstonesWithNoVisibleSelectedDocument() {
+    void selectionWithoutAVisibleDocumentCoversTombstonedAndRemovedRows() {
         var live = UUID.randomUUID();
         var removed = UUID.randomUUID();
         fixture(live, 7, true, new float[][] {{1, 0}});
         fixture(removed, 7, true, new float[][] {{0, 1}});
         update(removed, "deleted_at = updated_at");
-        assertThat(search.selectionIsOnlyDeleted(SearchScope.selected(Set.of(removed)))).isTrue();
-        assertThat(search.selectionIsOnlyDeleted(SearchScope.selected(Set.of(live, removed))))
+        assertThat(search.selectionHasNoVisibleDocument(SearchScope.selected(Set.of(removed))))
+                .isTrue();
+        assertThat(
+                        search.selectionHasNoVisibleDocument(
+                                SearchScope.selected(Set.of(live, removed))))
                 .isFalse();
-        assertThat(search.selectionIsOnlyDeleted(SearchScope.selected(Set.of(UUID.randomUUID()))))
-                .isFalse();
-        assertThat(search.selectionIsOnlyDeleted(SearchScope.selected(Set.of()))).isFalse();
-        assertThat(search.selectionIsOnlyDeleted(SearchScope.all())).isFalse();
+        // Cleanup deletes the row later; the ID then matches nothing, with the same meaning.
+        assertThat(
+                        search.selectionHasNoVisibleDocument(
+                                SearchScope.selected(Set.of(UUID.randomUUID()))))
+                .isTrue();
+        assertThat(search.selectionHasNoVisibleDocument(SearchScope.selected(Set.of()))).isFalse();
+        assertThat(search.selectionHasNoVisibleDocument(SearchScope.all())).isFalse();
     }
 
     private static void update(UUID id, String assignment) {

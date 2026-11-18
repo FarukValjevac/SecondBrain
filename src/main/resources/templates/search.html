@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Search | SecondBrain</title>
+  <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -16,7 +18,7 @@
              th:classappend="${searchFeedback.error ? 'notice-error' : 'notice-info'}"
              th:role="${searchFeedback.error ? 'alert' : 'status'}">
       <h2 th:text="${searchFeedback.title}">Search feedback</h2>
-      <p th:text="${searchFeedback.message}">Check your query and try again.</p>
+      <p id="search-feedback-message" th:text="${searchFeedback.message}">Check your query and try again.</p>
       <p th:if="${retryAt.isPresent()}">Provider suggests trying again after:
         <time th:datetime="${retryAt.orElseThrow()}" th:text="${retryAt.orElseThrow()}">Retry hint</time> (UTC).
       </p>
@@ -26,13 +28,15 @@
       <h2>Find relevant passages</h2>
       <p th:if="${scope == 'all'}">Search across the whole library.</p>
       <p th:if="${scope == 'selected'}" th:text="|Selected documents: ${documentIds.size()}|">Selected documents: 0</p>
+      <search>
       <form method="post" action="/search" th:action="@{/search}">
         <label for="search-query">What are you looking for?</label>
         <p id="search-help">Use up to 1,200 characters. Queries are sent to the configured embedding provider.</p>
-        <input type="search" id="search-query" name="q" th:value="${queryText}" aria-describedby="search-help" th:aria-invalid="${searchFeedback != null and searchFeedback.queryInvalid ? 'true' : 'false'}" required>
+        <input type="search" id="search-query" name="q" th:value="${queryText}" th:aria-describedby="${searchFeedback != null and searchFeedback.queryInvalid ? 'search-help search-feedback-message' : 'search-help'}" th:aria-invalid="${searchFeedback != null and searchFeedback.queryInvalid ? 'true' : 'false'}" required>
         <th:block th:replace="~{fragments/document-query :: picker}"></th:block>
         <button type="submit" name="action" value="search">Search</button>
       </form>
+      </search>
       <p><a href="/search" th:href="@{/search}">Start a new whole-library search</a></p>
     </section>
     <section class="library-card search-results" aria-labelledby="results-title" th:if="${searchHits != null and !searchHits.isEmpty()}">
@@ -46,7 +50,7 @@
             <span th:text="|Lines ${hit.match.location.startLine}–${hit.match.location.endLine}|">Lines 1–2</span>
           </p>
           <pre class="search-excerpt" th:text="${hit.match.text}">Passage text</pre>
-          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${hit.match.documentId},passageId=${hit.match.passageId})}">Open source passage</a>
+          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${hit.match.documentId},passageId=${hit.match.passageId})}">Open source passage<span class="visually-hidden" th:text="| from ${hit.name}|"> from document</span></a>
         </li>
       </ol>
     </section>

@@ -104,6 +104,14 @@ The browser uses a normal multipart form and a `303 See Other` redirect after su
 
 Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
 
+### Page appearance and form behavior
+
+Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/library.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
+
+`static/js/forms.js` is the only script. After a form passes its built-in validation, it ignores further submissions of that form, so a double click cannot send a second upload, search or question to the provider. Forms still submit normally without it, and the server keeps all checks. A page restored with the browser's Back button accepts submissions again.
+
+Search results add a visually hidden document name to each **Open source passage** link so screen-reader link lists can tell them apart. A rejected search or question links its error message to the input with `aria-describedby`. Check with `./mvnw -Dtest=LibraryControllerTest,SearchControllerTest,QuestionControllerTest test`.
+
 ### Browser and restart walkthrough
 
 Use small, non-sensitive UTF-8 fixtures. Return to document details through **Your documents** on the library page.
@@ -725,7 +733,7 @@ The first query prints a safe summary with `SelectedDocuments[count=0]` and limi
 
 ## Local passage retrieval
 
-When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A selection naming only deleted documents (none still visible) is treated the same way: one bounded read, an empty result, the `empty_scope` outcome and no provider call. A nonempty scope that is not deleted-only and has no compatible complete active index (unknown IDs, documents still indexing, or a mix) raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
+When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A selection that names no visible document is treated the same way: one bounded read, an empty result, the `empty_scope` outcome and no provider call. That covers deleted documents both before and after background cleanup removes their rows, since a cleaned-up ID is indistinguishable from an unknown one. A selection with at least one visible document but no compatible complete active index (for example, still indexing) raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
 
 The read-only projection joins the selected active index to its current extracted source, passages, and vectors. It excludes deleted/queued/processing/failed documents, stale extraction sources, unsupported/unbound model/configuration metadata, and generations with missing vectors/passages or sequence gaps. A compatible old active generation remains eligible while a replacement is staged; desired does not have to equal active. Selected-document filtering happens before ranking/limits.
 
@@ -844,7 +852,7 @@ This explicit invocation authorizes sending the synthetic fixture text/questions
 
 The ignored `evaluation-runs/java-study-v2-live-*/report.json` contains case IDs, scope/deletion selections, expected/returned passage IDs, recall, absence, durations, configuration, token-report coverage and safe failure codes. It contains no prompts, excerpts, credentials or answers. `COMPLETED` means the measurement finished, not that quality passed. Interrupted/quota-failed cases have no fabricated recall or latency; later cases remain `NOT_RUN`. JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. Source bindings retain physical PDF pages and indexing/passage configuration. Durations come from the interactive search-service observation, excluding fixture/deletion setup and passage embedding.
 
-A `NO_COMPATIBLE_INDEX` response is recorded as a measured application outcome with its explicit failure code and no invented recall or empty-result success. It does not abort later reference cases. A selection of only deleted documents no longer produces this response; it is an empty result, so the removed-pdf case is a normal absence case. It can still occur for unknown or unindexed selections. Provider, quota, budget and storage failures still stop the run. In reports, a case marked `COMPLETED` means the response was observed, including an unavailable-index response; check `failureCode` as well as execution status.
+A `NO_COMPATIBLE_INDEX` response is recorded as a measured application outcome with its explicit failure code and no invented recall or empty-result success. It does not abort later reference cases. A selection of only deleted documents no longer produces this response; it is an empty result, so the removed-pdf case is a normal absence case. It can still occur when the selected documents are visible but not yet indexed. Provider, quota, budget and storage failures still stop the run. In reports, a case marked `COMPLETED` means the response was observed, including an unavailable-index response; check `failureCode` as well as execution status.
 
 ## Separate retrieval and answer-grounding evaluation
 
@@ -983,7 +991,7 @@ The enabled search service uses the shared local registries and optional trace e
 | `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
 | `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
 
-Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection or a deleted-only selection), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
+Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection, or a selection that names no visible document), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
 
 The result summary records only final returned counts from 0 through 20. Completed empty selections/no-matches contribute zero; failed requests contribute no sample. It therefore does not interpret a provider/database outage as absent evidence. Counters/timers/summary reset per process and are best effort. Metrics, observations, and safe logging fail independently without changing a successful result or an original error.
 

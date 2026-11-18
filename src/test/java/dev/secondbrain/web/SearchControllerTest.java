@@ -362,7 +362,10 @@ class SearchControllerTest {
                         "Lines 3–4",
                         "Lines 1–1",
                         "href=\"/documents/" + first + "/passages/" + pdf.passageId() + "\"",
-                        "&lt;img src=x onerror=bad&gt;")
+                        "&lt;img src=x onerror=bad&gt;",
+                        // Each result link names its document for screen readers.
+                        "Open source passage<span class=\"visually-hidden\"> from sentinel-private-&lt;b&gt;notes&lt;/b&gt;.pdf</span>",
+                        "<search>")
                 .doesNotContain("<script>", "<img src=x", "<b>notes");
         assertThat(html.indexOf("PDF&lt;/script&gt;")).isLessThan(html.indexOf("&lt;img src=x"));
         assertThat(output.getAll()).doesNotContain("sentinel-private");
@@ -572,6 +575,8 @@ class SearchControllerTest {
                         "Check your query",
                         "nonblank query",
                         "aria-invalid=\"true\"",
+                        "aria-describedby=\"search-help search-feedback-message\"",
+                        "id=\"search-feedback-message\"",
                         "Retained selections",
                         "name=\"documentId\" value=\"" + id + "\" checked",
                         "name=\"page\" value=\"2\"")

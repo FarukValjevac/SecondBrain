@@ -69,10 +69,11 @@ final class JdbcPassageSearch {
     }
 
     /**
-     * True only when an explicit selection names tombstoned documents and none that remain visible.
-     * Unknown or still-indexing selections stay distinguishable as unavailable indexes.
+     * True when an explicit selection names no document that is still visible. Cleanup removes
+     * deleted rows in the background, so a deleted ID soon looks exactly like an unknown one; both
+     * mean there is nothing to search. Visible but unindexed documents return false.
      */
-    boolean selectionIsOnlyDeleted(SearchScope scope) {
+    boolean selectionHasNoVisibleDocument(SearchScope scope) {
         Objects.requireNonNull(scope, "scope");
         if (!(scope instanceof SearchScope.SelectedDocuments selected)
                 || selected.documentIds().isEmpty()) return false;
@@ -81,9 +82,7 @@ final class JdbcPassageSearch {
                         status ->
                                 jdbc.sql(
                                                 """
-                                                SELECT EXISTS (SELECT 1 FROM documents
-                                                    WHERE document_id IN (:documents) AND deleted_at IS NOT NULL)
-                                                  AND NOT EXISTS (SELECT 1 FROM documents
+                                                SELECT NOT EXISTS (SELECT 1 FROM documents
                                                     WHERE document_id IN (:documents) AND deleted_at IS NULL)
                                                 """)
                                         .withQueryTimeout(5)
