@@ -76,6 +76,8 @@ class ReleaseReferencePreparationTest {
                                     originals,
                                     new Utf8TextExtractor(65_536),
                                     new PdfTextExtractor(65_536, clock),
+                                    new HtmlTextExtractor(new Utf8TextExtractor(65_536)),
+                                    new DocxTextExtractor(65_536),
                                     clock)
                             .extract(metadata);
             var version = new IndexingVersion(id, 1, 1, AT);

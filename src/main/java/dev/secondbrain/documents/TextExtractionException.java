@@ -35,6 +35,9 @@ final class TextExtractionException extends RuntimeException {
         PDF_TEXT_LIMIT("The PDF exceeds the extracted text limit."),
         PDF_WORK_LIMIT("The PDF exceeds the processing work limit."),
         PDF_TIME_LIMIT("PDF extraction exceeded its time budget."),
+        DOCX_UNREADABLE(
+                "The Word document is corrupt, encrypted or not a .docx file. Save it as .docx and"
+                        + " upload it again."),
         SOURCE_UNAVAILABLE("The original document could not be read."),
         CANCELLED("Text extraction was interrupted.");
 

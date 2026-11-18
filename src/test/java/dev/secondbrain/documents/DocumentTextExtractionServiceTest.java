@@ -51,6 +51,8 @@ class DocumentTextExtractionServiceTest {
                         store,
                         new Utf8TextExtractor(1024),
                         new PdfTextExtractor(1024, CLOCK),
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024 * 1024)),
+                        new DocxTextExtractor(1024 * 1024),
                         CLOCK);
 
         var text = service.extract(document);
@@ -77,6 +79,8 @@ class DocumentTextExtractionServiceTest {
                         store,
                         new Utf8TextExtractor(1024),
                         new PdfTextExtractor(1024, CLOCK),
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024 * 1024)),
+                        new DocxTextExtractor(1024 * 1024),
                         CLOCK);
 
         assertThatThrownBy(() -> service.extract(document))
@@ -97,6 +101,8 @@ class DocumentTextExtractionServiceTest {
                         store(),
                         new Utf8TextExtractor(1024),
                         new PdfTextExtractor(1024, CLOCK),
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024 * 1024)),
+                        new DocxTextExtractor(1024 * 1024),
                         CLOCK);
 
         assertThatThrownBy(() -> service.extract(document))
@@ -128,6 +134,8 @@ class DocumentTextExtractionServiceTest {
                         store,
                         new Utf8TextExtractor(1024),
                         new PdfTextExtractor(1024, CLOCK),
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024 * 1024)),
+                        new DocxTextExtractor(1024 * 1024),
                         CLOCK);
 
         if (invalid) {
@@ -157,6 +165,8 @@ class DocumentTextExtractionServiceTest {
                         store,
                         new Utf8TextExtractor(1024),
                         new PdfTextExtractor(1024, CLOCK),
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024 * 1024)),
+                        new DocxTextExtractor(1024 * 1024),
                         CLOCK);
 
         assertThatThrownBy(() -> service.extract(document))
@@ -181,6 +191,8 @@ class DocumentTextExtractionServiceTest {
                         store,
                         new Utf8TextExtractor(1024),
                         new PdfTextExtractor(1024 * 1024, CLOCK),
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024 * 1024)),
+                        new DocxTextExtractor(1024 * 1024),
                         CLOCK);
 
         var text = service.extract(document);
@@ -213,7 +225,13 @@ class DocumentTextExtractionServiceTest {
                                 new PdfTextExtractor.Page(2, ""),
                                 new PdfTextExtractor.Page(3, "D")));
         var service =
-                new DocumentTextExtractionService(store, new Utf8TextExtractor(1024), pdf, CLOCK);
+                new DocumentTextExtractionService(
+                        store,
+                        new Utf8TextExtractor(1024),
+                        pdf,
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024)),
+                        new DocxTextExtractor(1024),
+                        CLOCK);
 
         assertThat(service.extract(document).lines())
                 .containsExactly(
@@ -237,7 +255,13 @@ class DocumentTextExtractionServiceTest {
                                 new PdfTextExtractor.Page(1, "\n".repeat(99_998) + "Text"),
                                 new PdfTextExtractor.Page(2, overflow ? "\n" : "")));
         var service =
-                new DocumentTextExtractionService(store, new Utf8TextExtractor(1024), pdf, CLOCK);
+                new DocumentTextExtractionService(
+                        store,
+                        new Utf8TextExtractor(1024),
+                        pdf,
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024)),
+                        new DocxTextExtractor(1024),
+                        CLOCK);
 
         if (overflow) {
             assertThatThrownBy(() -> service.extract(document))
@@ -263,7 +287,12 @@ class DocumentTextExtractionServiceTest {
         assertThatThrownBy(
                         () ->
                                 new DocumentTextExtractionService(
-                                                store, new Utf8TextExtractor(1024), pdf, CLOCK)
+                                                store,
+                                                new Utf8TextExtractor(1024),
+                                                pdf,
+                                                new HtmlTextExtractor(new Utf8TextExtractor(1024)),
+                                                new DocxTextExtractor(1024),
+                                                CLOCK)
                                         .extract(document))
                 .isInstanceOfSatisfying(
                         TextExtractionException.class,
@@ -298,7 +327,13 @@ class DocumentTextExtractionServiceTest {
                 new PdfExtractionException(adapterReason, new IOException("Private PDF details"));
         when(pdf.extract(input)).thenThrow(cause);
         var service =
-                new DocumentTextExtractionService(store, new Utf8TextExtractor(1024), pdf, CLOCK);
+                new DocumentTextExtractionService(
+                        store,
+                        new Utf8TextExtractor(1024),
+                        pdf,
+                        new HtmlTextExtractor(new Utf8TextExtractor(1024)),
+                        new DocxTextExtractor(1024),
+                        CLOCK);
 
         assertThatThrownBy(() -> service.extract(document))
                 .isInstanceOfSatisfying(

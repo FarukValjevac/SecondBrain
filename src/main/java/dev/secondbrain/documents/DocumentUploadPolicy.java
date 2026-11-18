@@ -8,9 +8,17 @@ import org.springframework.util.unit.DataSize;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Set;
 
 @Component
 final class DocumentUploadPolicy {
+    /** UTF-8 text formats kept exactly as written, so their syntax stays part of the text. */
+    static final Set<String> PLAIN_TEXT =
+            Set.of(
+                    "txt", "text", "log", "csv", "tsv", "json", "xml", "yaml", "yml", "toml", "ini",
+                    "rst", "tex", "sql", "java", "kt", "py", "js", "ts", "c", "h", "cpp", "hpp",
+                    "cs", "go", "rs", "rb", "php", "sh", "swift");
+
     private final long maximumUploadBytes;
 
     DocumentUploadPolicy(
@@ -32,10 +40,12 @@ final class DocumentUploadPolicy {
         validateSize(sizeInBytes);
 
         var extension = extensionOf(originalFilename);
+        if (PLAIN_TEXT.contains(extension)) return DocumentType.TXT;
         return switch (extension) {
-            case "txt" -> DocumentType.TXT;
             case "md", "markdown" -> DocumentType.MARKDOWN;
             case "pdf" -> DocumentType.PDF;
+            case "html", "htm" -> DocumentType.HTML;
+            case "docx" -> DocumentType.DOCX;
             default -> throw new UploadRejectedException(Reason.UNSUPPORTED_TYPE);
         };
     }

@@ -250,9 +250,9 @@ class LibraryControllerTest {
                         "enctype=\"multipart/form-data\"",
                         "method=\"post\"",
                         "name=\"file\"",
-                        "accept=\".txt,.md,.markdown,.pdf\"",
+                        "accept=\".pdf,.docx,.html,.htm,.md,.markdown,.txt,",
                         "PDFs need selectable text",
-                        "encrypted and scanned-only PDFs are unsupported",
+                        "encrypted and scanned-only PDFs and legacy .doc files are unsupported",
                         "aria-describedby=\"upload-help\"",
                         "2KB",
                         "Upload document")

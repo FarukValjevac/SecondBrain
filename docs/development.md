@@ -98,7 +98,7 @@ The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devt
 
 ## Uploading documents in the browser
 
-Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT, Markdown, or PDF file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one supported file (PDF, Word `.docx`, HTML, Markdown or UTF-8 text) and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
 
 The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. **Your documents** lists stored uploads with their processing states and detail links, newest first, with 50 per page. Use **Previous** and **Next** for other pages; refresh to update processing states. When durable events are disabled, the form is hidden and the library reports that it is unavailable.
 
@@ -124,6 +124,27 @@ Use small, non-sensitive UTF-8 fixtures. Return to document details through **Yo
 6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and extracted text should remain available at the saved document URLs. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
 
 Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
+
+## Supported formats
+
+| Extension | Stored as | How it is read |
+|---|---|---|
+| `.pdf` | `PDF` | Selectable text per physical page; see [PDF support and limits](#pdf-support-and-limits). |
+| `.docx` | `DOCX` | Body text of `word/document.xml`: one line per paragraph, tabs and line breaks kept. Headers, footers, comments, footnotes, deleted revisions, field codes and images are ignored. |
+| `.html`, `.htm` | `HTML` | Visible text: scripts, styles and comments are dropped, block elements such as `<p>`, `<li>` and `<h1>` become lines, and common entities are decoded. |
+| `.md`, `.markdown` | `MARKDOWN` | UTF-8 text, Markdown syntax kept as written. |
+| `.txt`, `.text`, `.log`, `.csv`, `.tsv`, `.json`, `.xml`, `.yaml`, `.yml`, `.toml`, `.ini`, `.rst`, `.tex`, `.sql` and source code (`.java`, `.kt`, `.py`, `.js`, `.ts`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.go`, `.rs`, `.rb`, `.php`, `.sh`, `.swift`) | `TXT` | UTF-8 text kept exactly, so structure and syntax stay searchable reference text. |
+
+HTML and Word text is rebuilt from markup, so line numbers refer to the extracted text shown on the document page, not to the original file's source lines. Consecutive blank lines collapse to one there. HTML, Markdown and text must be valid UTF-8.
+
+Both extractors use only the JDK, with no new dependency. A `.docx` is read as a zip archive: at most 10,000 entries are scanned, and its body may decompress to at most four times the upload limit, so a zip bomb stops early. DTDs and external entities are disabled, so a crafted document cannot expand entities or read local files. Encrypted Word files and legacy `.doc` files are not zip archives and fail with **The Word document is corrupt, encrypted or not a .docx file.** The HTML scan is a single forward pass that stays linear in the input size.
+
+Legacy `.doc`, spreadsheets (`.xlsx`), presentations (`.pptx`), `.odt`, `.rtf` and `.epub` are rejected at upload. Check with:
+
+```sh
+./mvnw -Dtest=DocxTextExtractorTest,HtmlTextExtractorTest,DocumentUploadPolicyTest test
+./mvnw -Dit.test=ExampleWorkflowIT,DatabaseMigrationIT verify
+```
 
 ## PDF support and limits
 
@@ -670,7 +691,7 @@ No demonstration recording exists in this repository. Record one only from dispo
 
 ## Release capabilities and known limitations
 
-Implemented and verified by `./mvnw verify` without live credentials: TXT, Markdown and selectable-text PDF upload; background extraction, passage preparation and optional embeddings; atomic index activation; whole-library or selected-document search; cited answers with fresh source checks; processing status, manual retry and recoverable deletion; health, metrics, safe logs and optional local tracing.
+Implemented and verified by `./mvnw verify` without live credentials: selectable-text PDF, Word `.docx`, HTML, Markdown and UTF-8 text upload; background extraction, passage preparation and optional embeddings; atomic index activation; whole-library or selected-document search; cited answers with fresh source checks; processing status, manual retry and recoverable deletion; health, metrics, safe logs and optional local tracing.
 
 Known limitations:
 
@@ -681,7 +702,7 @@ Known limitations:
 - Passage text, queries and bounded evidence are sent to Cloudflare when those features are enabled. Originals and stored content remain local.
 - Exact vector search scans eligible vectors; it is not tuned for large libraries. Quality was measured only on a small synthetic corpus, once, on a hosted model whose revision is not pinned.
 - A valid citation shows which passage was supplied, not that the claim is true. Review the excerpt.
-- Scanned PDFs, encrypted PDFs, other formats, and files over the configured limits are rejected.
+- Scanned PDFs, encrypted PDFs, legacy `.doc`, spreadsheets, presentations, other formats, and files over the configured limits are rejected. Word extraction reads body text only.
 - The event failure matrix, telemetry privacy and exporter-failure checks run in the required integration tests; telemetry backends are optional.
 - A separate developer has not yet reproduced this walkthrough from a fresh checkout.
 
@@ -1082,7 +1103,7 @@ Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for 
 
 ## Uploading documents over HTTP
 
-With the application running, submit one existing TXT, Markdown, or PDF file using the `file` field:
+With the application running, submit one existing supported file using the `file` field:
 
 ```sh
 curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
@@ -1108,7 +1129,7 @@ To check unsupported-extension rejection despite the browser's file-picker filte
 curl -i -F 'file=@notes.txt;filename=notes.exe' http://127.0.0.1:8080/documents
 ```
 
-Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT, Markdown, and PDF files are supported.`
+Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Supported formats are PDF, Word (.docx), HTML, Markdown and UTF-8 text files such as .txt, .csv and .json.`
 
 To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
 

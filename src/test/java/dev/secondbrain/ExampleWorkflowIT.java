@@ -5,6 +5,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import dev.secondbrain.documents.DocxFixtures;
 import dev.secondbrain.documents.PdfFixtures;
 import dev.secondbrain.embeddings.EmbeddingFailure;
 import dev.secondbrain.embeddings.EmbeddingModel;
@@ -58,6 +59,10 @@ class ExampleWorkflowIT {
     private static final String ARRAYLIST_NAME = "arraylist-notes.md";
     private static final String HASHSET_NAME = "hashset-notes.txt";
     private static final String CARD_NAME = "practice-card.pdf";
+    private static final String WORD_NAME = "linkedlist-notes.docx";
+    private static final String WORD_FACT = "LinkedList addFirst inserts at the front.";
+    private static final String PAGE_NAME = "review-plan.html";
+    private static final String PAGE_FACT = "Review the notes after three days.";
     private static final String ARRAYLIST_FACT = "ArrayList keeps values in list order";
     private static final String ANSWER = "ArrayList permits duplicates.";
     private static final String BROKEN_NAME = "broken-encoding.txt";
@@ -80,7 +85,7 @@ class ExampleWorkflowIT {
                 var origin = origin(context);
                 var flyway = context.getBean(Flyway.class);
                 assertThat(flyway.info().pending()).isEmpty();
-                assertThat(flyway.info().applied()).hasSize(13);
+                assertThat(flyway.info().applied()).hasSize(14);
                 assertThat(tableCount(postgres)).isPositive();
                 for (var path :
                         List.of(
@@ -112,10 +117,25 @@ class ExampleWorkflowIT {
                         origin,
                         CARD_NAME,
                         PdfFixtures.text("Practice card: the practice score counts answers."));
-                ready(context, 3);
+                var word = upload(client, origin, WORD_NAME, DocxFixtures.paragraphs(WORD_FACT));
+                var page =
+                        upload(
+                                client,
+                                origin,
+                                PAGE_NAME,
+                                ("<html><head><script>hidden()</script></head><body><h1>Plan</h1><p>"
+                                                + PAGE_FACT
+                                                + "</p></body></html>")
+                                        .getBytes(StandardCharsets.UTF_8));
+                ready(context, 5);
 
                 var library = get(client, origin, "/");
-                assertThat(library.body()).contains(ARRAYLIST_NAME, HASHSET_NAME, CARD_NAME);
+                assertThat(library.body())
+                        .contains(ARRAYLIST_NAME, HASHSET_NAME, CARD_NAME, WORD_NAME, PAGE_NAME);
+                assertThat(get(client, origin, "/documents/" + word).body()).contains(WORD_FACT);
+                assertThat(get(client, origin, "/documents/" + page).body())
+                        .contains(PAGE_FACT)
+                        .doesNotContain("hidden()");
                 var detail = get(client, origin, "/documents/" + arrayList);
                 assertThat(detail.statusCode()).isEqualTo(200);
                 assertThat(detail.body()).contains("Ready", ARRAYLIST_FACT);
@@ -177,6 +197,10 @@ class ExampleWorkflowIT {
                         ARRAYLIST_NAME,
                         HASHSET_NAME,
                         CARD_NAME,
+                        WORD_NAME,
+                        WORD_FACT,
+                        PAGE_NAME,
+                        PAGE_FACT,
                         ARRAYLIST_FACT,
                         ANSWER,
                         PROVIDER_BODY);
