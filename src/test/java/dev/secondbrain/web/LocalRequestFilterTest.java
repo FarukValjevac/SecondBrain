@@ -48,6 +48,9 @@ class LocalRequestFilterTest {
         "http://127.0.0.1:3000,,403",
         "http://localhost:8080,,403",
         "null,,403",
+        // Search and question pages use Referrer-Policy: no-referrer, so browsers send null.
+        "null,same-origin,200",
+        "null,cross-site,403",
         ",cross-site,403",
         ",same-site,403"
     })

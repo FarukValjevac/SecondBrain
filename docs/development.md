@@ -1289,7 +1289,7 @@ Logs stay on the console; no Logstash server or log file is configured. Maven's 
 
 ### Local request checks
 
-`LocalRequestFilter` applies to every route, including health and metrics. A request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` receives `403`, which stops a rebound attacker domain from reading the library. A request other than `GET`/`HEAD` also receives `403` when its `Origin` differs from the address it was sent to or `Sec-Fetch-Site` is not `same-origin`/`none`; this covers other websites and other local ports. The response is fixed text and the log records only `outcome=rejected` with `code=FOREIGN_HOST` or `FOREIGN_ORIGIN`, never the supplied values. Open the application through the same address you submit forms to. Check with:
+`LocalRequestFilter` applies to every route, including health and metrics. A request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` receives `403`, which stops a rebound attacker domain from reading the library. A request other than `GET`/`HEAD` also receives `403` when the browser's `Sec-Fetch-Site` is not `same-origin`/`none`; this covers other websites and other local ports. `Sec-Fetch-Site` decides whenever it is present, because pages sent with `Referrer-Policy: no-referrer` (search, questions, sources, cleanup) make browsers send `Origin: null` even for their own forms. Only when it is absent must `Origin` match the address the request was sent to. The response is fixed text and the log records only `outcome=rejected` with `code=FOREIGN_HOST` or `FOREIGN_ORIGIN`, never the supplied values. Open the application through the same address you submit forms to. Check with:
 
 ```sh
 curl -i -H 'Host: example.test' http://127.0.0.1:8080/

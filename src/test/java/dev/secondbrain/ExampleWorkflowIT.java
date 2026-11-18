@@ -371,6 +371,9 @@ class ExampleWorkflowIT {
                 HttpRequest.newBuilder(origin.resolve(path))
                         .timeout(Duration.ofSeconds(15))
                         .header("Content-Type", "application/x-www-form-urlencoded")
+                        // What a browser sends from a page with Referrer-Policy: no-referrer.
+                        .header("Origin", "null")
+                        .header("Sec-Fetch-Site", "same-origin")
                         .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());

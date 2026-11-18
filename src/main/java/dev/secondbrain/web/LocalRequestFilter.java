@@ -47,8 +47,10 @@ final class LocalRequestFilter extends OncePerRequestFilter {
     /** Non-browser clients such as curl send neither header and remain supported. */
     private static boolean foreignSource(HttpServletRequest request) {
         String site = request.getHeader("Sec-Fetch-Site");
-        // "none" is a user-initiated navigation; another local port is same-site, not same-origin.
-        if (site != null && !site.equals("same-origin") && !site.equals("none")) return true;
+        // The browser sets this header itself, so when present it decides. Pages sent with
+        // Referrer-Policy: no-referrer make browsers send "Origin: null" even for same-origin
+        // forms. "none" is a user-initiated navigation; another local port is same-site only.
+        if (site != null) return !site.equals("same-origin") && !site.equals("none");
         String origin = request.getHeader("Origin");
         if (origin == null) return false;
         String own =
