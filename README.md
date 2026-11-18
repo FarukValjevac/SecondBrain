@@ -63,7 +63,7 @@ Check health at `http://127.0.0.1:8080/actuator/health/readiness` (database, ori
 
 ## Limitations
 
-SecondBrain is a local single-user tool with no authentication, listening only on loopback. Search and answers rely on a hosted model whose quality was checked only on a small synthetic collection. A valid citation shows which passage was supplied, not that the answer is correct, so read the excerpt. See [release capabilities and known limitations](docs/development.md#release-capabilities-and-known-limitations).
+SecondBrain is a local single-user tool with no authentication, listening only on loopback. Requests from other websites or host names are rejected, but any program on your computer can use it. Search and answers rely on a hosted model whose quality was checked only on a small synthetic collection. A valid citation shows which passage was supplied, not that the answer is correct, so read the excerpt. See [release capabilities and known limitations](docs/development.md#release-capabilities-and-known-limitations).
 
 ## Development checks
 

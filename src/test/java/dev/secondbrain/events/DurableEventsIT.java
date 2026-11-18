@@ -693,6 +693,33 @@ class DurableEventsIT {
     }
 
     @Test
+    void savedProgressRenewsTheAttemptBudgetWhileAttemptsWithoutProgressStillExhaustIt() {
+        var event = event();
+        publish(event);
+        // More timed-out attempts than the budget of three, each after one saved checkpoint.
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            var lease = claim();
+            Assertions.assertThat(store.checkpoint(lease, () -> EventHandler.Outcome.COMPLETED))
+                    .contains(EventHandler.Outcome.COMPLETED);
+            store.fail(lease, DeliveryFailure.Code.TIMED_OUT, true);
+            Assertions.assertThat(state(event.eventId())).isEqualTo("PENDING");
+            clock.advance(Duration.ofSeconds(5));
+        }
+        // A skipped checkpoint is not progress; the last progressing attempt still counts as one.
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            var lease = claim();
+            Assertions.assertThat(store.checkpoint(lease, () -> EventHandler.Outcome.SKIPPED))
+                    .contains(EventHandler.Outcome.SKIPPED);
+            store.fail(lease, DeliveryFailure.Code.TIMED_OUT, true);
+            clock.advance(Duration.ofSeconds(5));
+        }
+        Assertions.assertThat(state(event.eventId())).isEqualTo("FAILED");
+        Assertions.assertThat(failureCode(event.eventId())).isEqualTo("ATTEMPTS_EXHAUSTED");
+        // Lifetime history is never reset.
+        Assertions.assertThat(count("event_delivery_attempts")).isEqualTo(7);
+    }
+
+    @Test
     void expiryInsideACheckpointRollsBackItsEffectsAndDownstreamFacts() {
         var event = event();
         publish(event);

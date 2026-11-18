@@ -162,8 +162,9 @@ class QuestionHttpIT {
                 assertThat(gone.body()).doesNotContain(SOURCE, ANSWER, NAME);
             }
             var removed = ask(client, origin, QUERY + " ALPHA", "selected", "&documentId=" + alpha);
+            // A selection of only deleted documents has no evidence, like an empty selection.
             assertThat(removed.body())
-                    .contains("No searchable documents")
+                    .contains("Insufficient information", "Document unavailable")
                     .doesNotContain(ANSWER, "id=\"answer-title\"");
             assertThat(models.chatCalls).hasValue(1);
         }

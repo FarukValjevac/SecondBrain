@@ -28,7 +28,7 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
     private final ThreadPoolExecutor network;
     private final HttpClient client;
     private final EmbeddingTelemetry telemetry;
-    private final Semaphore capacity = new Semaphore(2);
+    private final Semaphore capacity = new Semaphore(2, true);
 
     public CloudflareEmbeddingProvider(CloudflareEmbeddingSettings settings, Clock clock) {
         this(settings, clock, settings.endpoint(), EmbeddingTelemetry.disabled());
@@ -113,7 +113,10 @@ public final class CloudflareEmbeddingProvider implements EmbeddingProvider, Aut
             try {
                 // Background batches and interactive query embeddings share this one client.
                 // Bounding executor tasks alone does not bound outstanding HTTP requests.
-                if (!capacity.tryAcquire())
+                // Brief contention waits at most the connect timeout instead of failing a search
+                // or costing a background delivery one of its attempts.
+                if (!capacity.tryAcquire(
+                        settings.connectTimeout().toMillis(), TimeUnit.MILLISECONDS))
                     throw new EmbeddingFailure(EmbeddingFailure.Reason.UNAVAILABLE, null, null);
                 try {
                     var result = exchange(request, texts.size());

@@ -231,7 +231,7 @@ Live inference requires a Cloudflare account on **Workers Free** and an API toke
 
 `CloudflareEmbeddingProvider` sends one bounded application request to the account-scoped compatible embeddings endpoint and validates one vector per input. It restores input ordering using response indexes. Calls are rejected inside database transactions. Inputs are limited to the configured batch size (default 8, maximum 32), 1200 Unicode code points per nonblank input, valid Unicode without NUL, and a 256 KiB encoded body. Response reading is capped at 1 MiB; JSON depth, strings, numbers, and token counts are bounded. Incorrect model metadata, indexes/counts, dimensions, nonnumeric/nonfinite/zero components, malformed JSON, and unexpected success content types fail safely.
 
-Redirects are disabled, and production has no endpoint override. The configured request deadline includes receiving the complete body; timeout/interruption cancels the pending operation. The shared embedding client permits at most two in-flight requests across background batches and interactive queries; excess calls fail immediately as unavailable. Its two networking threads and 64-task internal executor queue are independently bounded. Owned HTTP resources close with the application. The adapter performs no automatic application retry, fallback, paid upgrade, database write, or event acknowledgment.
+Redirects are disabled, and production has no endpoint override. The configured request deadline includes receiving the complete body; timeout/interruption cancels the pending operation. The shared embedding client permits at most two in-flight requests across background batches and interactive queries; an excess call waits in arrival order for at most the connect timeout, then fails as unavailable. Its two networking threads and 64-task internal executor queue are independently bounded. Owned HTTP resources close with the application. The adapter performs no automatic application retry, fallback, paid upgrade, database write, or event acknowledgment.
 
 Failures expose fixed reasons: access denial, unavailable model, invalid input/response, rate limiting, daily quota exhaustion, provider/transport unavailability, and timeout. Valid `Retry-After` hints are returned as timestamps for retryable rate/quota/service failures. Documented Cloudflare quota code `3036` also suggests the next UTC reset; private message text is not used for classification. Oversized/incomplete response streams are safe transport failures. The adapter never sleeps until a retry time. The document handler passes these hints to durable delivery scheduling, using the later of normal backoff and the hint. The configured attempt limit still applies; no worker waits until the reset. Raw parser/transport causes remain private and outside the default logged/serialized cause chain.
 
@@ -245,10 +245,10 @@ These are application limits, not a guarantee of remote cancellation, refunded a
 |---|---|---|
 | Embedding connection / complete response | `2s` / `30s` | `secondbrain.embeddings.connect-timeout`: 100 ms–10 s; `request-timeout`: connect timeout–60 s. Deadline includes body reception; cancellation releases local capacity. |
 | Chat connection / complete response | `2s` / `30s` | Same ranges under `secondbrain.questions`; no automatic interactive retry. |
-| Shared embedding requests | 2 in flight | Background and query calls share one client; a third call fails immediately. Two HTTP executor threads, 64 queued internal transport tasks. |
+| Shared embedding requests | 2 in flight | Background and query calls share one client; a third call waits in arrival order for up to the connect timeout, then fails as unavailable. Two HTTP executor threads, 64 queued internal transport tasks. |
 | Chat requests | 2 in flight | A third call fails immediately. Two HTTP executor threads, 32 queued internal transport tasks. |
 | Embedding batch / chat output | 8 inputs / 512 tokens | Batch 1–32 under `secondbrain.embeddings.batch-size`; output 1–2048 under `secondbrain.questions.max-output-tokens`. Existing text/body limits still apply. |
-| Event workers / claims per poll | 2 / 2 | `secondbrain.events.concurrency`: 1–4; `claim-batch-size`: 1–concurrency. More workers do not increase provider capacity; shared-client contention may consume a retry attempt. |
+| Event workers / claims per poll | 2 / 2 | `secondbrain.events.concurrency`: 1–4; `claim-batch-size`: 1–concurrency. More workers do not increase provider capacity; sustained shared-client contention beyond the connect timeout can still consume a retry attempt. |
 | Poll / renewable lease | `1s` / `30s` | Poll 50 ms–30 s; lease at least three poll intervals, at most 5 minutes. Renewal never extends the fixed attempt deadline. |
 | Attempt deadline / database transaction | `2m` / `5s` | Execution from lease duration through 15 minutes; transaction whole seconds from 1 second through half a lease. PostgreSQL statement/transaction limits apply; lock timeout is 1 second. |
 | Automatic attempts per cycle | 5 | `secondbrain.events.max-attempts`: 1–10, including the first claim. Restart and reconciliation preserve the budget; an explicit eligible manual retry starts another cycle. |
@@ -666,7 +666,9 @@ Implemented and verified by `./mvnw verify` without live credentials: TXT, Markd
 
 Known limitations:
 
-- Single user, loopback only, no authentication; not a public deployment.
+- Single user, loopback only, no authentication; not a public deployment. Requests must name this machine in `Host` (`127.0.0.1`, `localhost` or `[::1]`), and state-changing requests from another site or another local port are rejected with `403` using `Origin` and `Sec-Fetch-Site`. Clients that send neither header, such as curl, are accepted, so any local program can still use the application.
+- Search and questions share a two-request embedding client with background indexing. Brief contention waits; a search can still fail as provider unavailable when both slots stay busy longer than the connect timeout.
+- A very large document is embedded over several delivery attempts when one exceeds the two-minute execution timeout. Each timed-out attempt is reported as a retry even though saved batches are kept.
 - Semantic search and answers need your own Cloudflare Workers AI account on the Workers Free plan. The application cannot check your plan or remaining allowance; calls fail once the allowance is exhausted. There is no fallback provider.
 - Passage text, queries and bounded evidence are sent to Cloudflare when those features are enabled. Originals and stored content remain local.
 - Exact vector search scans eligible vectors; it is not tuned for large libraries. Quality was measured only on a small synthetic corpus, once, on a hosted model whose revision is not pinned.
@@ -1277,6 +1279,18 @@ Application logs are written as one JSON object per entry using Spring Boot's bu
 
 Logs stay on the console; no Logstash server or log file is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. HTTP and event-worker summaries use separate JSON fields; tracing adds `traceId`/`spanId` while a span is in scope. Formatting preserves message contents; application logs must use safe messages and metadata.
 
+### Local request checks
+
+`LocalRequestFilter` applies to every route, including health and metrics. A request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` receives `403`, which stops a rebound attacker domain from reading the library. A request other than `GET`/`HEAD` also receives `403` when its `Origin` differs from the address it was sent to or `Sec-Fetch-Site` is not `same-origin`/`none`; this covers other websites and other local ports. The response is fixed text and the log records only `outcome=rejected` with `code=FOREIGN_HOST` or `FOREIGN_ORIGIN`, never the supplied values. Open the application through the same address you submit forms to. Check with:
+
+```sh
+curl -i -H 'Host: example.test' http://127.0.0.1:8080/
+curl -i -X POST -H 'Origin: https://example.test' http://127.0.0.1:8080/documents/upload
+./mvnw -Dtest=LocalRequestFilterTest test
+```
+
+Both curl requests should return `403`.
+
 ### Request correlation
 
 Each synchronous HTTP request returns an `X-Correlation-ID` response header. Supply one canonical lowercase UUID to reuse it; missing, malformed, or repeated header values receive a generated UUID. For example:
@@ -1426,7 +1440,7 @@ Workers start with the application. Configure them using Spring properties or en
 | `lease-duration` | `30s` | Renewable ownership interval |
 | `execution-timeout` | `2m` | Maximum duration of one delivery attempt |
 | `transaction-timeout` | `5s` | Database statement/transaction limit, including the publishing caller's transaction |
-| `max-attempts` | `5` | Total automatic attempts, including expired leases; configurable from 1 to 10 |
+| `max-attempts` | `5` | Automatic attempts allowed without saved progress, including expired leases; configurable from 1 to 10. A committed checkpoint, such as a saved embedding batch, forgives earlier attempts in the cycle, so long work that advances on every attempt is not failed; lifetime attempt history is kept |
 | `initial-backoff` | `1s` | Initial exponential retry ceiling; jitter chooses 50–100% of the ceiling |
 | `max-backoff` | `1m` | Maximum retry ceiling |
 | `completed-retention` | `30d` | Retain completed/skipped payloads and attempt history for this interval |
