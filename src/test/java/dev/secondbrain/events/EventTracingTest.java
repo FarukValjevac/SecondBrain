@@ -50,12 +50,12 @@ class EventTracingTest {
             producer.end();
             Assertions.assertThat(persisted.traceParent()).contains(producer.context().traceId());
             // A new adapter has no producer scope: the only link source is the stored envelope.
-            var consumer =
-                    new EventTracing(
-                            new OtelTracer(
-                                    provider.get("restarted"),
-                                    new OtelCurrentTraceContext(),
-                                    listener::onEvent));
+            var restarted =
+                    new OtelTracer(
+                            provider.get("restarted"),
+                            new OtelCurrentTraceContext(),
+                            listener::onEvent);
+            var consumer = new EventTracing(restarted);
             try (var thread = java.util.concurrent.Executors.newSingleThreadExecutor()) {
                 thread.submit(
                                 () -> {
@@ -73,8 +73,15 @@ class EventTracingTest {
                                         try (context) {
                                             var span = consumer.start(lease);
                                             try (span) {
-                                                Assertions.assertThat(MDC.get("traceId"))
-                                                        .isNotBlank();
+                                                // The attempt span is current while the handler
+                                                // runs. Copying it into the log MDC needs the
+                                                // global
+                                                // context wrapper Spring Boot installs; that is
+                                                // checked in ObservabilityIT, not here.
+                                                Assertions.assertThat(restarted.currentSpan())
+                                                        .isNotNull()
+                                                        .extracting(s -> s.context().traceId())
+                                                        .isNotEqualTo(producer.context().traceId());
                                                 span.outcome(
                                                         attempt == 1
                                                                 ? EventTracing.Outcome

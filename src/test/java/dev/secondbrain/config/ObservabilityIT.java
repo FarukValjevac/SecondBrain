@@ -166,6 +166,8 @@ class ObservabilityIT {
                                     .isEqualTo(original.correlationId().toString());
                         });
         Assertions.assertThat(context.getBean(ProbeHandler.class).seen.get())
+                // Log lines written by the handler carry the delivery span's trace ID.
+                .containsKey("traceId")
                 .containsEntry("correlation_id", original.correlationId().toString())
                 .containsEntry("causation_id", original.causationId().toString())
                 .containsEntry("event_id", original.eventId().toString());
