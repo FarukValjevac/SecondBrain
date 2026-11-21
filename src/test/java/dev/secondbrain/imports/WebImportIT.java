@@ -65,7 +65,7 @@ class WebImportIT {
             var origin = origin(context);
             var refused = post(client, origin, "/documents/import", "url=" + encode(url));
             assertThat(refused.statusCode()).isEqualTo(303);
-            var library = get(client, origin, "/").body();
+            var library = get(client, origin, "/library").body();
             assertThat(requests).hasValue(0);
             assertThat(documents(context)).isZero();
 

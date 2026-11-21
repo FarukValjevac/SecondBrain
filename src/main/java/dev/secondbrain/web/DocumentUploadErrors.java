@@ -96,7 +96,7 @@ final class DocumentUploadErrors {
             HttpServletRequest request,
             HttpServletResponse response) {
         if (request.getRequestURI().equals(request.getContextPath() + "/documents/upload")) {
-            var target = request.getContextPath() + "/";
+            var target = request.getContextPath() + "/library";
             // Parsing may fail before handler selection; save only the safe message for the GET.
             RequestContextUtils.getOutputFlashMap(request).put("uploadError", message);
             RequestContextUtils.saveOutputFlashMap(target, request, response);

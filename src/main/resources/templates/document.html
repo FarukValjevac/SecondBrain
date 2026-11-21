@@ -6,7 +6,7 @@
 </head>
 <body>
   <main id="content">
-    <p><a href="/">Back to library</a></p>
+    <p><a href="/library" th:href="@{/library}">Back to library</a></p>
     <h1 th:text="${document.name}">Document</h1>
     <p>Text extraction: <strong th:text="${document.state}">QUEUED</strong></p>
     <p class="hint" th:if="${webSource != null}">Imported from

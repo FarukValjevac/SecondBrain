@@ -149,14 +149,14 @@ class HealthEndpointsTest {
     void recordsLibraryRequestsWithoutPrivateQueryValuesInMetricTags() throws Exception {
         for (String query :
                 new String[] {"sentinel-private-query-one", "sentinel-private-query-two"}) {
-            mvc.perform(MockMvcRequestBuilders.get("/").queryParam("q", query))
+            mvc.perform(MockMvcRequestBuilders.get("/library").queryParam("q", query))
                     .andExpect(MockMvcResultMatchers.status().isOk());
         }
 
         var requests =
                 localInspection
                         .find("http.server.requests")
-                        .tags("method", "GET", "uri", "/")
+                        .tags("method", "GET", "uri", "/library")
                         .timers();
         Assertions.assertThat(requests).hasSize(1);
         Assertions.assertThat(requests.iterator().next().count()).isGreaterThanOrEqualTo(2);
@@ -171,7 +171,7 @@ class HealthEndpointsTest {
 
         mvc.perform(
                         MockMvcRequestBuilders.get("/actuator/metrics/http.server.requests")
-                                .queryParam("tag", "uri:/", "method:GET"))
+                                .queryParam("tag", "uri:/library", "method:GET"))
                 .andExpect(MockMvcResultMatchers.status().isOk())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.baseUnit").value("seconds"))
                 .andExpect(
@@ -195,7 +195,7 @@ class HealthEndpointsTest {
     void exportsHttpObservationsWithoutQueryHeaderOrBaggageContent() throws Exception {
         capture.exporter().reset();
         mvc.perform(
-                        MockMvcRequestBuilders.get("/")
+                        MockMvcRequestBuilders.get("/library")
                                 .queryParam("q", "sentinel-private-query")
                                 .header("baggage", "secret=sentinel-private-baggage")
                                 .header("Authorization", "Bearer sentinel-private-credential"))

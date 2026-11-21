@@ -62,7 +62,7 @@ class WebImportController {
     }
 
     private static RedirectView library() {
-        var redirect = new RedirectView("/", true);
+        var redirect = new RedirectView("/library", true);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);
         return redirect;
     }

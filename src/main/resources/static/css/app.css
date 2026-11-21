@@ -721,3 +721,149 @@
     white-space: nowrap !important;
   }
 }
+
+/* ---------- Conversation ---------- */
+@layer components {
+  .chat {
+    min-block-size: calc(100dvh - 2 * var(--space-6));
+    align-content: end;
+  }
+  .chat-intro {
+    text-align: center;
+    display: grid;
+    gap: var(--space-2);
+    padding-block: var(--space-7) var(--space-4);
+  }
+  .chat-intro p {
+    color: var(--text-muted);
+  }
+  /* Once a conversation starts, the introduction steps aside. */
+  body[data-conversation] .chat-intro {
+    display: none;
+  }
+
+  .thread {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-5);
+  }
+  .turn {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .bubble {
+    border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4);
+    overflow-wrap: anywhere;
+  }
+  .bubble-user {
+    justify-self: end;
+    max-inline-size: min(36rem, 85%);
+    background: var(--accent);
+    color: var(--on-accent);
+    border-end-end-radius: var(--radius-sm);
+  }
+  .bubble-assistant {
+    justify-self: stretch;
+    display: grid;
+    gap: var(--space-3);
+    background: transparent;
+    padding: 0;
+  }
+  .bubble-assistant > .library-card {
+    box-shadow: none;
+  }
+  .thinking {
+    color: var(--text-muted);
+    @media (prefers-reduced-motion: no-preference) {
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.45;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .turn {
+      animation: rise 240ms var(--ease-out);
+    }
+    @keyframes rise {
+      from {
+        opacity: 0;
+        translate: 0 0.5rem;
+      }
+    }
+  }
+
+  .composer {
+    position: sticky;
+    inset-block-end: var(--space-4);
+    display: flex;
+    align-items: end;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-raised);
+  }
+  .composer:focus-within {
+    border-color: var(--accent);
+  }
+  .composer textarea {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    resize: none;
+    /* Grows with the question, up to eight lines. */
+    field-sizing: content;
+    min-block-size: 1lh;
+    max-block-size: 8lh;
+    padding: var(--space-2) var(--space-3);
+  }
+  .composer textarea:focus-visible {
+    outline: none;
+  }
+  .send-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-radius: var(--radius);
+  }
+  .send-button svg {
+    inline-size: 1.1rem;
+    block-size: 1.1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .composer-help {
+    text-align: center;
+  }
+  .quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+  .quick-actions a {
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+    font-size: var(--text-sm);
+  }
+  .quick-actions a:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  body[data-conversation] .quick-actions {
+    display: none;
+  }
+}

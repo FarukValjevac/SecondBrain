@@ -177,7 +177,7 @@ class DocumentDetailController {
                 requested
                         ? "Document removed from the library. Saved content will be cleaned up in the background."
                         : "That document is already absent from the library.");
-        var redirect = new RedirectView("/", true);
+        var redirect = new RedirectView("/library", true);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);
         return redirect;
     }
