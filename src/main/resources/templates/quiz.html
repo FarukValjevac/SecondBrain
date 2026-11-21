@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Practice quiz | SecondBrain</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
+  <main>
+    <div class="library-heading"><h1>Practice quiz</h1></div>
+    <section class="notice notice-info" role="status" th:if="${quizMessage != null}">
+      <p th:text="${quizMessage}">Quiz message.</p>
+    </section>
+    <form method="post" th:unless="${quiz.graded()}" th:action="@{/quizzes/{id}/answers(id=${quiz.quizId})}" class="library-card">
+      <p class="hint">Answer in your own words. Each answer is graded against the passage the question came from (one AI request per answer).</p>
+      <th:block th:each="question : ${quiz.questions}">
+        <label th:for="|answer-${question.position}|" th:text="|${question.position}. ${question.text}|">1. Question</label>
+        <textarea th:id="|answer-${question.position}|" th:name="|answer-${question.position}|" rows="3" maxlength="400"></textarea>
+      </th:block>
+      <button type="submit">Check my answers</button>
+    </form>
+    <section class="library-card" th:if="${quiz.graded()}" aria-labelledby="results-title">
+      <h2 id="results-title">Results</h2>
+      <ol class="search-hits">
+        <li th:each="question : ${quiz.questions}">
+          <h3 th:text="${question.text}">Question</h3>
+          <p><strong>Your answer:</strong> <span class="answer-text" th:text="${question.answer.orElse('')}">Answer</span></p>
+          <p><strong th:text="${question.verdict.get().name() == 'CORRECT' ? 'Correct' : question.verdict.get().name() == 'PARTLY_CORRECT' ? 'Partly correct' : question.verdict.get().name() == 'INCORRECT' ? 'Incorrect' : 'Cannot be graded from the sources'}">Correct</strong>
+            <span th:text="${question.explanation.orElse('')}">Explanation</span></p>
+          <p><a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${question.documentId},passageId=${question.passageId})}">Check the source passage</a></p>
+        </li>
+      </ol>
+    </section>
+    <nav class="primary-links" aria-label="Study">
+      <a href="/" th:href="@{/}">Back to document library</a>
+    </nav>
+  </main>
+</body>
+</html>

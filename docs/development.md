@@ -1034,6 +1034,16 @@ With questions enabled, a ready document's page offers **Make flashcards**. It s
 
 Check with `./mvnw -Dtest=ReviewSchedulerTest,FlashcardParserTest,FlashcardServiceTest,FlashcardControllerTest test` and `./mvnw -Dit.test=FlashcardIT verify`.
 
+## Practice quizzes
+
+**Practice quiz** on a ready document's page (or `POST /quizzes` with one to five `documentId` values) sends one chat request with the documents' most typical passages and keeps up to five questions in the form `Q: question [n]`, each tied to the passage it cites. Answer them in your own words and select **Check my answers**.
+
+Each non-empty answer is graded by **one** chat request whose only evidence is the passage that question came from, so a quiz uses at most six requests. Your answer is placed between `<<<ANSWER` and `ANSWER>>>` markers and treated as untrusted text. Only the reply's first line counts, and it must be `VERDICT: CORRECT`, `PARTLY_CORRECT` or `INCORRECT` citing that same passage. Anything else, an insufficient-information reply, or a source passage that is no longer available gives **Cannot be graded from the sources**, which is never counted as correct. Empty answers are marked incorrect without a request. Answers are capped at 400 characters and graded once.
+
+Quizzes are stored locally (`quizzes`, `quiz_questions`, migration V18). A quiz is hidden as soon as any of its documents is marked deleted, and removed by a database trigger when cleanup deletes that document. Metrics: `secondbrain.study.quizzes{outcome}` and `secondbrain.study.quiz.answers{verdict}`.
+
+Check with `./mvnw -Dtest=QuizParserTest,QuizServiceTest,QuizControllerTest test` and `./mvnw -Dit.test=QuizIT verify`.
+
 ## Retrieval telemetry
 
 The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:
