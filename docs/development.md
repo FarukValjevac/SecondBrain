@@ -139,6 +139,14 @@ Every page carries a command palette, a shortcut help dialog and a notification 
 
 One-time success messages (upload receipt, deletion, retry, summary request, answer feedback) are marked `data-toast`. `toasts.js` moves them into one `popover="manual"` stack in the top layer. Each toast stays until it is dismissed, is announced politely (through `ariaNotify()` where available, otherwise a hidden live region) and has a keyboard-reachable dismiss button. Errors stay inline in the page. Without JavaScript or the Popover API, the same messages remain ordinary notices in the page.
 
+### Study and search views
+
+Flashcards show one focused card. **Show answer** is a native `<details>` toggle, so revealing works without JavaScript. When the answer opens it flips into view, unless reduced motion is requested. `static/js/study.js` adds keys: Space reveals the answer (when focus is not on a control or in a field), and 1–4 choose Again, Hard, Good or Easy once it is revealed. The keys appear on the buttons and are declared with `aria-keyshortcuts`. Grading still posts the same form, so the review rules are unchanged.
+
+Quizzes show one question at a time with **Previous**/**Next question**, a "Question 2 of 5" count (announced politely) and a progress bar. **Check my answers** appears on the last step. Hidden steps still submit their answers. Without JavaScript all questions show in one form. Results show a score ("3 of 5 correct") and one card per question. Each card gives its verdict as a word and a symbol (✓, ◐, ✗, ?), so colour only reinforces it.
+
+Search results are passage cards: the document's type label and name, page and line location, the escaped excerpt, **Open source passage** and, when questions are enabled, **Ask about this document**.
+
 ### Page appearance and form behavior
 
 Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/app.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
