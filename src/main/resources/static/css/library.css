@@ -281,6 +281,9 @@ form[data-submitting] button {
 .search-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .source-location { color: var(--muted); }
 .hint { color: var(--muted); }
+.related-list { padding-left: 1.25rem; }
+.related-list li + li { margin-top: 1rem; }
+.related-list .search-excerpt { margin: 0.25rem 0; color: var(--muted); }
 
 textarea { resize: vertical; min-height: 8rem; }
 .answer-text { white-space: pre-wrap; overflow-wrap: anywhere; }

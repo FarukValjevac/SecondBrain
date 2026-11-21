@@ -13,6 +13,8 @@ import java.util.OptionalInt;
 
 /** Only fixed outcomes and bounded counts enter diagnostics. Telemetry never receives a query. */
 final class SearchTelemetry {
+    private static final java.util.Set<String> RELATED_OUTCOMES =
+            java.util.Set.of("found", "none", "unavailable");
     private final Optional<MeterRegistry> meters;
     private final ObservationRegistry observations;
 
@@ -21,6 +23,8 @@ final class SearchTelemetry {
         this.observations = observations;
         for (var outcome : Outcome.values())
             safely(() -> meters.counter("secondbrain.search.requests", "outcome", outcome.tag()));
+        for (var outcome : RELATED_OUTCOMES)
+            safely(() -> meters.counter("secondbrain.search.related", "outcome", outcome));
         safely(
                 () ->
                         DistributionSummary.builder("secondbrain.search.results")
@@ -32,6 +36,23 @@ final class SearchTelemetry {
     private SearchTelemetry() {
         meters = Optional.empty();
         observations = ObservationRegistry.NOOP;
+    }
+
+    /**
+     * Related-document lookups use only stored vectors, so they are counted apart from searches.
+     */
+    void related(String outcome) {
+        if (!RELATED_OUTCOMES.contains(outcome))
+            throw new IllegalArgumentException("Unknown outcome");
+        meters.ifPresent(
+                registry ->
+                        safely(
+                                () ->
+                                        registry.counter(
+                                                        "secondbrain.search.related",
+                                                        "outcome",
+                                                        outcome)
+                                                .increment()));
     }
 
     static SearchTelemetry disabled() {

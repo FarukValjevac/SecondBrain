@@ -119,35 +119,77 @@ final class JdbcPassageSearch {
                                             .param("vector", literal(vector))
                                             .param("minimum", minimumScore)
                                             .param("limit", query.limit())
-                                            .query(
-                                                    (row, index) -> {
-                                                        var page =
-                                                                row.getObject(
-                                                                        "page_number",
-                                                                        Integer.class);
-                                                        return new SearchResult.Match(
-                                                                row.getObject(
-                                                                        "passage_id", UUID.class),
-                                                                row.getObject(
-                                                                        "document_id", UUID.class),
-                                                                row.getLong("indexing_version"),
-                                                                row.getInt("sequence_number"),
-                                                                row.getString("passage_text"),
-                                                                new SearchResult.SourceLocation(
-                                                                        row.getInt("start_line"),
-                                                                        row.getInt("start_column"),
-                                                                        row.getInt("end_line"),
-                                                                        row.getInt("end_column"),
-                                                                        page == null
-                                                                                ? OptionalInt
-                                                                                        .empty()
-                                                                                : OptionalInt.of(
-                                                                                        page)),
-                                                                row.getDouble("score"));
-                                                    })
+                                            .query(JdbcPassageSearch::match)
                                             .list();
                             return new SearchResult(matches);
                         }));
+    }
+
+    /**
+     * Other documents closest to one document, with each one's best passage. The document is
+     * represented by the mean of its stored passage vectors, so no query embedding is needed. Both
+     * sides use the same eligibility as search; an ineligible document has no neighbours.
+     */
+    SearchResult related(UUID documentId, EmbeddingModel model, double minimumScore, int limit) {
+        Objects.requireNonNull(documentId, "documentId");
+        Objects.requireNonNull(model, "model");
+        new SearchProperties(minimumScore);
+        if (limit < 1) throw new IllegalArgumentException("Limit must be positive");
+        return Objects.requireNonNull(
+                reads.execute(
+                        status ->
+                                new SearchResult(
+                                        eligible(
+                                                        SearchScope.all(),
+                                                        model,
+                                                        """
+                    , source AS (
+                        SELECT avg(v.embedding) AS centroid
+                        FROM eligible_indexes i JOIN document_passages p
+                          ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
+                        JOIN document_embeddings v ON v.passage_id = p.passage_id
+                          AND v.document_id = p.document_id AND v.indexing_version = p.indexing_version
+                        WHERE i.document_id = :document
+                    ), ranked AS (
+                        SELECT p.passage_id, p.document_id, p.indexing_version, p.sequence_number,
+                               p.passage_text, p.start_line, p.start_column, p.end_line, p.end_column, p.page_number,
+                               1.0 - (v.embedding <=> s.centroid) AS score
+                        FROM eligible_indexes i JOIN document_passages p
+                          ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
+                        JOIN document_embeddings v ON v.passage_id = p.passage_id
+                          AND v.document_id = p.document_id AND v.indexing_version = p.indexing_version
+                        CROSS JOIN source s
+                        WHERE i.document_id <> :document AND s.centroid IS NOT NULL
+                    ), best AS (
+                        SELECT DISTINCT ON (document_id) * FROM ranked
+                        WHERE score BETWEEN -1.0 AND 1.0 AND score >= :minimum
+                        ORDER BY document_id, score DESC, sequence_number
+                    )
+                    SELECT * FROM best ORDER BY score DESC, document_id LIMIT :limit
+                    """)
+                                                .param("document", documentId)
+                                                .param("minimum", minimumScore)
+                                                .param("limit", limit)
+                                                .query(JdbcPassageSearch::match)
+                                                .list())));
+    }
+
+    private static SearchResult.Match match(java.sql.ResultSet row, int index)
+            throws java.sql.SQLException {
+        var page = row.getObject("page_number", Integer.class);
+        return new SearchResult.Match(
+                row.getObject("passage_id", UUID.class),
+                row.getObject("document_id", UUID.class),
+                row.getLong("indexing_version"),
+                row.getInt("sequence_number"),
+                row.getString("passage_text"),
+                new SearchResult.SourceLocation(
+                        row.getInt("start_line"),
+                        row.getInt("start_column"),
+                        row.getInt("end_line"),
+                        row.getInt("end_column"),
+                        page == null ? OptionalInt.empty() : OptionalInt.of(page)),
+                row.getDouble("score"));
     }
 
     /**

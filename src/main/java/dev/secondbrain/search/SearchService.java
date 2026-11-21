@@ -6,9 +6,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Synchronous retrieval API; provider I/O sits between two independent bounded database reads. */
 public final class SearchService {
+    static final int RELATED_LIMIT = 5;
     private final QueryEmbedding embedding;
     private final JdbcPassageSearch passages;
     private final SearchProperties properties;
@@ -64,6 +66,29 @@ public final class SearchService {
                 throw new SearchFailure(
                         SearchFailure.Reason.DATABASE_UNAVAILABLE, null, unavailable);
             }
+        }
+    }
+
+    /**
+     * Up to five other documents similar to this one, each with its closest passage. Uses stored
+     * vectors only: no provider call and no allowance. Ineligible documents have no neighbours.
+     */
+    public SearchResult related(UUID documentId) {
+        Objects.requireNonNull(documentId, "documentId");
+        if (TransactionSynchronizationManager.isActualTransactionActive())
+            throw new IllegalStateException("Related search must run outside a caller transaction");
+        try {
+            var result =
+                    passages.related(
+                            documentId,
+                            embedding.model(),
+                            properties.minimumScore(),
+                            RELATED_LIMIT);
+            telemetry.related(result.matches().isEmpty() ? "none" : "found");
+            return result;
+        } catch (DataAccessException | TransactionException unavailable) {
+            telemetry.related("unavailable");
+            throw new SearchFailure(SearchFailure.Reason.DATABASE_UNAVAILABLE, null, unavailable);
         }
     }
 

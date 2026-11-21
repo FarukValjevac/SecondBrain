@@ -1004,6 +1004,12 @@ To check manually, open a search match and verify its excerpt and locations. Cop
 
 Run `./mvnw -Dtest=DocumentSourceControllerTest,DocumentInspectionServiceTest,SearchControllerTest,DocumentDetailControllerTest,TelemetryPrivacyTest,SecondBrainApplicationTest,HealthEndpointsTest test` for MVC/source-value/privacy checks without live credentials. With Docker available, run `./mvnw -Dit.test=DocumentRepositoryIT,SearchWorkflowIT verify` for real eligibility filtering, snapshot isolation and normal processing/restart/deletion composition, then the full `./mvnw verify`. The application/health smoke tests explicitly ignore local `.env` imports and disable embeddings so real provider setup cannot affect them. No live model is used by these checks.
 
+## Related documents
+
+With embeddings enabled, each document page lists up to five other documents most similar to it, each with its closest passage and a link to that passage. The document is represented by the mean of its stored passage vectors, compared in PostgreSQL against other documents' stored vectors. This makes **no provider call and uses no allowance**. Both sides use the same eligibility as search: only visible documents with an active complete index, never the document itself, and only matches at or above the minimum score (default 0.3). A document that is not yet ready has no related list, and a document deleted after the similarity read is dropped. If the database read fails, the page shows the document without the section.
+
+Check with `./mvnw -Dtest=SearchServiceTest,RelatedDocumentsTest test` and `./mvnw -Dit.test=JdbcPassageSearchIT verify`.
+
 ## Retrieval telemetry
 
 The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:
@@ -1013,6 +1019,7 @@ The enabled search service uses the shared local registries and optional trace e
 | `secondbrain.search.requests` | Completed search operations, including failures and empty scopes | Fixed `outcome` |
 | `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
 | `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
+| `secondbrain.search.related` | Related-document lookups on document pages (stored vectors only) | `outcome=found,none,unavailable` |
 
 Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection, or a selection that names no visible document), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
 
