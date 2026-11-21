@@ -14,7 +14,7 @@
         <p class="hint">Everything you can ask about, search and study.</p>
       </div>
     </div>
-    <section class="notice notice-success" role="status" th:if="${uploadReceipt != null}">
+    <section class="notice notice-success" role="status" data-toast th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>
       <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
       <p><a th:href="@{/documents/{id}(id=${uploadReceipt.documentId})}">Open document</a></p>
@@ -31,7 +31,7 @@
         </li>
       </ul>
     </section>
-    <section class="notice notice-success" role="status" th:if="${deletionMessage != null}">
+    <section class="notice notice-success" role="status" data-toast th:if="${deletionMessage != null}">
       <h2>Library updated</h2>
       <p th:text="${deletionMessage}">Document removed.</p>
     </section>

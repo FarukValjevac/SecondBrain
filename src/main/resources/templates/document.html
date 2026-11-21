@@ -37,8 +37,8 @@
         Questions are turned off. Enable embeddings and questions to ask about this document.</p>
     </header>
     <section class="notice notice-info" role="status" th:if="${quizMessage != null}"><p th:text="${quizMessage}">Quiz message.</p></section>
-    <section class="notice notice-success" role="status" th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
-    <section class="notice notice-success" role="status" th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>
+    <section class="notice notice-success" role="status" data-toast th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
+    <section class="notice notice-success" role="status" data-toast th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>
     <section class="library-card" aria-label="Processing" th:if="${progress != null or !document.message.isEmpty()}">
       <th:block th:if="${progress != null}" th:insert="~{fragments/processing :: status(${progress}, ${document.documentId})}"></th:block>
       <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">

@@ -124,6 +124,21 @@ The library at `/library` shows each document as a card: a type label taken from
 
 The document page opens with a header: type label and name, extraction state and web source, then one labelled action group (**Ask about this document**, **Make flashcards**, **Practice quiz**, **Delete document**). Deletion still goes through its confirmation page. Processing progress, summary, related documents and the extracted text follow as separate cards.
 
+### Command palette, shortcuts and toasts
+
+Every page carries a command palette, a shortcut help dialog and a notification stack in the shell. All three stay inert without JavaScript. `static/js/app.js` loads small modules (`dialogs.js`, `palette.js`, `toasts.js`) and reveals the **Jump to…** button in the sidebar.
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+K or ⌘K | Open or close the command palette (works even while typing, because it inserts no text) |
+| `/` | Focus the ask box on the home page, or the query box on Search and Questions |
+| `?` | Show the keyboard shortcuts |
+| Esc | Close the open dialog |
+
+`/` and `?` do nothing while focus is in a field or a dialog is open. The palette is a native modal `<dialog>` opened with `showModal()`, so the browser makes the page inert, keeps focus inside and returns it to where it was on close. Its input is a combobox over a server-rendered list of pages and actions (only enabled features appear). Typing filters the list, the arrow keys, Home and End move the highlighted option, and Enter opens it. Both dialogs use `closedby="any"` so a click outside closes them, with a pointer-based fallback for browsers without `closedby`.
+
+One-time success messages (upload receipt, deletion, retry, summary request, answer feedback) are marked `data-toast`. `toasts.js` moves them into one `popover="manual"` stack in the top layer. Each toast stays until it is dismissed, is announced politely (through `ariaNotify()` where available, otherwise a hidden live region) and has a keyboard-reachable dismiss button. Errors stay inline in the page. Without JavaScript or the Popover API, the same messages remain ordinary notices in the page.
+
 ### Page appearance and form behavior
 
 Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/app.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
