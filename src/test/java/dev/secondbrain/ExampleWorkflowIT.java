@@ -128,7 +128,7 @@ class ExampleWorkflowIT {
                                         .getBytes(StandardCharsets.UTF_8));
                 ready(context, 5);
 
-                var library = get(client, origin, "/");
+                var library = get(client, origin, "/library");
                 assertThat(library.body())
                         .contains(ARRAYLIST_NAME, HASHSET_NAME, CARD_NAME, WORD_NAME, PAGE_NAME);
                 assertThat(get(client, origin, "/documents/" + word).body()).contains(WORD_FACT);
@@ -181,7 +181,7 @@ class ExampleWorkflowIT {
                 int originals = files(storage);
                 assertThat(post(client, origin, "/documents/" + arrayList + "/delete", ""))
                         .satisfies(deleted -> assertThat(deleted.statusCode()).isEqualTo(303));
-                assertThat(get(client, origin, "/").body()).doesNotContain(ARRAYLIST_NAME);
+                assertThat(get(client, origin, "/library").body()).doesNotContain(ARRAYLIST_NAME);
                 assertThat(get(client, origin, citations.getFirst()).statusCode()).isEqualTo(404);
                 var afterDeletion =
                         post(client, origin, "/search", "q=" + encode(QUESTION) + "&scope=all");
@@ -237,7 +237,7 @@ class ExampleWorkflowIT {
                 var broken = upload(client, origin, BROKEN_NAME, new byte[] {(byte) 0xC3, 0x28});
                 await().atMost(Duration.ofSeconds(20))
                         .untilAsserted(() -> assertThat(failedDeliveries(context)).isEqualTo(1));
-                assertThat(get(client, origin, "/").body()).contains(BROKEN_NAME, "Failed");
+                assertThat(get(client, origin, "/library").body()).contains(BROKEN_NAME, "Failed");
                 var detail = get(client, origin, "/documents/" + broken);
                 assertThat(detail.body()).contains("The document must use valid UTF-8 encoding.");
                 assertThat(attempts(meters, "failed")).isEqualTo(1);

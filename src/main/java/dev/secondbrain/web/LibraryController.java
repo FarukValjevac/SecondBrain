@@ -49,7 +49,7 @@ class LibraryController {
         this.folderSync = Objects.requireNonNull(folderSync, "folderSync");
     }
 
-    @GetMapping("/")
+    @GetMapping("/library")
     String library(@RequestParam(defaultValue = "0") int page, Model model) {
         if (page < 0) throw new IllegalArgumentException("Page must not be negative");
         model.addAttribute("uploadsEnabled", uploadsEnabled);

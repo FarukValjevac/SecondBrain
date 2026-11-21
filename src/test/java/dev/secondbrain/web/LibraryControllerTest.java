@@ -108,7 +108,7 @@ class LibraryControllerTest {
                                         Optional.empty())));
         when(processing.cleanup()).thenReturn(new DocumentProcessingService.Cleanup(1, 2));
         var html =
-                mvc.perform(MockMvcRequestBuilders.get("/"))
+                mvc.perform(MockMvcRequestBuilders.get("/library"))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -130,7 +130,7 @@ class LibraryControllerTest {
     @Test
     void rendersAnEmptyLibraryWithoutDocumentLinksOrPagination() throws Exception {
         var html =
-                mvc.perform(MockMvcRequestBuilders.get("/"))
+                mvc.perform(MockMvcRequestBuilders.get("/library"))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -157,7 +157,7 @@ class LibraryControllerTest {
                                 0,
                                 false));
         var html =
-                mvc.perform(MockMvcRequestBuilders.get("/"))
+                mvc.perform(MockMvcRequestBuilders.get("/library"))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -178,7 +178,7 @@ class LibraryControllerTest {
     void linksAdjacentPagesAndStopsAtTheLastPage() throws Exception {
         when(inspection.list(1)).thenReturn(new LibraryPage(List.of(), 1, true));
         var middle =
-                mvc.perform(MockMvcRequestBuilders.get("/").param("page", "1"))
+                mvc.perform(MockMvcRequestBuilders.get("/library").param("page", "1"))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -186,18 +186,20 @@ class LibraryControllerTest {
         Assertions.assertThat(middle)
                 .contains(
                         "rel=\"prev\"",
-                        "href=\"/?page=0\"",
+                        "href=\"/library?page=0\"",
                         "rel=\"next\"",
-                        "href=\"/?page=2\"",
+                        "href=\"/library?page=2\"",
                         "Page 2");
         when(inspection.list(2)).thenReturn(new LibraryPage(List.of(), 2, false));
         var last =
-                mvc.perform(MockMvcRequestBuilders.get("/").param("page", "2"))
+                mvc.perform(MockMvcRequestBuilders.get("/library").param("page", "2"))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
-        Assertions.assertThat(last).contains("href=\"/?page=1\"").doesNotContain("rel=\"next\"");
+        Assertions.assertThat(last)
+                .contains("href=\"/library?page=1\"")
+                .doesNotContain("rel=\"next\"");
         verify(inspection).list(1);
         verify(inspection).list(2);
     }
@@ -206,7 +208,7 @@ class LibraryControllerTest {
     void rejectsInvalidPagesBeforeReadingDocuments() throws Exception {
         for (var page : List.of("-1", "sentinel-private-query", "2147483648")) {
             var body =
-                    mvc.perform(MockMvcRequestBuilders.get("/").param("page", page))
+                    mvc.perform(MockMvcRequestBuilders.get("/library").param("page", page))
                             .andExpect(status().isBadRequest())
                             .andReturn()
                             .getResponse()
@@ -221,7 +223,7 @@ class LibraryControllerTest {
         when(inspection.list(0))
                 .thenThrow(new DataAccessResourceFailureException("sentinel-private-path"));
         var body =
-                mvc.perform(MockMvcRequestBuilders.get("/"))
+                mvc.perform(MockMvcRequestBuilders.get("/library"))
                         .andExpect(status().isServiceUnavailable())
                         .andReturn()
                         .getResponse()
@@ -234,7 +236,7 @@ class LibraryControllerTest {
     @Test
     void rendersTheNativeUploadFormWithConfiguredGuidance() throws Exception {
         var response =
-                mvc.perform(MockMvcRequestBuilders.get("/"))
+                mvc.perform(MockMvcRequestBuilders.get("/library"))
                         .andExpect(MockMvcResultMatchers.status().isOk())
                         .andExpect(
                                 MockMvcResultMatchers.content()
@@ -267,7 +269,7 @@ class LibraryControllerTest {
                         "class=\"skip-link\" href=\"#content\"",
                         "<main id=\"content\">",
                         "<nav class=\"nav\" aria-label=\"Main\">",
-                        "href=\"/\" aria-current=\"page\"",
+                        "href=\"/library\" aria-current=\"page\"",
                         "src=\"/js/app.js\"",
                         "id=\"nav-drawer\"",
                         "src=\"/js/forms.js\" defer")
@@ -318,20 +320,20 @@ class LibraryControllerTest {
                                                         bytes))
                                         .header("X-Correlation-ID", correlationId))
                         .andExpect(status().isSeeOther())
-                        .andExpect(redirectedUrl("/"))
+                        .andExpect(redirectedUrl("/library"))
                         .andExpect(flash().attribute("uploadReceipt", receipt))
                         .andReturn();
         var session = (MockHttpSession) result.getRequest().getSession(false);
         Assertions.assertThat(session).isNotNull();
         var firstPage =
-                mvc.perform(MockMvcRequestBuilders.get("/").session(session))
+                mvc.perform(MockMvcRequestBuilders.get("/library").session(session))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
         Assertions.assertThat(firstPage).contains("Saved and queued", "QUEUED", "role=\"status\"");
         var refreshedPage =
-                mvc.perform(MockMvcRequestBuilders.get("/").session(session))
+                mvc.perform(MockMvcRequestBuilders.get("/library").session(session))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -355,11 +357,13 @@ class LibraryControllerTest {
             var result =
                     mvc.perform(multipart("/documents/upload").file(file()))
                             .andExpect(status().isSeeOther())
-                            .andExpect(redirectedUrl("/"))
+                            .andExpect(redirectedUrl("/library"))
                             .andExpect(flash().attribute("uploadError", reason.message()))
                             .andReturn();
             var page =
-                    mvc.perform(MockMvcRequestBuilders.get("/").flashAttrs(result.getFlashMap()))
+                    mvc.perform(
+                                    MockMvcRequestBuilders.get("/library")
+                                            .flashAttrs(result.getFlashMap()))
                             .andExpect(status().isOk())
                             .andReturn()
                             .getResponse()
@@ -374,13 +378,13 @@ class LibraryControllerTest {
     void redirectsMissingAndRepeatedFilePartsWithoutCallingAcceptance() throws Exception {
         mvc.perform(multipart("/documents/upload"))
                 .andExpect(status().isSeeOther())
-                .andExpect(redirectedUrl("/"))
+                .andExpect(redirectedUrl("/library"))
                 .andExpect(flash().attributeExists("uploadError"));
         var tooMany = multipart("/documents/upload");
         for (int i = 0; i < 11; i++) tooMany.file(file());
         mvc.perform(tooMany)
                 .andExpect(status().isSeeOther())
-                .andExpect(redirectedUrl("/"))
+                .andExpect(redirectedUrl("/library"))
                 .andExpect(
                         flash().attribute(
                                         "uploadError",
@@ -407,12 +411,12 @@ class LibraryControllerTest {
                                         .file(named("good.md"))
                                         .file(named("broken.txt")))
                         .andExpect(status().isSeeOther())
-                        .andExpect(redirectedUrl("/"))
+                        .andExpect(redirectedUrl("/library"))
                         .andExpect(flash().attributeExists("uploadResults"))
                         .andReturn();
         verify(acceptanceService, times(3)).accept(any(), anyLong(), any(), any());
         var page =
-                mvc.perform(MockMvcRequestBuilders.get("/").flashAttrs(result.getFlashMap()))
+                mvc.perform(MockMvcRequestBuilders.get("/library").flashAttrs(result.getFlashMap()))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -445,14 +449,16 @@ class LibraryControllerTest {
             var result =
                     mvc.perform(multipart("/documents/upload").file(file()))
                             .andExpect(status().isSeeOther())
-                            .andExpect(redirectedUrl("/"))
+                            .andExpect(redirectedUrl("/library"))
                             .andExpect(
                                     flash().attribute(
                                                     "uploadError",
                                                     "The upload could not be completed. Try again later."))
                             .andReturn();
             var page =
-                    mvc.perform(MockMvcRequestBuilders.get("/").flashAttrs(result.getFlashMap()))
+                    mvc.perform(
+                                    MockMvcRequestBuilders.get("/library")
+                                            .flashAttrs(result.getFlashMap()))
                             .andExpect(status().isOk())
                             .andReturn()
                             .getResponse()
@@ -468,7 +474,7 @@ class LibraryControllerTest {
     void escapesFeedbackTextBeforeRenderingIt() throws Exception {
         var page =
                 mvc.perform(
-                                MockMvcRequestBuilders.get("/")
+                                MockMvcRequestBuilders.get("/library")
                                         .flashAttr(
                                                 "uploadError", "<script>alert('example')</script>"))
                         .andExpect(status().isOk())
@@ -494,7 +500,7 @@ class LibraryControllerTest {
                 };
         mvc.perform(multipart("/documents/upload").file(file))
                 .andExpect(status().isSeeOther())
-                .andExpect(redirectedUrl("/"))
+                .andExpect(redirectedUrl("/library"))
                 .andExpect(
                         flash().attribute(
                                         "uploadError",
@@ -507,7 +513,7 @@ class LibraryControllerTest {
             throws Exception {
         String id = UUID.randomUUID().toString();
         mvc.perform(
-                        MockMvcRequestBuilders.get("/")
+                        MockMvcRequestBuilders.get("/library")
                                 .header("X-Correlation-ID", id)
                                 .header("Authorization", "Bearer sentinel-private-credential")
                                 .queryParam("q", "sentinel-private-query"))

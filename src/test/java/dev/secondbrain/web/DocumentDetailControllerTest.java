@@ -172,11 +172,11 @@ class DocumentDetailControllerTest {
                                 post("/documents/" + id + "/delete")
                                         .header("X-Correlation-ID", correlation))
                         .andExpect(status().isSeeOther())
-                        .andExpect(redirectedUrl("/"))
+                        .andExpect(redirectedUrl("/library"))
                         .andReturn();
         var session = (MockHttpSession) result.getRequest().getSession(false);
         var html =
-                mvc.perform(get("/").session(session))
+                mvc.perform(get("/library").session(session))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -189,7 +189,7 @@ class DocumentDetailControllerTest {
                                 ? "Document removed from the library"
                                 : "already absent from the library");
         var refreshed =
-                mvc.perform(get("/").session(session))
+                mvc.perform(get("/library").session(session))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()

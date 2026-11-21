@@ -90,11 +90,60 @@ class QuestionControllerTest {
                         "question-help",
                         "name=\"scope\" value=\"all\"",
                         "configured provider",
-                        "href=\"/questions\" aria-current=\"page\"")
+                        "href=\"/\" aria-current=\"page\"")
                 .doesNotContain(PRIVATE, "id=\"answer-title\"");
         assertThat(result.getRequest().getSession(false)).isNull();
         verifyNoInteractions(answers);
         assertThat(output).doesNotContain(PRIVATE);
+    }
+
+    @Test
+    void aConversationTurnRendersOnlyTheTurnWithUniqueIdsAndTheSameChecks() throws Exception {
+        var first = source("First source");
+        when(answers.answer(any()))
+                .thenReturn(
+                        new QuestionAnswerService.Answer(
+                                QuestionAnswerService.Outcome.ANSWERED,
+                                "Lists keep order [1].",
+                                List.of(first)));
+        var html =
+                mvc.perform(
+                                post("/questions/turn")
+                                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                                        .param("q", "Do lists <keep> order?")
+                                        .param("scope", "all")
+                                        .param("action", "ask"))
+                        .andExpect(status().isOk())
+                        .andExpect(header().string("Cache-Control", "no-store"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html.strip())
+                .startsWith("<li class=\"turn\">")
+                .contains(
+                        "Do lists &lt;keep&gt; order?",
+                        "class=\"bubble bubble-assistant\"",
+                        "name=\"signature\"")
+                .doesNotContain("<html", "<nav", "href=\"#source-1\"");
+        assertThat(html).containsPattern("href=\"#turn-[0-9a-f]{8}-source-1\"");
+        assertThat(html).containsPattern("id=\"turn-[0-9a-f]{8}-source-1\"");
+    }
+
+    @Test
+    void aRejectedTurnStillRendersAsOneTurnWithItsMessage() throws Exception {
+        var html =
+                mvc.perform(
+                                post("/questions/turn")
+                                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                                        .param("q", " ")
+                                        .param("scope", "all")
+                                        .param("action", "ask"))
+                        .andExpect(status().isBadRequest())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html.strip()).startsWith("<li class=\"turn\">").contains("role=\"alert\"");
+        verifyNoInteractions(answers);
     }
 
     @Test

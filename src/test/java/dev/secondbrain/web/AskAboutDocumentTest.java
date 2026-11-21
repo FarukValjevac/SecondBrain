@@ -85,7 +85,7 @@ class AskAboutDocumentTest {
                                 id, progress(DocumentProcessingService.State.READY),
                                 waiting, progress(DocumentProcessingService.State.PROCESSING)));
         when(processing.cleanup()).thenReturn(new DocumentProcessingService.Cleanup(0, 0));
-        assertThat(page("/"))
+        assertThat(page("/library"))
                 .contains(
                         "href=\"/questions?documentId=" + id + "\"",
                         "aria-label=\"Ask about ready-notes.md\"")

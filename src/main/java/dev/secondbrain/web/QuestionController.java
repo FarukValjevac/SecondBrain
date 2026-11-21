@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * HTTP binding/presentation only; the public question API owns generation and source acceptance.
@@ -93,6 +94,26 @@ class QuestionController {
             @RequestParam MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response) {
+        return answer(fields, model, response);
+    }
+
+    /**
+     * The same question flow, rendered as one conversation turn for the home page thread. Only the
+     * view differs: validation, generation, citation checks and signing are shared.
+     */
+    @PostMapping(value = "/questions/turn", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    String turn(
+            @RequestParam MultiValueMap<String, String> fields,
+            Model model,
+            HttpServletResponse response) {
+        // Unique within the page, so several answers never repeat element ids.
+        model.addAttribute("turnId", "turn-" + UUID.randomUUID().toString().substring(0, 8));
+        var view = answer(fields, model, response);
+        return view.equals("questions") ? "fragments/answer :: turn" : view;
+    }
+
+    private String answer(
+            MultiValueMap<String, String> fields, Model model, HttpServletResponse response) {
         final DocumentQueryForm form;
         try {
             form = DocumentQueryForm.read(fields, "ask");

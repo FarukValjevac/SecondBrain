@@ -57,7 +57,7 @@ final class DocumentUploadFormController {
             for (var file : files) results.add(acceptOne(file, correlationId));
             redirectAttributes.addFlashAttribute("uploadResults", results);
         }
-        var redirect = new RedirectView("/", true);
+        var redirect = new RedirectView("/library", true);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);
         return redirect;
     }

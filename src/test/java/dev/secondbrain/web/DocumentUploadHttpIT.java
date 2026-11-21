@@ -122,7 +122,7 @@ class DocumentUploadHttpIT {
                         .cookieHandler(cookies)
                         .connectTimeout(Duration.ofSeconds(5))
                         .build()) {
-            var library = URI.create("http://127.0.0.1:" + port + "/");
+            var library = URI.create("http://127.0.0.1:" + port + "/library");
             var pageRequest =
                     HttpRequest.newBuilder(library).timeout(Duration.ofSeconds(5)).GET().build();
             assertThat(client.send(pageRequest, HttpResponse.BodyHandlers.ofString()).statusCode())
@@ -154,11 +154,11 @@ class DocumentUploadHttpIT {
         // The large case exceeds Tomcat's default 2 MiB discarded-body limit.
         var response = sendMultipart("/documents/upload", "x".repeat(sizeInBytes));
         assertThat(response.statusCode()).isEqualTo(303);
-        assertThat(response.headers().firstValue("Location")).contains("/");
+        assertThat(response.headers().firstValue("Location")).contains("/library");
         var cookie = response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
         try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()) {
             var request =
-                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/"))
+                    HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/library"))
                             .timeout(Duration.ofSeconds(5))
                             .header("Cookie", cookie)
                             .GET()
@@ -213,7 +213,7 @@ class DocumentUploadHttpIT {
                         body.toString());
         assertThat(response.statusCode()).isEqualTo(303);
         assertThat(response.headers().firstValue("Location"))
-                .hasValueSatisfying(location -> assertThat(location).endsWith("/"));
+                .hasValueSatisfying(location -> assertThat(location).endsWith("/library"));
         verify(acceptanceService, times(2)).accept(any(), anyLong(), any(), any());
     }
 

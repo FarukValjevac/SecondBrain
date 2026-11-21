@@ -90,7 +90,9 @@ class QuestionHttpIT {
         try (var context = start(models);
                 var client = client()) {
             var origin = origin(context);
-            assertThat(get(client, origin, "/").body()).contains("href=\"/questions\"");
+            // The home page is the conversation; without JavaScript it posts to /questions.
+            assertThat(get(client, origin, "/").body())
+                    .contains("action=\"/questions\"", "data-chat", "src=\"/js/chat.js\"");
             var alpha = uploadSample(client, origin, "ALPHA", pdf);
             var beta = uploadSample(client, origin, "BETA", false);
             ready(context, 2);
@@ -124,6 +126,22 @@ class QuestionHttpIT {
             }
             if (pdf) assertThat(response.body()).contains("Page 1", "Page 3");
             assertThat(models.chatCalls).hasValue(1);
+            var turn =
+                    post(
+                            client,
+                            origin,
+                            "/questions/turn",
+                            "q=" + encode(QUERY + " ALPHA") + "&scope=all&action=ask");
+            assertThat(turn.statusCode()).isEqualTo(200);
+            assertThat(turn.body())
+                    .startsWith("<li class=\"turn\">")
+                    .contains(
+                            "bubble-user",
+                            ANSWER + " &lt;script&gt;answer()&lt;/script&gt;",
+                            "name=\"signature\"")
+                    .doesNotContain("<html", "<script>");
+            assertPrivateHeaders(turn);
+            assertThat(models.chatCalls).hasValue(2);
             var absent = ask(client, origin, QUERY + " UNRELATED", "all", "");
             assertThat(absent.statusCode()).isEqualTo(200);
             assertThat(absent.body())
@@ -137,7 +155,7 @@ class QuestionHttpIT {
             var empty = ask(client, origin, QUERY + " ALPHA", "selected", "");
             assertThat(empty.body()).contains("No documents selected");
             assertThat(models.queryCalls).hasValue(beforeEmpty);
-            assertThat(models.chatCalls).hasValue(1);
+            assertThat(models.chatCalls).hasValue(2);
             var paged =
                     post(
                             client,
@@ -147,7 +165,7 @@ class QuestionHttpIT {
             assertThat(paged.statusCode()).isEqualTo(200);
             assertThat(paged.body()).contains("Page 2", alpha.toString());
             assertThat(models.queryCalls).hasValue(beforeEmpty);
-            assertThat(models.chatCalls).hasValue(1);
+            assertThat(models.chatCalls).hasValue(2);
             assertThat(eventCount(context)).isEqualTo(events);
             assertThat(post(client, origin, "/documents/" + alpha + "/delete", "").statusCode())
                     .isEqualTo(303);
@@ -161,7 +179,7 @@ class QuestionHttpIT {
             assertThat(removed.body())
                     .contains("Insufficient information", "Document unavailable")
                     .doesNotContain(ANSWER, "id=\"answer-title\"");
-            assertThat(models.chatCalls).hasValue(1);
+            assertThat(models.chatCalls).hasValue(2);
         }
         assertSafeOutput(output);
     }

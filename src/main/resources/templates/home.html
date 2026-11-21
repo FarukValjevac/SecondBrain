@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'ask', ~{::main}, ~{::script})}">
+<head>
+  <title>Ask your documents | SecondBrain</title>
+  <script type="module" src="/js/chat.js" th:src="@{/js/chat.js}"></script>
+</head>
+<body>
+  <main id="content" class="chat">
+    <section class="chat-intro" th:if="${questionsEnabled}">
+      <h1>What do you want to know?</h1>
+      <p>Answers come only from your documents, with numbered sources you can check.</p>
+    </section>
+    <!-- chat.js appends each question and its server-rendered answer here. It is never stored. -->
+    <ol class="thread" aria-label="Conversation" aria-live="polite"></ol>
+    <form class="composer" method="post" action="/questions" th:action="@{/questions}"
+          th:if="${questionsEnabled}" data-chat>
+      <label for="ask" class="visually-hidden">Ask your documents</label>
+      <textarea id="ask" name="q" rows="1" maxlength="1200" required
+                aria-describedby="ask-help" placeholder="Ask anything about your documents…"></textarea>
+      <input type="hidden" name="scope" value="all">
+      <button type="submit" name="action" value="ask" class="send-button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        <span>Send</span>
+      </button>
+    </form>
+    <p id="ask-help" class="hint composer-help" th:if="${questionsEnabled}">
+      Searches your whole library. Enter to send, Shift+Enter for a new line.
+      <a href="/questions" th:href="@{/questions}">Choose specific documents</a>
+    </p>
+    <section class="library-card" th:unless="${questionsEnabled}">
+      <h1>Ask your documents</h1>
+      <p>Questions are turned off. Enable embeddings and questions in your <code>.env</code> and restart to ask questions with cited answers.</p>
+      <p><a href="/library" th:href="@{/library}">Open your library</a> to add and read documents in the meantime.</p>
+    </section>
+    <nav class="quick-actions" aria-label="Quick actions">
+      <a href="/library#upload-title" th:href="@{/library} + '#upload-title'">Add a document</a>
+      <a href="/library" th:href="@{/library}">Browse the library</a>
+      <a href="/flashcards" th:href="@{/flashcards}" th:if="${nav != null and nav.study}">Review flashcards</a>
+    </nav>
+  </main>
+</body>
+</html>

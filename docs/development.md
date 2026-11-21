@@ -98,7 +98,7 @@ The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devt
 
 ## Uploading documents in the browser
 
-Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one supported file (PDF, Word `.docx`, HTML, Markdown or UTF-8 text) and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+Open the library at [http://127.0.0.1:8080/library](http://127.0.0.1:8080/library), choose one supported file (PDF, Word `.docx`, HTML, Markdown or UTF-8 text) and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
 
 To upload several files, select them together in the file picker or drop them onto the **Add a document** card, then select **Upload document**. Dropping only fills the picker; nothing is sent until you submit. Each file is checked and saved on its own: the library shows **N of M files saved** with one line per file, linking saved documents and giving the reason for each rejected one, so one unsupported or empty file never blocks the others. A single file behaves as before. The JSON endpoint `POST /documents` still takes exactly one file.
 
@@ -111,6 +111,12 @@ Allow cookies for the local application to receive this feedback. Sessions use c
 Every page renders inside one shared shell (`templates/fragments/shell.html`): a skip link, a sidebar with **Ask**, **Library**, **Search** and **Study** (Ask and Study appear only when those features are enabled, via `ShellModel`), an **Add document** button, and the page content. The current page is marked with `aria-current="page"`. On screens narrower than 48rem the sidebar becomes a top bar. With JavaScript, its links move into a native modal `<dialog>` drawer opened by the menu button, which handles focus, Escape and making the page inert. Without JavaScript, they stay a scrollable row of links.
 
 `static/css/app.css` is organised in cascade layers (`reset, tokens, base, layout, components, utilities`) so priority never depends on selector specificity. Colours, type, spacing, radius, shadows and motion are tokens on `:root`. The dark theme changes only role tokens, so components never branch on the theme. Page navigations cross-fade with view transitions only when the user has not asked for reduced motion, and the sidebar stays still during them. The app adds no build step and no runtime dependency.
+
+### Conversation home
+
+`GET /` is the conversation home (`HomeController`, `templates/home.html`). With questions enabled it shows a centred ask box over the whole library and quick actions; otherwise it explains that questions are off and links to the library. The box is a normal form that posts to `/questions`, so it works without JavaScript. `static/js/chat.js` intercepts it, appends the question as a bubble, and posts the same fields to `POST /questions/turn`. That endpoint runs exactly the same validation, retrieval, citation checks and answer signing as `/questions`, and returns one server-rendered `<li class="turn">` from `templates/fragments/answer.html`; the script inserts it through a `<template>` element, so all escaping stays on the server. Each turn prefixes its element ids (`turn-xxxxxxxx-source-1`), so several answers on one page never share an id. Feedback forms inside the thread post in the background and are replaced by a status message.
+
+Enter sends unless an input method is composing (`isComposing` or key code 229); Shift+Enter adds a line, and a visible **Send** button is always present. The box grows with its content via `field-sizing: content`. Only one question is in flight at a time. The thread is held only in the page: nothing is written to storage or the URL, and the home page and turns are sent with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The document library moved to `/library`; uploads, imports, deletion and retry now return there.
 
 ### Page appearance and form behavior
 
@@ -679,7 +685,7 @@ This is the reproducible path from a fresh checkout and empty database to upload
    ```
 
    Flyway creates the schema on startup, so no manual database step is needed. `curl -i http://127.0.0.1:8080/actuator/health/readiness` should return `200`/`UP`.
-2. Upload both files in the browser at `http://127.0.0.1:8080/`, or with `curl -F 'file=@/tmp/arraylist-notes.md' http://127.0.0.1:8080/documents`. Expect `Saved and queued` (HTTP `202` for curl), then both names under **Your documents**.
+2. Upload both files in the browser at `http://127.0.0.1:8080/library`, or with `curl -F 'file=@/tmp/arraylist-notes.md' http://127.0.0.1:8080/documents`. Expect `Saved and queued` (HTTP `202` for curl), then both names under **Your documents**.
 3. Open a document. With embeddings disabled it shows **Text available** with numbered lines; it is not search-ready. With embeddings enabled it becomes **Ready** after background indexing.
 4. Enable [embeddings](#embedding-configuration), restart, and wait for **Ready**. Search `Does ArrayList allow duplicates?` over the whole library: expect the ArrayList excerpt with its line range and **Open source passage**.
 5. Enable [questions](#question-provider-boundary), restart, and ask the same question. Expect an answer with a source link whose excerpt supports it. A citation proves only that the passage was supplied to the model; read the excerpt. Ask `What is the weather?`: expect **Insufficient information**.
@@ -1284,8 +1290,8 @@ curl http://127.0.0.1:8080/actuator/metrics/jvm.memory.used
 The first request lists available metric names. Uptime is measured in seconds and JVM memory in bytes. To observe library requests, visit the page and inspect its request timer:
 
 ```sh
-curl -o /dev/null -s http://127.0.0.1:8080/
-curl 'http://127.0.0.1:8080/actuator/metrics/http.server.requests?tag=uri:/&tag=method:GET'
+curl -o /dev/null -s http://127.0.0.1:8080/library
+curl 'http://127.0.0.1:8080/actuator/metrics/http.server.requests?tag=uri:/library&tag=method:GET'
 ```
 
 The timer reports a request count plus total and maximum request duration in seconds. It appears after a request completes; filtering on a route with no recorded requests returns HTTP 404. HTTP metric tags include bounded method/route/status/outcome categories and `none`/`failure` error categories. Unrecognized methods/routes become `OTHER`; query values and IDs are omitted. Database connection-pool metrics are also available when the datasource is active.
@@ -1311,7 +1317,7 @@ curl http://127.0.0.1:8080/actuator/metrics/secondbrain.event.delivery.attempts
 
 Attempt meters update after the database commits and do not count a rejected stale acknowledgment twice. They are best-effort runtime telemetry: a process crash immediately after commit can lose an increment. Database delivery/attempt records remain authoritative; counters are not a durable accounting ledger.
 
-Reading the filtered request timer does not increase the count for `GET /`. Request the library page again, then inspect the timer to observe the increase.
+Reading the filtered request timer does not increase the count for `GET /library`. Request the library page again, then inspect the timer to observe the increase.
 
 ### Upload, deletion request, and cleanup measurements
 

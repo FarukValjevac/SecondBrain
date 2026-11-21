@@ -33,7 +33,7 @@
       <span th:text="|Page ${cleanup.page + 1L}|">Page 1</span>
       <a rel="next" th:if="${cleanup.hasNext}" th:href="@{/documents/cleanup(page=${cleanup.page + 1L})}">Next</a>
     </nav>
-    <p><a th:href="@{/}">Back to document library</a></p>
+    <p><a th:href="@{/library}">Back to document library</a></p>
   </main>
 </body>
 </html>
