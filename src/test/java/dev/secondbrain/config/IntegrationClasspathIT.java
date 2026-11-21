@@ -41,6 +41,8 @@ class IntegrationClasspathIT {
                     "templates/fragments/processing.html",
                     "static/css/app.css",
                     "static/js/app.js",
+                    "static/js/chat.js",
+                    "static/js/library.js",
                     "templates/fragments/shell.html",
                     "static/js/forms.js"
                 }) {

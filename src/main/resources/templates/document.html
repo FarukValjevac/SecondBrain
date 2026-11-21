@@ -5,40 +5,49 @@
   <title>Document | SecondBrain</title>
 </head>
 <body>
-  <main id="content">
-    <p><a href="/library" th:href="@{/library}">Back to library</a></p>
-    <h1 th:text="${document.name}">Document</h1>
-    <p>Text extraction: <strong th:text="${document.state}">QUEUED</strong></p>
-    <p class="hint" th:if="${webSource != null}">Imported from
-      <a th:href="${webSource.url}" th:text="${webSource.url}" rel="noopener noreferrer" target="_blank">https://example.com</a>
-      on <time th:datetime="${webSource.fetchedAt}" th:text="${webSource.fetchedAt}">time</time>.</p>
-    <p><a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a></p>
-    <p th:if="${questionsEnabled and progress != null and progress.state.name() == 'READY'}">
-      <a th:href="@{/questions(documentId=${document.documentId})}">Ask about this document</a>
-    </p>
-    <p class="hint" th:if="${questionsEnabled and (progress == null or progress.state.name() != 'READY')}">
-      You can ask about this document once it is ready for search.</p>
-    <form method="post" th:if="${studyEnabled and progress != null and progress.state.name() == 'READY'}"
-          th:action="@{/documents/{id}/flashcards(id=${document.documentId})}">
-      <button type="submit">Make flashcards</button>
-      <span class="hint">Uses one AI request from your allowance.</span>
-    </form>
-    <form method="post" th:if="${studyEnabled and progress != null and progress.state.name() == 'READY'}" th:action="@{/quizzes}">
-      <input type="hidden" name="documentId" th:value="${document.documentId}">
-      <button type="submit">Practice quiz</button>
-      <span class="hint">Up to six AI requests: one for questions, one per answer.</span>
-    </form>
+  <main id="content" th:with="ready=${progress != null and progress.state.name() == 'READY'}">
+    <header class="document-header">
+      <p class="breadcrumb"><a href="/library" th:href="@{/library}">Back to library</a></p>
+      <div class="document-title">
+        <span class="type-badge" th:text="${fileType.of(document.name)}">PDF</span>
+        <h1 th:text="${document.name}">Document</h1>
+      </div>
+      <p class="document-meta">Text extraction: <strong th:text="${document.state}">QUEUED</strong>
+        <th:block th:if="${webSource != null}"> · Imported from
+          <a th:href="${webSource.url}" th:text="${webSource.url}" rel="noopener noreferrer" target="_blank">https://example.com</a>
+          on <time th:datetime="${webSource.fetchedAt}" th:text="${webSource.fetchedAt}">time</time></th:block>
+      </p>
+      <div class="action-bar" role="group" aria-label="Document actions">
+        <a class="button-link" th:if="${questionsEnabled and ready}"
+           th:href="@{/questions(documentId=${document.documentId})}">Ask about this document</a>
+        <form method="post" th:if="${studyEnabled and ready}"
+              th:action="@{/documents/{id}/flashcards(id=${document.documentId})}">
+          <button type="submit" class="secondary-button">Make flashcards</button>
+        </form>
+        <form method="post" th:if="${studyEnabled and ready}" th:action="@{/quizzes}">
+          <input type="hidden" name="documentId" th:value="${document.documentId}">
+          <button type="submit" class="secondary-button">Practice quiz</button>
+        </form>
+        <a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a>
+      </div>
+      <p class="hint" th:if="${studyEnabled and ready}">Flashcards use one AI request from your allowance; a quiz uses up to six (one for questions, one per answer).</p>
+      <p class="hint" th:if="${questionsEnabled and !ready}">
+        You can ask about this document once it is ready for search.</p>
+      <p class="hint" th:unless="${questionsEnabled}">
+        Questions are turned off. Enable embeddings and questions to ask about this document.</p>
+    </header>
     <section class="notice notice-info" role="status" th:if="${quizMessage != null}"><p th:text="${quizMessage}">Quiz message.</p></section>
-    <p class="hint" th:unless="${questionsEnabled}">
-      Questions are turned off. Enable embeddings and questions to ask about this document.</p>
     <section class="notice notice-success" role="status" th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
-    <th:block th:if="${progress != null}" th:insert="~{fragments/processing :: status(${progress}, ${document.documentId})}"></th:block>
-    <p><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
-    <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">
-      <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>
-    </section>
     <section class="notice notice-success" role="status" th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>
-    <section th:if="${summariesEnabled}" aria-labelledby="summary-title">
+    <section class="library-card" aria-label="Processing" th:if="${progress != null or !document.message.isEmpty()}">
+      <th:block th:if="${progress != null}" th:insert="~{fragments/processing :: status(${progress}, ${document.documentId})}"></th:block>
+      <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">
+        <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>
+      </section>
+      <p><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
+    </section>
+    <p th:if="${progress == null and document.message.isEmpty()}"><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
+    <section class="library-card" th:if="${summariesEnabled}" aria-labelledby="summary-title">
       <h2 id="summary-title">Summary</h2>
       <th:block th:if="${summary != null}">
         <p class="answer-text"><th:block th:each="segment : ${summarySegments}"><a th:if="${segment.marker.isPresent()}" class="citation-marker" th:href="|#summary-source-${segment.marker.get()}|"><span th:text="${segment.text}">[1]</span><span class="visually-hidden" th:text="| source ${segment.marker.get()}|"> source 1</span></a><span th:unless="${segment.marker.isPresent()}" th:text="${segment.text}">Summary text</span></th:block></p>
@@ -52,12 +61,12 @@
         </ol>
       </th:block>
       <p class="hint" th:if="${summary == null}">No summary yet. One is prepared in the background after the document is ready.</p>
-      <form method="post" th:if="${progress != null and progress.state.name() == 'READY'}"
+      <form method="post" th:if="${ready}"
             th:action="@{/documents/{id}/summary(id=${document.documentId})}">
-        <button type="submit" th:text="${summary == null ? 'Summarize now' : 'Regenerate summary'}">Summarize now</button>
+        <button type="submit" class="secondary-button" th:text="${summary == null ? 'Summarize now' : 'Regenerate summary'}">Summarize now</button>
       </form>
     </section>
-    <section th:if="${!related.isEmpty()}" aria-labelledby="related-title">
+    <section class="library-card" th:if="${!related.isEmpty()}" aria-labelledby="related-title">
       <h2 id="related-title">Related documents</h2>
       <ul class="related-list">
         <li th:each="item : ${related}">
@@ -67,9 +76,9 @@
         </li>
       </ul>
     </section>
-    <section th:if="${document.state.name() == 'EXTRACTED'}" aria-labelledby="text-title">
+    <section class="library-card" th:if="${document.state.name() == 'EXTRACTED'}" aria-labelledby="text-title">
       <h2 id="text-title">Extracted text</h2>
-      <p>Text is extracted. Search uses completed indexes when embeddings are enabled.</p>
+      <p class="hint">Text is extracted. Search uses completed indexes when embeddings are enabled.</p>
       <ol class="source-lines">
         <li th:each="line : ${document.lines}" th:id="${'line-' + line.number}">
           <a th:href="${'#line-' + line.number}"

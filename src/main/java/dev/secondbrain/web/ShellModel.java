@@ -28,4 +28,11 @@ class ShellModel {
         return new Navigation(
                 answers.getIfAvailable() != null, flashcards.getIfAvailable() != null);
     }
+
+    private static final FileTypeLabel FILE_TYPE = new FileTypeLabel();
+
+    @ModelAttribute("fileType")
+    FileTypeLabel fileType() {
+        return FILE_TYPE;
+    }
 }

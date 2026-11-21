@@ -122,7 +122,14 @@ class LibraryControllerTest {
                         "Refresh status",
                         "&lt;script&gt;private-note",
                         // Safari drops list semantics from unstyled flex lists.
-                        "class=\"document-list\" role=\"list\"")
+                        "class=\"document-list document-grid\" id=\"document-cards\" role=\"list\"",
+                        // Cards with a display-only type label; filtering is hidden until
+                        // library.js runs, so it is never required.
+                        "class=\"document-card\"",
+                        "class=\"type-badge\"",
+                        "data-filter hidden",
+                        "aria-controls=\"document-cards\"",
+                        "src=\"/js/library.js\"")
                 .doesNotContain("<script>", "100%", "documents.embed-passages");
         Assertions.assertThat(output).doesNotContain("private-note");
     }
