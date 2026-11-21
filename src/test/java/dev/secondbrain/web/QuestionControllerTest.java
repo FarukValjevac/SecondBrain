@@ -89,7 +89,8 @@ class QuestionControllerTest {
                         "textarea",
                         "question-help",
                         "name=\"scope\" value=\"all\"",
-                        "configured provider")
+                        "configured provider",
+                        "href=\"/questions\" aria-current=\"page\"")
                 .doesNotContain(PRIVATE, "id=\"answer-title\"");
         assertThat(result.getRequest().getSession(false)).isNull();
         verifyNoInteractions(answers);

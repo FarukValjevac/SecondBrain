@@ -1,16 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{})}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Delete document | SecondBrain</title>
-  <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
-  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
 </head>
 <body>
-  <header class="site-header"><a class="brand" href="/">SecondBrain</a></header>
-  <main>
+  <main id="content">
     <h1>Delete document?</h1>
     <p>Remove <strong th:text="${document.name}">this document</strong> and its saved content from SecondBrain?</p>
     <p>It will disappear from the library immediately. Saved content is cleaned up in the background.

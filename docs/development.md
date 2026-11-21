@@ -106,9 +106,15 @@ The browser uses a normal multipart form and a `303 See Other` redirect after su
 
 Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
 
+### Interface shell and design system
+
+Every page renders inside one shared shell (`templates/fragments/shell.html`): a skip link, a sidebar with **Ask**, **Library**, **Search** and **Study** (Ask and Study appear only when those features are enabled, via `ShellModel`), an **Add document** button, and the page content. The current page is marked with `aria-current="page"`. On screens narrower than 48rem the sidebar becomes a top bar. With JavaScript, its links move into a native modal `<dialog>` drawer opened by the menu button, which handles focus, Escape and making the page inert. Without JavaScript, they stay a scrollable row of links.
+
+`static/css/app.css` is organised in cascade layers (`reset, tokens, base, layout, components, utilities`) so priority never depends on selector specificity. Colours, type, spacing, radius, shadows and motion are tokens on `:root`. The dark theme changes only role tokens, so components never branch on the theme. Page navigations cross-fade with view transitions only when the user has not asked for reduced motion, and the sidebar stays still during them. The app adds no build step and no runtime dependency.
+
 ### Page appearance and form behavior
 
-Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/library.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
+Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/app.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
 
 `static/js/forms.js` is the only script. After a form passes its built-in validation, it ignores further submissions of that form, so a double click cannot send a second upload, search or question to the provider. Forms still submit normally without it, and the server keeps all checks. A page restored with the browser's Back button accepts submissions again.
 

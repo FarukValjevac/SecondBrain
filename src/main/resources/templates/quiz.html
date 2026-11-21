@@ -1,16 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'study', ~{::main}, ~{})}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Practice quiz | SecondBrain</title>
-  <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
-  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
 </head>
 <body>
-  <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
-  <main>
+  <main id="content">
     <div class="library-heading"><h1>Practice quiz</h1></div>
     <section class="notice notice-info" role="status" th:if="${quizMessage != null}">
       <p th:text="${quizMessage}">Quiz message.</p>

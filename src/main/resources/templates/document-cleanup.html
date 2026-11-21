@@ -1,16 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{})}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Deleted-document cleanup | SecondBrain</title>
-  <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
-  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
 </head>
 <body>
-  <header class="site-header"><a class="brand" th:href="@{/}">SecondBrain</a></header>
-  <main>
+  <main id="content">
     <h1>Deleted-document cleanup</h1>
     <p>These documents stay removed from the library, search, questions and source pages. Saved content is removed in the background.</p>
     <p><a th:href="@{/documents/cleanup(page=${cleanup.page})}">Refresh cleanup status</a></p>
