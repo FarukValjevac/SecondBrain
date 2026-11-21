@@ -74,6 +74,8 @@ class DocumentDetailControllerTest {
                         "id=\"line-1\"",
                         "id=\"line-2\"")
                 .contains("href=\"/documents/" + id + "/delete\"", "Delete document")
+                // No question service: explain instead of linking to an unavailable page.
+                .contains("Questions are turned off.")
                 .doesNotContain("<script>", "http-equiv=\"refresh\"", "Retry extraction", ">Page ");
     }
 

@@ -15,6 +15,13 @@
     <h1 th:text="${document.name}">Document</h1>
     <p>Text extraction: <strong th:text="${document.state}">QUEUED</strong></p>
     <p><a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a></p>
+    <p th:if="${questionsEnabled and progress != null and progress.state.name() == 'READY'}">
+      <a th:href="@{/questions(documentId=${document.documentId})}">Ask about this document</a>
+    </p>
+    <p class="hint" th:if="${questionsEnabled and (progress == null or progress.state.name() != 'READY')}">
+      You can ask about this document once it is ready for search.</p>
+    <p class="hint" th:unless="${questionsEnabled}">
+      Questions are turned off. Enable embeddings and questions to ask about this document.</p>
     <section class="notice notice-success" role="status" th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
     <th:block th:if="${progress != null}" th:insert="~{fragments/processing :: status(${progress}, ${document.documentId})}"></th:block>
     <p><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
