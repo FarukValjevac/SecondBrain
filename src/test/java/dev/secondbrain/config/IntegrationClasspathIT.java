@@ -46,6 +46,7 @@ class IntegrationClasspathIT {
                     "static/js/dialogs.js",
                     "static/js/palette.js",
                     "static/js/toasts.js",
+                    "static/js/study.js",
                     "templates/fragments/shell.html",
                     "static/js/forms.js"
                 }) {

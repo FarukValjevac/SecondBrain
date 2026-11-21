@@ -365,7 +365,10 @@ class SearchControllerTest {
                         "&lt;img src=x onerror=bad&gt;",
                         // Each result link names its document for screen readers.
                         "Open source passage<span class=\"visually-hidden\"> from sentinel-private-&lt;b&gt;notes&lt;/b&gt;.pdf</span>",
-                        "<search>")
+                        "<search>",
+                        // Passage cards with a display-only type label.
+                        "class=\"search-hits passage-cards\"",
+                        "<span class=\"type-badge\">PDF</span>")
                 .doesNotContain("<script>", "<img src=x", "<b>notes");
         assertThat(html.indexOf("PDF&lt;/script&gt;")).isLessThan(html.indexOf("&lt;img src=x"));
         assertThat(output.getAll()).doesNotContain("sentinel-private");
