@@ -867,3 +867,171 @@
     display: none;
   }
 }
+
+/* ---------- Library and document pages ---------- */
+@layer components {
+  .library-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .library-filter input {
+    inline-size: min(18rem, 100%);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-pill);
+  }
+  .filter-status:empty {
+    display: none;
+  }
+
+  /* Cards adapt to the space their container gives them, not the viewport. */
+  .library-card:has(> .document-grid) {
+    container-type: inline-size;
+  }
+  .document-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  @container (width >= 34rem) {
+    .document-grid {
+      grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    }
+  }
+  .document-grid > li.document-card {
+    display: grid;
+    align-content: start;
+    justify-content: stretch;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border-radius: var(--radius-lg);
+    transition: border-color var(--duration), box-shadow var(--duration), translate var(--duration);
+  }
+  .document-grid > li.document-card:hover,
+  .document-grid > li.document-card:focus-within {
+    border-color: var(--accent);
+    box-shadow: var(--shadow);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .document-grid > li.document-card:hover {
+      translate: 0 -2px;
+    }
+  }
+  .document-card[hidden] {
+    display: none;
+  }
+  .document-card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .document-card .document-summary a {
+    font-size: var(--text-lg);
+    text-decoration: none;
+  }
+  /* The whole card is clickable through its title link, without nesting interactive elements. */
+  .document-card {
+    position: relative;
+  }
+  .document-card .document-summary a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .document-card :is(.document-actions, .processing-progress) {
+    position: relative;
+    z-index: 1;
+  }
+  .document-grid .processing-progress {
+    flex-basis: auto;
+    order: 0;
+    font-size: var(--text-sm);
+  }
+  .type-badge {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  /* A visibly droppable upload area. */
+  .drop-zone {
+    border: 2px dashed var(--control-border);
+    box-shadow: none;
+    background: var(--surface);
+    transition: border-color var(--duration), background-color var(--duration);
+  }
+  .drop-zone:focus-within,
+  .drop-zone[data-dragging] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .drop-zone[data-dragging] {
+    outline: none;
+  }
+
+  /* Document page header with grouped actions. */
+  .document-header {
+    display: grid;
+    gap: var(--space-3);
+    padding-block-end: var(--space-4);
+    border-block-end: 1px solid var(--line);
+  }
+  .breadcrumb {
+    font-size: var(--text-sm);
+  }
+  .document-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .document-meta {
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+  }
+  .action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .action-bar form {
+    display: contents;
+  }
+  .button-link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.75rem;
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .button-link:hover {
+    background: var(--accent-strong);
+  }
+  .secondary-button {
+    background: var(--surface);
+    color: var(--accent);
+    border-color: var(--control-border);
+  }
+  .secondary-button:hover:not(:disabled) {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    border-color: var(--accent);
+  }
+  .action-bar .delete-link {
+    margin-inline-start: auto;
+    padding: var(--space-2) var(--space-3);
+    font-weight: 600;
+  }
+}

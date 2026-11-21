@@ -74,6 +74,8 @@ class DocumentDetailControllerTest {
                         "id=\"line-1\"",
                         "id=\"line-2\"")
                 .contains("href=\"/documents/" + id + "/delete\"", "Delete document")
+                // Actions are grouped and labelled for assistive technology.
+                .contains("role=\"group\" aria-label=\"Document actions\"", "class=\"type-badge\"")
                 // No question service: explain instead of linking to an unavailable page.
                 .contains("Questions are turned off.")
                 .doesNotContain("<script>", "http-equiv=\"refresh\"", "Retry extraction", ">Page ");

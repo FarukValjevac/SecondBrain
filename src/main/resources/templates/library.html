@@ -4,16 +4,15 @@
 <head>
   <title>Document library | SecondBrain</title>
   <script src="/js/upload.js" th:src="@{/js/upload.js}" defer></script>
+  <script type="module" src="/js/library.js" th:src="@{/js/library.js}"></script>
 </head>
 <body>
   <main id="content">
     <div class="library-heading">
-      <h1>Document library</h1>
-      <nav class="primary-links" aria-label="Library tools">
-        <a href="/search" th:href="@{/search}">Search documents</a>
-        <a href="/questions" th:href="@{/questions}">Ask your documents</a>
-        <a href="/flashcards" th:href="@{/flashcards}" th:if="${questionsEnabled}">Review flashcards</a>
-      </nav>
+      <div>
+        <h1>Document library</h1>
+        <p class="hint">Everything you can ask about, search and study.</p>
+      </div>
     </div>
     <section class="notice notice-success" role="status" th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>
@@ -40,7 +39,7 @@
       <h2>Upload could not be completed</h2>
       <p th:text="${uploadError}">Choose a supported file and try again.</p>
     </section>
-    <section class="upload-card" aria-labelledby="upload-title" th:if="${uploadsEnabled}" data-drop-zone>
+    <section class="upload-card drop-zone" aria-labelledby="upload-title" th:if="${uploadsEnabled}" data-drop-zone>
       <svg class="document-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
         <path d="M14 6h14l8 8v28H14z"/>
         <path d="M28 6v10h8M20 24h10M20 31h10"/>
@@ -71,7 +70,15 @@
       <p>Document uploads are currently disabled.</p>
     </section>
     <section class="library-card" aria-labelledby="documents-title" th:if="${libraryAvailable}">
-      <h2 id="documents-title">Your documents</h2>
+      <div class="library-toolbar">
+        <h2 id="documents-title">Your documents</h2>
+        <!-- Shown by library.js: filtering is a convenience over the current page only. -->
+        <p class="library-filter" data-filter hidden th:unless="${library.documents.isEmpty()}">
+          <label for="document-filter" class="visually-hidden">Filter documents on this page</label>
+          <input type="search" id="document-filter" placeholder="Filter this page…" autocomplete="off"
+                 aria-controls="document-cards">
+        </p>
+      </div>
       <p class="hint" th:if="${folderSync != null}">
         Folder sync:
         <span th:text="|${folderSync.tracked} files imported|">3 files imported</span>
@@ -87,16 +94,20 @@
         <p><a th:href="@{/documents/cleanup}">Inspect cleanup and retry failures</a></p>
       </section>
       <p th:if="${library.documents.isEmpty()}">No documents on this page.</p>
-      <ul class="document-list" role="list" th:unless="${library.documents.isEmpty()}">
-        <li th:each="document : ${library.documents}">
+      <p class="hint filter-status" role="status" aria-live="polite" data-filter-status></p>
+      <ul class="document-list document-grid" id="document-cards" role="list" th:unless="${library.documents.isEmpty()}">
+        <li class="document-card" th:each="document : ${library.documents}">
+          <div class="document-card-badges">
+            <span class="type-badge" th:text="${fileType.of(document.name)}">PDF</span>
+            <span class="document-state" th:text="${document.state}">QUEUED</span>
+          </div>
           <div class="document-summary">
-            <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}">Document name</a>
+            <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}" data-filter-name>Document name</a>
             <time th:datetime="${document.createdAt}" th:text="${document.createdAt}">Upload time</time>
           </div>
           <th:block th:if="${processing != null and processing.containsKey(document.documentId)}"
                     th:insert="~{fragments/processing :: status(${processing.get(document.documentId)}, ${document.documentId})}"></th:block>
           <div class="document-actions">
-            <span>Text:</span> <span class="document-state" th:text="${document.state}">QUEUED</span>
             <a th:if="${questionsEnabled and processing != null and processing.containsKey(document.documentId)
                         and processing.get(document.documentId).state.name() == 'READY'}"
                th:href="@{/questions(documentId=${document.documentId})}"

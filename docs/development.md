@@ -118,6 +118,12 @@ Every page renders inside one shared shell (`templates/fragments/shell.html`): a
 
 Enter sends unless an input method is composing (`isComposing` or key code 229); Shift+Enter adds a line, and a visible **Send** button is always present. The box grows with its content via `field-sizing: content`. Only one question is in flight at a time. The thread is held only in the page: nothing is written to storage or the URL, and the home page and turns are sent with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The document library moved to `/library`; uploads, imports, deletion and retry now return there.
 
+### Library and document pages
+
+The library at `/library` shows each document as a card: a type label taken from the name's extension (display only, via `FileTypeLabel`; names without a short extension show **Document**), the text-extraction state, processing progress, and **Ask**/**Delete** actions. The whole card opens the document through its title link, and the actions stay separately focusable. Cards form one column in a narrow container and a grid once their container is at least 34rem wide (a container query, so the layout follows the space the cards get rather than the window). `static/js/library.js` reveals a **Filter this page** box that hides non-matching cards as you type and announces only the match count. Without JavaScript the box stays hidden and every card is shown. The upload area is a dashed drop zone that highlights while files are dragged over it or a control inside it has focus.
+
+The document page opens with a header: type label and name, extraction state and web source, then one labelled action group (**Ask about this document**, **Make flashcards**, **Practice quiz**, **Delete document**). Deletion still goes through its confirmation page. Processing progress, summary, related documents and the extracted text follow as separate cards.
+
 ### Page appearance and form behavior
 
 Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/app.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
