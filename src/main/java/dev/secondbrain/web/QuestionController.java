@@ -31,12 +31,15 @@ import java.util.Optional;
 class QuestionController {
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<DocumentInspectionService> documents;
+    private final AnswerSignature signature;
 
     QuestionController(
             ObjectProvider<QuestionAnswerService> answers,
-            ObjectProvider<DocumentInspectionService> documents) {
+            ObjectProvider<DocumentInspectionService> documents,
+            AnswerSignature signature) {
         this.answers = answers;
         this.documents = documents;
+        this.signature = signature;
     }
 
     @ModelAttribute
@@ -130,6 +133,13 @@ class QuestionController {
             model.addAttribute(
                     "answerSegments",
                     CitationMarkers.segments(result.text(), result.citations().size()));
+            var sources =
+                    result.citations().stream()
+                            .map(source -> source.documentId() + ":" + source.passageId())
+                            .toList();
+            model.addAttribute("answerSources", sources);
+            model.addAttribute(
+                    "answerSignature", signature.sign(request.text(), result.text(), sources));
             model.addAttribute("questionFeedback", QuestionFeedback.ANSWERED);
         } catch (QuestionFailure failure) {
             if (failure.reason() == QuestionFailure.Reason.SOURCE_UNAVAILABLE

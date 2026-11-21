@@ -12,6 +12,9 @@
   <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
   <main>
     <div class="library-heading"><h1>Ask your documents</h1></div>
+    <section class="notice notice-success" role="status" th:if="${feedbackMessage != null}">
+      <p th:text="${feedbackMessage}">Feedback saved.</p>
+    </section>
     <section class="notice" th:if="${questionFeedback != null}"
              th:classappend="${questionFeedback.error ? 'notice-error' : 'notice-info'}"
              th:role="${questionFeedback.error ? 'alert' : 'status'}">
@@ -41,6 +44,25 @@
           <pre class="search-excerpt" th:text="${source.text}">Source excerpt</pre>
         </li>
       </ol>
+      <form method="post" th:action="@{/questions/feedback}" class="answer-feedback">
+        <input type="hidden" name="q" th:value="${queryText}">
+        <input type="hidden" name="answer" th:value="${questionAnswer.text}">
+        <input type="hidden" name="source" th:each="source : ${answerSources}" th:value="${source}">
+        <input type="hidden" name="signature" th:value="${answerSignature}">
+        <fieldset>
+          <legend>Was this answer helpful?</legend>
+          <p class="hint">Saved only on this computer, to help you review answer quality later.</p>
+          <button type="submit" name="rating" value="helpful">Helpful</button>
+          <label for="feedback-reason">Reason if not helpful</label>
+          <select id="feedback-reason" name="reason">
+            <option value="">No reason</option>
+            <option value="WRONG">Wrong</option>
+            <option value="INCOMPLETE">Incomplete</option>
+            <option value="WRONG_SOURCE">Wrong source</option>
+          </select>
+          <button type="submit" name="rating" value="not-helpful">Not helpful</button>
+        </fieldset>
+      </form>
     </section>
     <section class="library-card" th:if="${questionsEnabled}">
       <h2 th:text="${questionAnswer != null ? 'Ask another question' : 'Ask a question'}">Ask a question</h2>
