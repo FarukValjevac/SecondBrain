@@ -1,5 +1,6 @@
 package dev.secondbrain.study;
 
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.questions.ChatProvider;
 import dev.secondbrain.search.SearchService;
 
@@ -25,6 +26,24 @@ class StudyConfiguration {
     JdbcFlashcardRepository flashcardRepository(
             JdbcClient jdbc, PlatformTransactionManager transactions) {
         return new JdbcFlashcardRepository(jdbc, transactions);
+    }
+
+    @Bean
+    QuizService quizService(
+            SearchService search,
+            ChatProvider chat,
+            DocumentInspectionService documents,
+            JdbcClient jdbc,
+            PlatformTransactionManager transactions,
+            ObjectProvider<Clock> clocks,
+            ObjectProvider<MeterRegistry> meters) {
+        return new QuizService(
+                search,
+                chat,
+                documents,
+                new JdbcQuizRepository(jdbc, transactions),
+                clocks.getIfAvailable(Clock::systemUTC),
+                Optional.ofNullable(meters.getIfAvailable()));
     }
 
     @Bean

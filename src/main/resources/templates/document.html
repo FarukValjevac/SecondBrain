@@ -25,6 +25,12 @@
       <button type="submit">Make flashcards</button>
       <span class="hint">Uses one AI request from your allowance.</span>
     </form>
+    <form method="post" th:if="${studyEnabled and progress != null and progress.state.name() == 'READY'}" th:action="@{/quizzes}">
+      <input type="hidden" name="documentId" th:value="${document.documentId}">
+      <button type="submit">Practice quiz</button>
+      <span class="hint">Up to six AI requests: one for questions, one per answer.</span>
+    </form>
+    <section class="notice notice-info" role="status" th:if="${quizMessage != null}"><p th:text="${quizMessage}">Quiz message.</p></section>
     <p class="hint" th:unless="${questionsEnabled}">
       Questions are turned off. Enable embeddings and questions to ask about this document.</p>
     <section class="notice notice-success" role="status" th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
