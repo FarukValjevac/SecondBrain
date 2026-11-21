@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -255,7 +256,10 @@ class LibraryControllerTest {
                         "encrypted and scanned-only PDFs and legacy .doc files are unsupported",
                         "aria-describedby=\"upload-help\"",
                         "2KB",
-                        "Upload document")
+                        "Upload document",
+                        "multiple required",
+                        "data-drop-zone",
+                        "src=\"/js/upload.js\" defer")
                 .contains(
                         "href=\"/css/library.css\"",
                         "<meta name=\"color-scheme\" content=\"light dark\">",
@@ -365,11 +369,61 @@ class LibraryControllerTest {
                 .andExpect(status().isSeeOther())
                 .andExpect(redirectedUrl("/"))
                 .andExpect(flash().attributeExists("uploadError"));
-        mvc.perform(multipart("/documents/upload").file(file()).file(file()))
+        var tooMany = multipart("/documents/upload");
+        for (int i = 0; i < 11; i++) tooMany.file(file());
+        mvc.perform(tooMany)
                 .andExpect(status().isSeeOther())
                 .andExpect(redirectedUrl("/"))
-                .andExpect(flash().attribute("uploadError", "Upload one file at a time."));
+                .andExpect(
+                        flash().attribute(
+                                        "uploadError",
+                                        UploadRejectedException.Reason.TOO_MANY_FILES.message()));
         verifyNoInteractions(acceptanceService);
+    }
+
+    @Test
+    void acceptsEachFileOfABatchOnItsOwnAndReportsEveryOutcome(CapturedOutput output)
+            throws Exception {
+        var saved = UUID.randomUUID();
+        when(acceptanceService.accept(eq("good.md"), anyLong(), any(), any()))
+                .thenReturn(new DocumentAcceptanceService.Receipt(saved, ExtractionState.QUEUED));
+        when(acceptanceService.accept(eq("<b>bad</b>.exe"), anyLong(), any(), any()))
+                .thenThrow(
+                        new UploadRejectedException(
+                                UploadRejectedException.Reason.UNSUPPORTED_TYPE));
+        when(acceptanceService.accept(eq("broken.txt"), anyLong(), any(), any()))
+                .thenThrow(new IOException("sentinel-private-storage"));
+        var result =
+                mvc.perform(
+                                multipart("/documents/upload")
+                                        .file(named("<b>bad</b>.exe"))
+                                        .file(named("good.md"))
+                                        .file(named("broken.txt")))
+                        .andExpect(status().isSeeOther())
+                        .andExpect(redirectedUrl("/"))
+                        .andExpect(flash().attributeExists("uploadResults"))
+                        .andReturn();
+        verify(acceptanceService, times(3)).accept(any(), anyLong(), any(), any());
+        var page =
+                mvc.perform(MockMvcRequestBuilders.get("/").flashAttrs(result.getFlashMap()))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        Assertions.assertThat(page)
+                .contains(
+                        "1 of 3 files saved",
+                        "href=\"/documents/" + saved + "\"",
+                        "Saved and queued",
+                        "&lt;b&gt;bad&lt;/b&gt;.exe",
+                        UploadRejectedException.Reason.UNSUPPORTED_TYPE.message(),
+                        "This file could not be saved. Try again later.")
+                .doesNotContain("<b>bad", "sentinel-private");
+        Assertions.assertThat(output.getOut()).doesNotContain("sentinel-private", "good.md");
+    }
+
+    private static MockMultipartFile named(String name) {
+        return new MockMultipartFile("file", name, "text/plain", new byte[] {1});
     }
 
     @Test

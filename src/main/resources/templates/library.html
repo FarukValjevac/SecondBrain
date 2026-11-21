@@ -7,6 +7,7 @@
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
   <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
+  <script src="/js/upload.js" th:src="@{/js/upload.js}" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -25,6 +26,18 @@
       <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
       <p><a th:href="@{/documents/{id}(id=${uploadReceipt.documentId})}">Open document</a></p>
     </section>
+    <section class="notice" role="status" th:if="${uploadResults != null}"
+             th:with="saved=${#lists.size(uploadResults.?[isSaved()])}"
+             th:classappend="${saved == #lists.size(uploadResults) ? 'notice-success' : 'notice-info'}">
+      <h2 th:text="|${saved} of ${#lists.size(uploadResults)} files saved|">Files saved</h2>
+      <ul class="upload-results">
+        <li th:each="result : ${uploadResults}">
+          <a th:if="${result.isSaved()}" th:href="@{/documents/{id}(id=${result.documentId.get()})}" th:text="${result.name}">notes.md</a>
+          <strong th:unless="${result.isSaved()}" th:text="${result.name}">notes.exe</strong>:
+          <span th:text="${result.message}">Saved and queued</span>
+        </li>
+      </ul>
+    </section>
     <section class="notice notice-success" role="status" th:if="${deletionMessage != null}">
       <h2>Library updated</h2>
       <p th:text="${deletionMessage}">Document removed.</p>
@@ -33,7 +46,7 @@
       <h2>Upload could not be completed</h2>
       <p th:text="${uploadError}">Choose a supported file and try again.</p>
     </section>
-    <section class="upload-card" aria-labelledby="upload-title" th:if="${uploadsEnabled}">
+    <section class="upload-card" aria-labelledby="upload-title" th:if="${uploadsEnabled}" data-drop-zone>
       <svg class="document-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
         <path d="M14 6h14l8 8v28H14z"/>
         <path d="M28 6v10h8M20 24h10M20 31h10"/>
@@ -41,13 +54,15 @@
       <h2 id="upload-title">Add a document</h2>
       <p>Upload a PDF, Word, HTML, Markdown or text file. Your original is stored privately.</p>
       <form method="post" enctype="multipart/form-data" action="/documents/upload" th:action="@{/documents/upload}">
-        <label for="document-file">Choose a file</label>
+        <label for="document-file">Choose files</label>
         <p id="upload-help" class="upload-help">
           Supported formats: .pdf, .docx, .html, .md and UTF-8 text such as .txt, .csv, .json, .xml, .yaml, .log and source code.
           PDFs need selectable text; encrypted and scanned-only PDFs and legacy .doc files are unsupported.
+          Select up to <span th:text="${maximumFilesPerUpload}">10</span> files, or drop them here.
           Maximum file size: <span th:text="${maximumUploadSize}">10MB</span>.
         </p>
-        <input type="file" id="document-file" name="file" accept=".pdf,.docx,.html,.htm,.md,.markdown,.txt,.text,.log,.csv,.tsv,.json,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.sql,.java,.kt,.py,.js,.ts,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.sh,.swift" aria-describedby="upload-help" required>
+        <input type="file" id="document-file" name="file" accept=".pdf,.docx,.html,.htm,.md,.markdown,.txt,.text,.log,.csv,.tsv,.json,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.sql,.java,.kt,.py,.js,.ts,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.sh,.swift" aria-describedby="upload-help" multiple required>
+        <p class="upload-selection" aria-live="polite"></p>
         <button type="submit">Upload document</button>
       </form>
     </section>

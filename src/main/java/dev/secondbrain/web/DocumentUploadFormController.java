@@ -3,10 +3,13 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.UploadRejectedException;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -15,6 +18,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,9 +29,15 @@ import java.util.UUID;
         matchIfMissing = true)
 final class DocumentUploadFormController {
     private final DocumentAcceptanceService acceptanceService;
+    private final int maximumFiles;
 
-    DocumentUploadFormController(DocumentAcceptanceService acceptanceService) {
+    DocumentUploadFormController(
+            DocumentAcceptanceService acceptanceService,
+            @Value("${secondbrain.documents.max-files-per-upload:10}") int maximumFiles) {
+        if (maximumFiles < 1 || maximumFiles > 100)
+            throw new IllegalArgumentException("Files per upload must be between 1 and 100");
         this.acceptanceService = acceptanceService;
+        this.maximumFiles = maximumFiles;
     }
 
     @PostMapping(path = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -36,19 +46,38 @@ final class DocumentUploadFormController {
             @RequestAttribute(RequestCorrelationFilter.ATTRIBUTE) UUID correlationId,
             RedirectAttributes redirectAttributes)
             throws IOException {
-        if (files.size() != 1) {
-            throw new UploadRejectedException(UploadRejectedException.Reason.SINGLE_FILE_REQUIRED);
+        if (files.isEmpty() || files.size() > maximumFiles)
+            throw new UploadRejectedException(UploadRejectedException.Reason.TOO_MANY_FILES);
+        if (files.size() == 1) {
+            redirectAttributes.addFlashAttribute(
+                    "uploadReceipt", accept(files.getFirst(), correlationId));
+        } else {
+            // Each file is accepted on its own; one rejected file never blocks the others.
+            var results = new ArrayList<UploadResult>(files.size());
+            for (var file : files) results.add(acceptOne(file, correlationId));
+            redirectAttributes.addFlashAttribute("uploadResults", results);
         }
-        var file = files.getFirst();
-        DocumentAcceptanceService.Receipt receipt;
-        try (var input = file.getInputStream()) {
-            receipt =
-                    acceptanceService.accept(
-                            file.getOriginalFilename(), file.getSize(), input, correlationId);
-        }
-        redirectAttributes.addFlashAttribute("uploadReceipt", receipt);
         var redirect = new RedirectView("/", true);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);
         return redirect;
+    }
+
+    private DocumentAcceptanceService.Receipt accept(MultipartFile file, UUID correlationId)
+            throws IOException {
+        try (var input = file.getInputStream()) {
+            return acceptanceService.accept(
+                    file.getOriginalFilename(), file.getSize(), input, correlationId);
+        }
+    }
+
+    private UploadResult acceptOne(MultipartFile file, UUID correlationId) {
+        var name = file.getOriginalFilename() == null ? "Unnamed file" : file.getOriginalFilename();
+        try {
+            return UploadResult.saved(name, accept(file, correlationId).documentId());
+        } catch (UploadRejectedException rejected) {
+            return UploadResult.rejected(name, rejected.reason().message());
+        } catch (IOException | DataAccessException | TransactionException unavailable) {
+            return UploadResult.rejected(name, "This file could not be saved. Try again later.");
+        }
     }
 }
