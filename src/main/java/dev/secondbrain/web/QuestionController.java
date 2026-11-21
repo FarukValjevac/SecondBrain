@@ -56,16 +56,24 @@ class QuestionController {
             @RequestParam MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response) {
-        final int page;
+        final DocumentQueryForm form;
         try {
             var pages = fields.getOrDefault("page", List.of("0"));
             if (pages.size() != 1) throw new IllegalArgumentException("Invalid document page");
-            page = DocumentQueryForm.page(pages.getFirst());
+            var page = DocumentQueryForm.page(pages.getFirst());
+            // A document page links here with its ID to ask about that document only.
+            var selected = fields.get("documentId");
+            if (selected != null && (selected.size() != 1 || page != 0))
+                throw new IllegalArgumentException("Invalid document selection");
+            form =
+                    selected == null
+                            ? DocumentQueryForm.blank(page)
+                            : DocumentQueryForm.selected(
+                                    DocumentQueryForm.documentId(selected.getFirst()));
         } catch (IllegalArgumentException invalid) {
             return invalid(model, response);
         }
         if (Boolean.TRUE.equals(model.getAttribute("questionsEnabled"))) {
-            var form = DocumentQueryForm.blank(page);
             DocumentQueryView.restore(form, model);
             try {
                 DocumentQueryView.populate(form, documents.getObject(), model);

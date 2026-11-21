@@ -75,6 +75,10 @@
                     th:insert="~{fragments/processing :: status(${processing.get(document.documentId)}, ${document.documentId})}"></th:block>
           <div class="document-actions">
             <span>Text:</span> <span class="document-state" th:text="${document.state}">QUEUED</span>
+            <a th:if="${questionsEnabled and processing != null and processing.containsKey(document.documentId)
+                        and processing.get(document.documentId).state.name() == 'READY'}"
+               th:href="@{/questions(documentId=${document.documentId})}"
+               th:aria-label="|Ask about ${document.name}|">Ask</a>
             <a class="library-delete" th:href="@{/documents/{id}/delete(id=${document.documentId})}"
                th:aria-label="|Delete ${document.name}|">Delete</a>
           </div>

@@ -3,6 +3,7 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.questions.QuestionAnswerService;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -38,14 +39,17 @@ class DocumentDetailController {
     private final DocumentInspectionService documents;
     private final DocumentDeletionService deletion;
     private final ObjectProvider<DocumentProcessingService> processing;
+    private final ObjectProvider<QuestionAnswerService> answers;
 
     DocumentDetailController(
             DocumentInspectionService documents,
             DocumentDeletionService deletion,
-            ObjectProvider<DocumentProcessingService> processing) {
+            ObjectProvider<DocumentProcessingService> processing,
+            ObjectProvider<QuestionAnswerService> answers) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
+        this.answers = answers;
     }
 
     @GetMapping("/documents/{id}")
@@ -57,6 +61,7 @@ class DocumentDetailController {
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND)));
         var service = processing.getIfAvailable();
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
+        model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         return "document";
     }
 

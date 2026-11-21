@@ -138,6 +138,12 @@ class ExampleWorkflowIT {
                 var detail = get(client, origin, "/documents/" + arrayList);
                 assertThat(detail.statusCode()).isEqualTo(200);
                 assertThat(detail.body()).contains("Ready", ARRAYLIST_FACT);
+                // A ready document links to a question limited to itself, without asking yet.
+                assertThat(detail.body()).contains("href=\"/questions?documentId=" + arrayList);
+                var scoped = get(client, origin, "/questions?documentId=" + arrayList);
+                assertThat(scoped.body())
+                        .contains("name=\"documentId\" value=\"" + arrayList + "\" checked");
+                assertThat(models.chatCalls.get()).isZero();
 
                 var search =
                         post(client, origin, "/search", "q=" + encode(QUESTION) + "&scope=all");

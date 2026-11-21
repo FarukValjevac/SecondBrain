@@ -2,6 +2,7 @@ package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.questions.QuestionAnswerService;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,16 +27,19 @@ class LibraryController {
     private final String maximumUploadSize;
     private final ObjectProvider<DocumentInspectionService> documents;
     private final ObjectProvider<DocumentProcessingService> processing;
+    private final ObjectProvider<QuestionAnswerService> answers;
 
     LibraryController(
             @Value("${secondbrain.events.enabled:true}") boolean uploadsEnabled,
             @Value("${secondbrain.documents.max-upload-size}") String maximumUploadSize,
             ObjectProvider<DocumentInspectionService> documents,
-            ObjectProvider<DocumentProcessingService> processing) {
+            ObjectProvider<DocumentProcessingService> processing,
+            ObjectProvider<QuestionAnswerService> answers) {
         this.uploadsEnabled = uploadsEnabled;
         this.maximumUploadSize = maximumUploadSize;
         this.documents = Objects.requireNonNull(documents, "documents");
         this.processing = Objects.requireNonNull(processing, "processing");
+        this.answers = Objects.requireNonNull(answers, "answers");
     }
 
     @GetMapping("/")
@@ -44,6 +48,7 @@ class LibraryController {
         model.addAttribute("uploadsEnabled", uploadsEnabled);
         model.addAttribute("maximumUploadSize", maximumUploadSize);
         model.addAttribute("libraryAvailable", uploadsEnabled);
+        model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         if (uploadsEnabled) {
             var service = documents.getIfAvailable();
             if (service == null) throw new IllegalStateException("Document service unavailable");

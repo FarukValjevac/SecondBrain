@@ -31,6 +31,21 @@ record DocumentQueryForm(String text, Scope scope, Set<UUID> documentIds, int pa
         return new DocumentQueryForm("", Scope.ALL, Set.of(), page, Action.SUBMIT);
     }
 
+    /** A blank question limited to one document, as opened from that document's page. */
+    static DocumentQueryForm selected(UUID documentId) {
+        return new DocumentQueryForm(
+                "", Scope.SELECTED, Set.of(Objects.requireNonNull(documentId)), 0, Action.SUBMIT);
+    }
+
+    /** Parses a canonical document UUID; anything else is rejected rather than ignored. */
+    static UUID documentId(String value) {
+        if (value.length() != 36) throw new IllegalArgumentException("Invalid document selection");
+        var id = UUID.fromString(value);
+        if (!id.toString().equalsIgnoreCase(value))
+            throw new IllegalArgumentException("Invalid document selection");
+        return id;
+    }
+
     static DocumentQueryForm read(MultiValueMap<String, String> fields, String submitAction) {
         String text = single(fields, "q", null);
         var scope =
@@ -43,14 +58,7 @@ record DocumentQueryForm(String text, Scope scope, Set<UUID> documentIds, int pa
         if (values.size() > SearchScope.MAXIMUM_SELECTED_DOCUMENTS)
             throw new IllegalArgumentException("Too many document selections");
         var ids = new HashSet<UUID>();
-        for (var value : values) {
-            if (value.length() != 36)
-                throw new IllegalArgumentException("Invalid document selection");
-            var id = UUID.fromString(value);
-            if (!id.toString().equalsIgnoreCase(value))
-                throw new IllegalArgumentException("Invalid document selection");
-            ids.add(id);
-        }
+        for (var value : values) ids.add(documentId(value));
         int page = page(single(fields, "page", "0"));
         var submittedAction = single(fields, "action", submitAction);
         var action =

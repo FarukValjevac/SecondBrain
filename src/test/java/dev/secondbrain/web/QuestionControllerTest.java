@@ -95,6 +95,39 @@ class QuestionControllerTest {
     }
 
     @Test
+    void aDocumentLinkPreselectsOnlyThatDocumentWithoutAskingAnything() throws Exception {
+        var id = UUID.randomUUID();
+        when(documents.names(Set.of(id))).thenReturn(Map.of(id, "notes.md"));
+        var html =
+                mvc.perform(get("/questions").param("documentId", id.toString()))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "name=\"scope\" value=\"selected\" checked",
+                        "name=\"documentId\" value=\"" + id + "\" checked",
+                        "notes.md",
+                        "Selected documents: 1");
+        verifyNoInteractions(answers);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-uuid", "1-1-1-1-1", ""})
+    void rejectsMalformedPreselectedDocumentsInsteadOfWideningTheScope(String value)
+            throws Exception {
+        mvc.perform(get("/questions").param("documentId", value))
+                .andExpect(status().isBadRequest());
+        mvc.perform(
+                        get("/questions")
+                                .param("documentId", UUID.randomUUID().toString())
+                                .param("documentId", UUID.randomUUID().toString()))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(answers);
+    }
+
+    @Test
     void rendersEscapedQuestionAnswerSourceAndPhysicalPageAndFollowsTheStableSourceLink(
             CapturedOutput output) throws Exception {
         var owner = UUID.randomUUID();
