@@ -1044,6 +1044,19 @@ Quizzes are stored locally (`quizzes`, `quiz_questions`, migration V18). A quiz 
 
 Check with `./mvnw -Dtest=QuizParserTest,QuizServiceTest,QuizControllerTest test` and `./mvnw -Dit.test=QuizIT verify`.
 
+## Folder sync
+
+Set `SECONDBRAIN_FOLDER_SYNC_DIRECTORY` to one local folder, for example a notes vault, and restart. Every `secondbrain.folder-sync.scan-interval` (default 60 seconds), SecondBrain scans it and imports supported files through the normal upload path, so every file gets the same validation and size limit.
+
+- **Skipped:** hidden files and folders (names starting with `.`, such as `.obsidian` or `.git`), symbolic links (never followed, so nothing outside the folder is read), unsupported types, and anything deeper than 16 levels.
+- **Bounded:** at most `max-imports-per-scan` (50) imports and `max-files-per-scan` (10,000) files per scan; only one scan runs at a time. State lives in `folder_files` (migration V19), so restarts never import a file twice.
+- **Unchanged files** (same SHA-256) are not uploaded or embedded again.
+- **Changed files** are imported as a new document. The previous document stays searchable until the new one is **Ready**, then the next scan deletes it. This replaces the document rather than adding a generation to it, because the pipeline does not replace an original's bytes in place.
+- **Deleted in the app:** a synced document you delete is not brought back unless the file changes.
+- **Removed from disk:** the document is kept by default. With `secondbrain.folder-sync.remove-missing=true`, it is deleted, but only after a complete scan.
+
+Relative paths are stored privately and never logged; logs show only fixed codes such as `FOLDER_UNAVAILABLE`. The library page shows how many files are imported, the last scan time and any problem. Check with `./mvnw -Dit.test=FolderSyncIT verify`.
+
 ## Retrieval telemetry
 
 The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:

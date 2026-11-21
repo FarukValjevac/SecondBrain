@@ -73,6 +73,13 @@
     </section>
     <section class="library-card" aria-labelledby="documents-title" th:if="${libraryAvailable}">
       <h2 id="documents-title">Your documents</h2>
+      <p class="hint" th:if="${folderSync != null}">
+        Folder sync:
+        <span th:text="|${folderSync.tracked} files imported|">3 files imported</span>
+        <th:block th:if="${folderSync.lastScan.isPresent()}">· last scan
+          <time th:datetime="${folderSync.lastScan.get()}" th:text="${folderSync.lastScan.get()}">time</time></th:block>
+        <strong th:if="${folderSync.problem.isPresent()}" th:text="${folderSync.problem.get() == 'FOLDER_UNAVAILABLE' ? '· The folder cannot be read.' : '· Too many files; only part of the folder was scanned.'}">problem</strong>
+      </p>
       <p><a th:href="@{/(page=${library.page})}">Refresh status</a></p>
       <section class="notice notice-info" role="status" th:if="${cleanup != null and (cleanup.pending > 0 or cleanup.failed > 0)}">
         <h3>Deleted-document cleanup</h3>
