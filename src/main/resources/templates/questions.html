@@ -27,11 +27,11 @@
       <p th:if="${scope == 'all'}">Scope: Whole library</p>
       <p th:if="${scope == 'selected'}" th:text="|Scope: Selected documents (${documentIds.size()})|">Scope: Selected documents</p>
       <h2 id="answer-title">Answer</h2>
-      <p class="answer-text" th:text="${questionAnswer.text}">Answer text</p>
+      <p class="answer-text"><th:block th:each="segment : ${answerSegments}"><a th:if="${segment.marker.isPresent()}" class="citation-marker" th:href="|#source-${segment.marker.get()}|"><span th:text="${segment.text}">[1]</span><span class="visually-hidden" th:text="| source ${segment.marker.get()}|"> source 1</span></a><span th:unless="${segment.marker.isPresent()}" th:text="${segment.text}">Answer text</span></th:block></p>
       <h2 id="answer-sources-title">Sources</h2>
       <p>Source references were checked against the supplied passages. Check that the passages support the claims. Source links open in a new tab.</p>
       <ol class="search-hits" aria-labelledby="answer-sources-title">
-        <li th:each="source, position : ${questionAnswer.citations}">
+        <li th:each="source, position : ${questionAnswer.citations}" th:id="|source-${position.count}|">
           <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}"
                  th:text="|Source ${position.count}: ${source.name}|">Source document</a></h3>
           <p class="source-location">
