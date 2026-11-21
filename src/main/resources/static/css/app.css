@@ -1288,3 +1288,233 @@
     }
   }
 }
+
+/* ---------- Study and search ---------- */
+@layer components {
+  .pill {
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-pill);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  /* Flashcard: a focused card whose answer flips into view. */
+  .flashcard {
+    display: grid;
+    gap: var(--space-4);
+    justify-items: center;
+    text-align: center;
+    padding: clamp(var(--space-5), 6cqi, var(--space-7)) var(--space-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background:
+      linear-gradient(160deg, var(--accent-soft), transparent 45%),
+      var(--surface);
+    box-shadow: var(--shadow-raised);
+    perspective: 900px;
+  }
+  .flashcard h2 {
+    font-size: var(--text-2xl);
+    max-inline-size: 30ch;
+  }
+  .flashcard-source {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+  .flashcard-answer {
+    inline-size: 100%;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+  }
+  .flashcard-answer summary {
+    list-style: none;
+    padding: var(--space-2) var(--space-5);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-pill);
+  }
+  .flashcard-answer summary::-webkit-details-marker {
+    display: none;
+  }
+  .flashcard-answer[open] summary {
+    display: none;
+  }
+  .flashcard-back {
+    inline-size: 100%;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding-block-start: var(--space-4);
+    border-block-start: 1px dashed var(--line);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .flashcard-answer[open] .flashcard-back {
+      animation: flip-in 380ms var(--ease-out);
+      transform-origin: top center;
+    }
+    @keyframes flip-in {
+      from {
+        opacity: 0;
+        transform: rotateX(-80deg);
+      }
+    }
+  }
+  .flashcard-grades {
+    inline-size: 100%;
+  }
+  .flashcard-grades fieldset {
+    justify-content: center;
+    border: 0;
+    padding: 0;
+  }
+  .flashcard-grades legend {
+    inline-size: 100%;
+    margin-block-end: var(--space-2);
+    text-align: center;
+  }
+  .grade {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-inline-size: 6rem;
+    justify-content: center;
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--control-border);
+  }
+  .grade:hover:not(:disabled) {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    border-color: var(--accent);
+  }
+  .grade-again {
+    color: var(--danger);
+  }
+  .grade-good {
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: var(--accent);
+  }
+  .grade kbd {
+    color: inherit;
+    background: transparent;
+  }
+
+  /* Quiz stepper. */
+  .quiz-progress {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .quiz-progress[hidden],
+  .quiz-step[hidden],
+  .quiz-nav [hidden] {
+    display: none;
+  }
+  .quiz-count {
+    font-weight: 600;
+  }
+  .quiz-progress progress {
+    inline-size: 100%;
+    block-size: 0.5rem;
+    accent-color: var(--accent);
+  }
+  .quiz-step {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .quiz-step label {
+    font-size: var(--text-lg);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    [data-js] .quiz-step {
+      animation: rise 220ms var(--ease-out);
+    }
+  }
+  .quiz-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  /* Quiz results: a symbol and a word carry the verdict; colour only reinforces it. */
+  .result-cards {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .result-card {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-inline-start: 4px solid var(--verdict, var(--line));
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+    overflow-wrap: anywhere;
+  }
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--verdict, var(--text));
+  }
+  .verdict-icon {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 1.6rem;
+    block-size: 1.6rem;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .verdict-correct {
+    --verdict: var(--success);
+  }
+  .verdict-partial {
+    --verdict: var(--warning);
+  }
+  .verdict-incorrect {
+    --verdict: var(--danger);
+  }
+  .verdict-ungraded {
+    --verdict: var(--text-muted);
+  }
+
+  /* Search results as passage cards. */
+  .search-results {
+    container-type: inline-size;
+  }
+  .passage-cards {
+    list-style: none;
+    padding: 0;
+    gap: var(--space-3);
+  }
+  .passage-card {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+    transition: border-color var(--duration);
+  }
+  .passage-card:focus-within,
+  .passage-card:hover {
+    border-color: var(--accent);
+  }
+  .passage-card h3 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .passage-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+}

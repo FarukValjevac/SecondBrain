@@ -1,36 +1,42 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"
-      th:replace="~{fragments/shell :: page(~{::title}, 'study', ~{::main}, ~{})}">
+      th:replace="~{fragments/shell :: page(~{::title}, 'study', ~{::main}, ~{::script})}">
 <head>
   <title>Flashcards | SecondBrain</title>
+  <script type="module" src="/js/study.js" th:src="@{/js/study.js}"></script>
 </head>
 <body>
-  <main id="content">
-    <div class="library-heading"><h1>Flashcards</h1></div>
+  <main id="content" class="study">
+    <div class="library-heading">
+      <h1>Flashcards</h1>
+      <p class="pill" th:text="|Cards due now: ${dueCount}|">Cards due now: 0</p>
+    </div>
     <section class="notice notice-info" role="status" th:if="${studyMessage != null}">
       <p th:text="${studyMessage}">Created 5 flashcards.</p>
     </section>
-    <p th:text="|Cards due now: ${dueCount}|">Cards due now: 0</p>
-    <section class="library-card" th:if="${card != null}" aria-labelledby="card-question">
-      <p class="hint" th:text="|From ${documentName}|">From notes.md</p>
+    <section class="flashcard" th:if="${card != null}" aria-labelledby="card-question" data-flashcard>
+      <p class="flashcard-source" th:text="|From ${documentName}|">From notes.md</p>
       <h2 id="card-question" th:text="${card.question}">Question</h2>
       <details class="flashcard-answer">
         <summary>Show answer</summary>
-        <p class="answer-text" th:text="${card.answer}">Answer</p>
-        <p th:if="${source != null}">
-          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}">Check the source passage</a>
-        </p>
-        <p class="hint" th:if="${source == null}">The source passage is no longer available.</p>
-        <form method="post" th:action="@{/flashcards/{id}/review(id=${card.cardId})}" class="flashcard-grades">
-          <fieldset>
-            <legend>How well did you remember it?</legend>
-            <button type="submit" name="grade" value="again">Again</button>
-            <button type="submit" name="grade" value="hard">Hard</button>
-            <button type="submit" name="grade" value="good">Good</button>
-            <button type="submit" name="grade" value="easy">Easy</button>
-          </fieldset>
-        </form>
+        <div class="flashcard-back">
+          <p class="answer-text" th:text="${card.answer}">Answer</p>
+          <p th:if="${source != null}">
+            <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}">Check the source passage</a>
+          </p>
+          <p class="hint" th:if="${source == null}">The source passage is no longer available.</p>
+          <form method="post" th:action="@{/flashcards/{id}/review(id=${card.cardId})}" class="flashcard-grades">
+            <fieldset>
+              <legend>How well did you remember it?</legend>
+              <button type="submit" name="grade" value="again" class="grade grade-again" aria-keyshortcuts="1"><kbd aria-hidden="true" hidden>1</kbd>Again</button>
+              <button type="submit" name="grade" value="hard" class="grade" aria-keyshortcuts="2"><kbd aria-hidden="true" hidden>2</kbd>Hard</button>
+              <button type="submit" name="grade" value="good" class="grade grade-good" aria-keyshortcuts="3"><kbd aria-hidden="true" hidden>3</kbd>Good</button>
+              <button type="submit" name="grade" value="easy" class="grade" aria-keyshortcuts="4"><kbd aria-hidden="true" hidden>4</kbd>Easy</button>
+            </fieldset>
+          </form>
+        </div>
       </details>
+      <p class="hint study-keys" hidden>Keyboard: <kbd>Space</kbd> shows the answer, then <kbd>1</kbd>–<kbd>4</kbd> grade it.</p>
     </section>
     <section class="library-card" th:if="${card == null}">
       <h2>Nothing due</h2>

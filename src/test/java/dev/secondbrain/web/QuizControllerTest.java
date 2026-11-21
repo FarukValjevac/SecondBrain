@@ -64,7 +64,11 @@ class QuizControllerTest {
                 .contains(
                         "1. Does &lt;b&gt;ArrayList&lt;/b&gt; allow duplicates?",
                         "name=\"answer-1\"",
-                        "Check my answers")
+                        "Check my answers",
+                        // Steps and progress are added by study.js; without it all fields show.
+                        "class=\"quiz-step\"",
+                        "class=\"quiz-progress\" hidden",
+                        "data-quiz")
                 .doesNotContain("<b>ArrayList", "Results");
     }
 
@@ -76,6 +80,10 @@ class QuizControllerTest {
                 .contains(
                         "Results",
                         "Cannot be graded from the sources",
+                        // The verdict is a word plus a symbol, never colour alone.
+                        "result-card verdict-ungraded",
+                        "class=\"verdict-icon\" aria-hidden=\"true\">?</span>",
+                        "0 of ",
                         "Your answer:",
                         "Check the source passage")
                 .doesNotContain("Check my answers");

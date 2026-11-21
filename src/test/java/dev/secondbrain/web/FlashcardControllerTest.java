@@ -86,7 +86,11 @@ class FlashcardControllerTest {
                         "The source passage is no longer available.",
                         "action=\"/flashcards/" + card.cardId() + "/review\"",
                         "value=\"again\"",
-                        "value=\"easy\"")
+                        "value=\"easy\"",
+                        // Keyboard grading is announced; its visible hints wait for study.js.
+                        "aria-keyshortcuts=\"1\"",
+                        "class=\"hint study-keys\" hidden",
+                        "src=\"/js/study.js\"")
                 .doesNotContain("<i>ArrayList");
     }
 
