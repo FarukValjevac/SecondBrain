@@ -1,11 +1,20 @@
 package dev.secondbrain.questions;
 
+import static dev.secondbrain.TestHttp.client;
+import static dev.secondbrain.TestHttp.encode;
+import static dev.secondbrain.TestHttp.formRequest;
+import static dev.secondbrain.TestHttp.get;
+import static dev.secondbrain.TestHttp.origin;
+import static dev.secondbrain.TestHttp.post;
+import static dev.secondbrain.TestHttp.ready;
+import static dev.secondbrain.TestHttp.upload;
+
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.PdfFixtures;
 import dev.secondbrain.embeddings.EmbeddingFailure;
 import dev.secondbrain.embeddings.EmbeddingModel;
@@ -27,18 +36,9 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
-import tools.jackson.databind.json.JsonMapper;
-
-import java.io.ByteArrayOutputStream;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -55,7 +55,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 /** Real servlet HTTP, persistence and event-produced indexes; no live model or user library. */
-@Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 class QuestionHttpIT {
     private static final String QUERY = "http-private-query-sentinel";
@@ -68,11 +67,7 @@ class QuestionHttpIT {
     private static final Pattern SOURCE_LINK =
             Pattern.compile("href=\"(/documents/[0-9a-f-]{36}/passages/[0-9a-f-]{36})\"");
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path storage;
 
@@ -96,8 +91,8 @@ class QuestionHttpIT {
                 var client = client()) {
             var origin = origin(context);
             assertThat(get(client, origin, "/").body()).contains("href=\"/questions\"");
-            var alpha = upload(client, origin, "ALPHA", pdf);
-            var beta = upload(client, origin, "BETA", false);
+            var alpha = uploadSample(client, origin, "ALPHA", pdf);
+            var beta = uploadSample(client, origin, "BETA", false);
             ready(context, 2);
             int embeddings = models.queryCalls.get();
             assertThat(get(client, origin, "/questions?q=" + encode(QUERY)).body())
@@ -185,7 +180,7 @@ class QuestionHttpIT {
         try (var context = start(models);
                 var client = client()) {
             var origin = origin(context);
-            upload(client, origin, "ALPHA", false);
+            uploadSample(client, origin, "ALPHA", false);
             ready(context, 1);
             models.mode.set(mode);
             var response = ask(client, origin, QUERY + " ALPHA", "all", "");
@@ -208,7 +203,7 @@ class QuestionHttpIT {
         try (var context = start(models);
                 var client = client()) {
             var origin = origin(context);
-            var id = upload(client, origin, "ALPHA", false);
+            var id = uploadSample(client, origin, "ALPHA", false);
             ready(context, 1);
             models.mode.set(Mode.BLOCKED);
             var request =
@@ -321,62 +316,22 @@ class QuestionHttpIT {
                                             Clock.tick(Clock.systemUTC(), Duration.ofNanos(1000)));
                         })
                 .run(
-                        "--spring.config.import=",
-                        "--secondbrain.telemetry.otlp-endpoint=",
-                        "--server.address=127.0.0.1",
-                        "--server.port=0",
-                        "--secondbrain.questions.enabled=true",
-                        "--secondbrain.embeddings.enabled=true",
-                        "--secondbrain.embeddings.batch-size=1",
-                        "--secondbrain.events.polling-enabled=true",
-                        "--secondbrain.events.concurrency=1",
-                        "--secondbrain.events.claim-batch-size=1",
-                        "--secondbrain.events.poll-interval=50ms",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.reconcile-enabled=false",
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
-    }
-
-    private static HttpClient client() {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-    }
-
-    private static URI origin(ConfigurableApplicationContext context) {
-        return URI.create(
-                "http://127.0.0.1:"
-                        + context.getEnvironment()
-                                .getRequiredProperty("local.server.port", Integer.class));
-    }
-
-    private static HttpResponse<String> get(HttpClient client, URI origin, String path)
-            throws Exception {
-        return client.send(
-                HttpRequest.newBuilder(origin.resolve(path))
-                        .timeout(Duration.ofSeconds(15))
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
-    }
-
-    private static HttpResponse<String> post(
-            HttpClient client, URI origin, String path, String body) throws Exception {
-        return client.send(formRequest(origin, path, body), HttpResponse.BodyHandlers.ofString());
-    }
-
-    private static HttpRequest formRequest(URI origin, String path, String body) {
-        return HttpRequest.newBuilder(origin.resolve(path))
-                .timeout(Duration.ofSeconds(15))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
+                        POSTGRES.arguments(
+                                "--secondbrain.telemetry.otlp-endpoint=",
+                                "--server.address=127.0.0.1",
+                                "--server.port=0",
+                                "--secondbrain.questions.enabled=true",
+                                "--secondbrain.embeddings.enabled=true",
+                                "--secondbrain.embeddings.batch-size=1",
+                                "--secondbrain.events.polling-enabled=true",
+                                "--secondbrain.events.concurrency=1",
+                                "--secondbrain.events.claim-batch-size=1",
+                                "--secondbrain.events.poll-interval=50ms",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.reconcile-enabled=false",
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     private static HttpResponse<String> ask(
@@ -389,13 +344,8 @@ class QuestionHttpIT {
                 "q=" + encode(text) + "&scope=" + scope + selected + "&action=ask");
     }
 
-    private static String encode(String text) {
-        return URLEncoder.encode(text, StandardCharsets.UTF_8);
-    }
-
-    private static UUID upload(HttpClient client, URI origin, String marker, boolean pdf)
+    private static UUID uploadSample(HttpClient client, URI origin, String marker, boolean pdf)
             throws Exception {
-        var boundary = "question-http-boundary";
         byte[] data =
                 pdf
                         ? PdfFixtures.text(
@@ -404,41 +354,7 @@ class QuestionHttpIT {
                                 "ALPHA " + SOURCE + " page three")
                         : (marker + " " + SOURCE + " <script>study()</script>\n")
                                 .getBytes(StandardCharsets.UTF_8);
-        var body = new ByteArrayOutputStream();
-        body.write(
-                ("--"
-                                + boundary
-                                + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
-                                + NAME
-                                + marker
-                                + (pdf ? ".pdf" : ".md")
-                                + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-        body.write(data);
-        body.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        var request =
-                HttpRequest.newBuilder(origin.resolve("/documents"))
-                        .timeout(Duration.ofSeconds(15))
-                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
-                        .build();
-        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).isEqualTo(202);
-        return UUID.fromString(
-                new JsonMapper().readTree(response.body()).path("documentId").stringValue());
-    }
-
-    private static void ready(ConfigurableApplicationContext context, int count) {
-        await().atMost(Duration.ofSeconds(20))
-                .untilAsserted(
-                        () ->
-                                assertThat(
-                                                context.getBean(JdbcClient.class)
-                                                        .sql(
-                                                                "SELECT count(*) FROM documents WHERE active_indexing_version IS NOT NULL")
-                                                        .query(Integer.class)
-                                                        .single())
-                                        .isEqualTo(count));
+        return upload(client, origin, NAME + marker + (pdf ? ".pdf" : ".md"), data);
     }
 
     private static int eventCount(ConfigurableApplicationContext context) {

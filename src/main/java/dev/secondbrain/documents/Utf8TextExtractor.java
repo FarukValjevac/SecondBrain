@@ -2,7 +2,6 @@ package dev.secondbrain.documents;
 
 import dev.secondbrain.documents.TextExtractionException.Reason;
 
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -34,7 +33,7 @@ final class Utf8TextExtractor {
                         .onMalformedInput(CodingErrorAction.REPORT)
                         .onUnmappableCharacter(CodingErrorAction.REPORT);
         // Closing this reader would also close the caller-owned stream.
-        var reader = new InputStreamReader(new BoundedInput(input, maximumInputBytes), decoder);
+        var reader = new InputStreamReader(new LimitedInput(input, maximumInputBytes), decoder);
         var lines = new ArrayList<ExtractedText.Line>();
         var line = new StringBuilder();
         var buffer = new char[4096];
@@ -43,7 +42,7 @@ final class Utf8TextExtractor {
         var containsText = false;
         try {
             while (true) {
-                checkInterruption();
+                TextLines.checkInterruption();
                 var count = reader.read(buffer);
                 if (count < 0) {
                     break;
@@ -78,7 +77,7 @@ final class Utf8TextExtractor {
         } catch (IOException unavailable) {
             throw new TextExtractionException(Reason.SOURCE_UNAVAILABLE, unavailable);
         }
-        checkInterruption();
+        TextLines.checkInterruption();
         if (!containsText) {
             throw new TextExtractionException(Reason.EMPTY_TEXT);
         }
@@ -93,47 +92,5 @@ final class Utf8TextExtractor {
         }
         lines.add(new ExtractedText.Line(lines.size() + 1, line.toString()));
         line.setLength(0);
-    }
-
-    private static void checkInterruption() {
-        if (Thread.currentThread().isInterrupted()) {
-            throw new TextExtractionException(Reason.CANCELLED);
-        }
-    }
-
-    /** Read at most the byte budget plus one byte to distinguish exact-limit EOF. */
-    private static final class BoundedInput extends FilterInputStream {
-        private long remaining;
-
-        private BoundedInput(InputStream input, long maximumBytes) {
-            super(input);
-            remaining = maximumBytes;
-        }
-
-        @Override
-        public int read() throws IOException {
-            var value = in.read();
-            if (value >= 0) {
-                consume(1);
-            }
-            return value;
-        }
-
-        @Override
-        public int read(byte[] bytes, int offset, int length) throws IOException {
-            var allowed = remaining >= length ? length : (int) remaining + 1;
-            var count = in.read(bytes, offset, allowed);
-            if (count > 0) {
-                consume(count);
-            }
-            return count;
-        }
-
-        private void consume(int count) {
-            if (count > remaining) {
-                throw new TextExtractionException(Reason.INPUT_TOO_LARGE);
-            }
-            remaining -= count;
-        }
     }
 }

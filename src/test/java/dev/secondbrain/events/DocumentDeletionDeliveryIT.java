@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentCleanupService;
 import dev.secondbrain.documents.DocumentDeletionService;
@@ -26,9 +27,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -48,14 +46,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Exercises real document handlers through the package-private delivery/lease boundary. */
-@Testcontainers
 class DocumentDeletionDeliveryIT {
     private static final String DELETE_HANDLER = "documents.delete.v1";
     private static final byte[] CONTENT = "Study notes\nCafé 📚\n".getBytes(StandardCharsets.UTF_8);
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer("pgvector/pgvector:0.8.7-pg18-bookworm");
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path storage;
     private final MutableClock clock =
@@ -889,29 +884,26 @@ class DocumentDeletionDeliveryIT {
                                                         "deletionTestEmbeddings", embeddings);
                                 })
                         .run(
-                                "--spring.config.import=",
-                                "--secondbrain.events.enabled=true",
-                                "--secondbrain.documents.extraction.enabled=true",
-                                "--secondbrain.documents.deletion.enabled=true",
-                                "--secondbrain.documents.indexing.passages.enabled=true",
-                                "--secondbrain.events.polling-enabled=" + recovery,
-                                "--secondbrain.events.poll-interval=30s",
-                                "--secondbrain.events.lease-duration=90s",
-                                "--secondbrain.questions.enabled=false",
-                                "--secondbrain.telemetry.otlp-endpoint=",
-                                "--secondbrain.documents.cleanup.enabled=false",
-                                "--secondbrain.documents.indexing.enabled=" + indexed,
-                                "--secondbrain.embeddings.enabled=" + indexed,
-                                "--secondbrain.documents.indexing.reconcile-enabled=false",
-                                "--secondbrain.documents.extraction.reconcile-enabled=false",
-                                "--secondbrain.documents.deletion.reconcile-enabled=false",
-                                "--secondbrain.events.initial-backoff=1s",
-                                "--secondbrain.events.max-backoff=1s",
-                                "--secondbrain.events.max-attempts=" + (recovery ? 2 : 5),
-                                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                                "--spring.datasource.username=" + POSTGRES.getUsername(),
-                                "--spring.datasource.password=" + POSTGRES.getPassword(),
-                                "--secondbrain.documents.storage-directory=" + storage);
+                                POSTGRES.arguments(
+                                        "--secondbrain.events.enabled=true",
+                                        "--secondbrain.documents.extraction.enabled=true",
+                                        "--secondbrain.documents.deletion.enabled=true",
+                                        "--secondbrain.documents.indexing.passages.enabled=true",
+                                        "--secondbrain.events.polling-enabled=" + recovery,
+                                        "--secondbrain.events.poll-interval=30s",
+                                        "--secondbrain.events.lease-duration=90s",
+                                        "--secondbrain.questions.enabled=false",
+                                        "--secondbrain.telemetry.otlp-endpoint=",
+                                        "--secondbrain.documents.cleanup.enabled=false",
+                                        "--secondbrain.documents.indexing.enabled=" + indexed,
+                                        "--secondbrain.embeddings.enabled=" + indexed,
+                                        "--secondbrain.documents.indexing.reconcile-enabled=false",
+                                        "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                        "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                        "--secondbrain.events.initial-backoff=1s",
+                                        "--secondbrain.events.max-backoff=1s",
+                                        "--secondbrain.events.max-attempts=" + (recovery ? 2 : 5),
+                                        "--secondbrain.documents.storage-directory=" + storage));
         if (recovery) context.getBean(DurableEventWorker.class).stop();
         return context;
     }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventHandler;
 import dev.secondbrain.events.EventPublisher;
@@ -31,10 +32,6 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -54,13 +51,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-@Testcontainers
 class DocumentDeletionIT {
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     private static final byte[] CONTENT =
             "# Study notes\nCafé 📚\n".getBytes(StandardCharsets.UTF_8);
@@ -770,22 +762,19 @@ class DocumentDeletionIT {
                         SecondBrainApplication.class, CleanupConfiguration.class)
                 .web(WebApplicationType.NONE)
                 .run(
-                        "--spring.config.import=",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.enabled=false",
-                        "--secondbrain.events.polling-enabled=" + polling,
-                        "--secondbrain.events.poll-interval=50ms",
-                        "--secondbrain.events.initial-backoff=1s",
-                        "--secondbrain.events.max-backoff=1s",
-                        "--secondbrain.events.max-attempts=5",
-                        "--secondbrain.documents.extraction.enabled=" + !polling,
-                        "--secondbrain.documents.deletion.enabled=" + cleanup,
-                        "--secondbrain.documents.deletion.reconcile-enabled=" + reconcile,
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+                        POSTGRES.arguments(
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.enabled=false",
+                                "--secondbrain.events.polling-enabled=" + polling,
+                                "--secondbrain.events.poll-interval=50ms",
+                                "--secondbrain.events.initial-backoff=1s",
+                                "--secondbrain.events.max-backoff=1s",
+                                "--secondbrain.events.max-attempts=5",
+                                "--secondbrain.documents.extraction.enabled=" + !polling,
+                                "--secondbrain.documents.deletion.enabled=" + cleanup,
+                                "--secondbrain.documents.deletion.reconcile-enabled=" + reconcile,
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     private record Fixture(DocumentMetadata document, EventEnvelope accepted) {}

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentIndexingService;
 import dev.secondbrain.documents.DocumentInspectionService;
@@ -40,10 +41,6 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -66,14 +63,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 /** Real HTTP, storage, database, poller and stage handlers; inference never leaves the JVM. */
-@Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 class DocumentIndexingWorkflowIT {
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     private static final List<String> STAGES =
             List.of(
@@ -494,26 +486,23 @@ class DocumentIndexingWorkflowIT {
                                     .registerSingleton("workflowTracer", traces.tracer);
                         })
                 .run(
-                        "--spring.config.import=",
-                        "--server.address=127.0.0.1",
-                        "--server.port=0",
-                        "--secondbrain.telemetry.otlp-endpoint=",
-                        "--management.tracing.sampling.probability=1.0",
-                        "--secondbrain.embeddings.enabled=true",
-                        "--secondbrain.embeddings.batch-size=1",
-                        "--secondbrain.events.concurrency=1",
-                        "--secondbrain.events.claim-batch-size=1",
-                        "--secondbrain.events.poll-interval=50ms",
-                        "--secondbrain.events.polling-enabled=true",
-                        "--secondbrain.events.max-attempts=2",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.reconcile-enabled=false",
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+                        POSTGRES.arguments(
+                                "--server.address=127.0.0.1",
+                                "--server.port=0",
+                                "--secondbrain.telemetry.otlp-endpoint=",
+                                "--management.tracing.sampling.probability=1.0",
+                                "--secondbrain.embeddings.enabled=true",
+                                "--secondbrain.embeddings.batch-size=1",
+                                "--secondbrain.events.concurrency=1",
+                                "--secondbrain.events.claim-batch-size=1",
+                                "--secondbrain.events.poll-interval=50ms",
+                                "--secondbrain.events.polling-enabled=true",
+                                "--secondbrain.events.max-attempts=2",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.reconcile-enabled=false",
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     enum Format {

@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentProcessingService;
 
@@ -37,10 +38,6 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -72,16 +69,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * Real adapter HTTP + durable workers + PostgreSQL; all inputs, tokens and provider replies are
  * synthetic.
  */
-@Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 class ProviderRecoveryIT {
     private static final String PRIVATE = "recovery-private-sentinel";
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path storage;
     private final TestClock clock = new TestClock();
@@ -371,38 +363,35 @@ class ProviderRecoveryIT {
                                     .registerBeanDefinition("testEmbeddingProvider", provider);
                         })
                 .run(
-                        "--spring.config.import=",
-                        "--secondbrain.telemetry.otlp-endpoint=",
-                        "--spring.main.web-application-type=none",
-                        "--secondbrain.events.enabled=true",
-                        "--secondbrain.events.polling-enabled=true",
-                        "--secondbrain.questions.enabled=false",
-                        "--secondbrain.documents.extraction.enabled=true",
-                        "--secondbrain.documents.indexing.enabled=true",
-                        "--secondbrain.documents.indexing.passages.enabled=true",
-                        "--management.otlp.metrics.export.enabled=false",
-                        "--management.tracing.export.otlp.enabled=false",
-                        "--management.logging.export.otlp.enabled=false",
-                        "--secondbrain.embeddings.enabled=true",
-                        "--secondbrain.embeddings.batch-size=1",
-                        "--secondbrain.events.concurrency=1",
-                        "--secondbrain.events.claim-batch-size=1",
-                        "--secondbrain.events.poll-interval=50ms",
-                        "--secondbrain.events.lease-duration=3s",
-                        "--secondbrain.events.execution-timeout=10s",
-                        "--secondbrain.events.transaction-timeout=1s",
-                        "--secondbrain.events.max-attempts=2",
-                        "--secondbrain.events.initial-backoff=100ms",
-                        "--secondbrain.events.max-backoff=100ms",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.reconcile-enabled=false",
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--management.tracing.sampling.probability=1",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+                        POSTGRES.arguments(
+                                "--secondbrain.telemetry.otlp-endpoint=",
+                                "--spring.main.web-application-type=none",
+                                "--secondbrain.events.enabled=true",
+                                "--secondbrain.events.polling-enabled=true",
+                                "--secondbrain.questions.enabled=false",
+                                "--secondbrain.documents.extraction.enabled=true",
+                                "--secondbrain.documents.indexing.enabled=true",
+                                "--secondbrain.documents.indexing.passages.enabled=true",
+                                "--management.otlp.metrics.export.enabled=false",
+                                "--management.tracing.export.otlp.enabled=false",
+                                "--management.logging.export.otlp.enabled=false",
+                                "--secondbrain.embeddings.enabled=true",
+                                "--secondbrain.embeddings.batch-size=1",
+                                "--secondbrain.events.concurrency=1",
+                                "--secondbrain.events.claim-batch-size=1",
+                                "--secondbrain.events.poll-interval=50ms",
+                                "--secondbrain.events.lease-duration=3s",
+                                "--secondbrain.events.execution-timeout=10s",
+                                "--secondbrain.events.transaction-timeout=1s",
+                                "--secondbrain.events.max-attempts=2",
+                                "--secondbrain.events.initial-backoff=100ms",
+                                "--secondbrain.events.max-backoff=100ms",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.reconcile-enabled=false",
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--management.tracing.sampling.probability=1",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     private UUID upload(ConfigurableApplicationContext context, String marker) throws Exception {

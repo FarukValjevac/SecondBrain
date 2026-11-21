@@ -1,6 +1,7 @@
 package dev.secondbrain.events;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 
 import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
@@ -20,9 +21,6 @@ import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -42,15 +40,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
-@Testcontainers
 class DurableEventsIT {
     private static final EventEnvelope.Type ACCEPTED = new EventEnvelope.Type("ProbeAccepted", 1);
     private static final EventEnvelope.Type COMPLETED = new EventEnvelope.Type("ProbeCompleted", 1);
     private static final String TRACE = "00-" + "1".repeat(32) + "-" + "2".repeat(16) + "-01";
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer("pgvector/pgvector:0.8.7-pg18-bookworm");
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     private ConfigurableApplicationContext context;
     private JdbcClient jdbc;
@@ -814,26 +809,23 @@ class DurableEventsIT {
                 new SpringApplicationBuilder(SecondBrainApplication.class, ProbeConfiguration.class)
                         .web(WebApplicationType.NONE)
                         .run(
-                                "--spring.config.import=",
-                                "--secondbrain.documents.cleanup.enabled=false",
-                                "--secondbrain.documents.indexing.enabled=false",
-                                // Probe fixtures reset event tables; document schedulers must not
-                                // race them.
-                                "--secondbrain.documents.extraction.reconcile-enabled=false",
-                                "--secondbrain.documents.deletion.reconcile-enabled=false",
-                                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                                "--spring.datasource.username=" + POSTGRES.getUsername(),
-                                "--spring.datasource.password=" + POSTGRES.getPassword(),
-                                "--secondbrain.events.enabled=true",
-                                "--secondbrain.events.polling-enabled=" + polling,
-                                "--secondbrain.events.poll-interval=50ms",
-                                "--secondbrain.events.lease-duration=2s",
-                                "--secondbrain.events.execution-timeout=4s",
-                                "--secondbrain.events.transaction-timeout=1s",
-                                "--secondbrain.events.initial-backoff=100ms",
-                                "--secondbrain.events.max-backoff=1s",
-                                "--secondbrain.events.max-attempts=3",
-                                "--secondbrain.events.cleanup-batch-size=1");
+                                POSTGRES.arguments(
+                                        "--secondbrain.documents.cleanup.enabled=false",
+                                        "--secondbrain.documents.indexing.enabled=false", // Probe
+                                        // fixtures reset event tables; document schedulers must not
+                                        // race them.
+                                        "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                        "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                        "--secondbrain.events.enabled=true",
+                                        "--secondbrain.events.polling-enabled=" + polling,
+                                        "--secondbrain.events.poll-interval=50ms",
+                                        "--secondbrain.events.lease-duration=2s",
+                                        "--secondbrain.events.execution-timeout=4s",
+                                        "--secondbrain.events.transaction-timeout=1s",
+                                        "--secondbrain.events.initial-backoff=100ms",
+                                        "--secondbrain.events.max-backoff=1s",
+                                        "--secondbrain.events.max-attempts=3",
+                                        "--secondbrain.events.cleanup-batch-size=1"));
         jdbc = context.getBean(JdbcClient.class);
         store = context.getBean(JdbcEventStore.class);
         publisher = context.getBean(EventPublisher.class);

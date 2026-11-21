@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentIndexingService;
@@ -25,10 +26,6 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -43,17 +40,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Real worker boundaries and PostgreSQL; inference is deterministic and never leaves this JVM. */
-@Testcontainers
 class DocumentEmbeddingDeliveryIT {
     private static final String HANDLER = "documents.embed-passages.v1";
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                            DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                                    .asCompatibleSubstituteFor("postgres"))
-                    // This disposable local fixture has no TLS configuration or certificates.
-                    .withUrlParam("sslmode", "disable");
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path storage;
     private final MutableClock clock =
@@ -554,25 +544,22 @@ class DocumentEmbeddingDeliveryIT {
                                     .registerSingleton("controlledEmbeddingProvider", provider);
                         })
                 .run(
-                        "--spring.config.import=",
-                        "--secondbrain.questions.enabled=false",
-                        "--secondbrain.events.enabled=true",
-                        "--secondbrain.documents.extraction.enabled=true",
-                        "--secondbrain.documents.indexing.enabled=true",
-                        "--secondbrain.documents.indexing.passages.enabled=true",
-                        "--secondbrain.embeddings.enabled=" + enabled,
-                        "--secondbrain.embeddings.batch-size=1",
-                        "--secondbrain.events.polling-enabled=false",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--secondbrain.events.initial-backoff=1s",
-                        "--secondbrain.events.max-backoff=1s",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+                        POSTGRES.arguments(
+                                "--secondbrain.questions.enabled=false",
+                                "--secondbrain.events.enabled=true",
+                                "--secondbrain.documents.extraction.enabled=true",
+                                "--secondbrain.documents.indexing.enabled=true",
+                                "--secondbrain.documents.indexing.passages.enabled=true",
+                                "--secondbrain.embeddings.enabled=" + enabled,
+                                "--secondbrain.embeddings.batch-size=1",
+                                "--secondbrain.events.polling-enabled=false",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--secondbrain.events.initial-backoff=1s",
+                                "--secondbrain.events.max-backoff=1s",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     enum Stale {

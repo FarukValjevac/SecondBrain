@@ -2,7 +2,6 @@ package dev.secondbrain.documents;
 
 import dev.secondbrain.documents.TextExtractionException.Reason;
 
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
@@ -51,7 +50,7 @@ final class DocxTextExtractor {
                 // Encrypted or legacy files are not zip archives and contain no entries.
                 if (entry == null) break;
                 if (BODY.equals(entry.getName()))
-                    return TextLines.split(body(new BoundedEntry(zip, maximumBodyBytes)));
+                    return TextLines.split(body(new LimitedInput(zip, maximumBodyBytes)));
             }
         } catch (ZipException | XMLStreamException corrupt) {
             // The XML reader may wrap a budget failure raised while it was reading input.
@@ -96,39 +95,5 @@ final class DocxTextExtractor {
             reader.close();
         }
         return text.toString();
-    }
-
-    /** Fails once the decompressed body exceeds its budget; a zip bomb stops early. */
-    private static final class BoundedEntry extends FilterInputStream {
-        private long remaining;
-
-        private BoundedEntry(InputStream input, long maximumBytes) {
-            super(input);
-            remaining = maximumBytes;
-        }
-
-        @Override
-        public int read() throws IOException {
-            var value = in.read();
-            if (value >= 0) consume(1);
-            return value;
-        }
-
-        @Override
-        public int read(byte[] bytes, int offset, int length) throws IOException {
-            var count = in.read(bytes, offset, (int) Math.min(length, remaining + 1));
-            if (count > 0) consume(count);
-            return count;
-        }
-
-        private void consume(int count) {
-            if (count > remaining) throw new TextExtractionException(Reason.INPUT_TOO_LARGE);
-            remaining -= count;
-        }
-
-        @Override
-        public void close() {
-            // The zip stream belongs to the caller.
-        }
     }
 }

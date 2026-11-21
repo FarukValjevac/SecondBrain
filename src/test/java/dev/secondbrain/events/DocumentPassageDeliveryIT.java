@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentIndexingService;
@@ -23,10 +24,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -38,15 +35,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /** Exercises the real registered stage and acknowledgment boundary against isolated PostgreSQL. */
-@Testcontainers
 class DocumentPassageDeliveryIT {
     private static final String HANDLER = "documents.prepare-passages.v1";
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path storage;
     private final MutableClock clock =
@@ -584,25 +576,22 @@ class DocumentPassageDeliveryIT {
                                 context.getBeanFactory()
                                         .registerSingleton("passageTestClock", clock))
                 .run(
-                        "--spring.config.import=",
-                        // Keep this stage-only suite independent of locally enabled model flags.
-                        "--secondbrain.embeddings.enabled=false",
-                        "--secondbrain.questions.enabled=false",
-                        "--secondbrain.events.enabled=true",
-                        "--secondbrain.documents.extraction.enabled=true",
-                        "--secondbrain.documents.indexing.enabled=true",
-                        "--secondbrain.events.polling-enabled=" + polling,
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.passages.enabled=" + consumer,
-                        "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--secondbrain.events.initial-backoff=1s",
-                        "--secondbrain.events.max-backoff=1s",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+                        POSTGRES.arguments( // Keep this stage-only suite independent of locally
+                                // enabled model flags.
+                                "--secondbrain.embeddings.enabled=false",
+                                "--secondbrain.questions.enabled=false",
+                                "--secondbrain.events.enabled=true",
+                                "--secondbrain.documents.extraction.enabled=true",
+                                "--secondbrain.documents.indexing.enabled=true",
+                                "--secondbrain.events.polling-enabled=" + polling,
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.passages.enabled=" + consumer,
+                                "--secondbrain.documents.indexing.reconcile-enabled=" + reconcile,
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--secondbrain.events.initial-backoff=1s",
+                                "--secondbrain.events.max-backoff=1s",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     enum Format {

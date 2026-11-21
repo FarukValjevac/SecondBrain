@@ -2,6 +2,7 @@ package dev.secondbrain.search;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.EvaluationDocuments;
 import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingProvider;
@@ -16,23 +17,14 @@ import io.micrometer.observation.ObservationRegistry;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
 /** Real source revalidation over owned pgvector fixtures; no hosted inference or workers. */
-@Testcontainers
 class ReleaseGroundingIT {
-    @Container
-    static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse(RetrievalEvaluation.DATABASE_IMAGE)
-                            .asCompatibleSubstituteFor("postgres"));
+    static final TestDatabase POSTGRES = TestDatabase.create();
 
     @Test
     void evaluatesPublishedPdfEvidenceAndRechecksDeletionThroughTheProductionAnswerService()
