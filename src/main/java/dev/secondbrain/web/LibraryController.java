@@ -2,6 +2,7 @@ package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.documents.FolderSync;
 import dev.secondbrain.questions.QuestionAnswerService;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -29,6 +30,7 @@ class LibraryController {
     private final ObjectProvider<DocumentInspectionService> documents;
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
+    private final ObjectProvider<FolderSync> folderSync;
 
     LibraryController(
             @Value("${secondbrain.events.enabled:true}") boolean uploadsEnabled,
@@ -36,13 +38,15 @@ class LibraryController {
             @Value("${secondbrain.documents.max-files-per-upload:10}") int maximumFilesPerUpload,
             ObjectProvider<DocumentInspectionService> documents,
             ObjectProvider<DocumentProcessingService> processing,
-            ObjectProvider<QuestionAnswerService> answers) {
+            ObjectProvider<QuestionAnswerService> answers,
+            ObjectProvider<FolderSync> folderSync) {
         this.uploadsEnabled = uploadsEnabled;
         this.maximumUploadSize = maximumUploadSize;
         this.maximumFilesPerUpload = maximumFilesPerUpload;
         this.documents = Objects.requireNonNull(documents, "documents");
         this.processing = Objects.requireNonNull(processing, "processing");
         this.answers = Objects.requireNonNull(answers, "answers");
+        this.folderSync = Objects.requireNonNull(folderSync, "folderSync");
     }
 
     @GetMapping("/")
@@ -53,6 +57,8 @@ class LibraryController {
         model.addAttribute("maximumFilesPerUpload", maximumFilesPerUpload);
         model.addAttribute("libraryAvailable", uploadsEnabled);
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
+        var sync = folderSync.getIfAvailable();
+        if (sync != null) model.addAttribute("folderSync", sync.status());
         if (uploadsEnabled) {
             var service = documents.getIfAvailable();
             if (service == null) throw new IllegalStateException("Document service unavailable");
