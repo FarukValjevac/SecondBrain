@@ -28,6 +28,16 @@
     <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">
       <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>
     </section>
+    <section th:if="${!related.isEmpty()}" aria-labelledby="related-title">
+      <h2 id="related-title">Related documents</h2>
+      <ul class="related-list">
+        <li th:each="item : ${related}">
+          <a th:href="@{/documents/{id}(id=${item.documentId})}" th:text="${item.name}">Related document</a>
+          <p class="search-excerpt" th:text="${#strings.abbreviate(item.match.text, 240)}">Closest passage</p>
+          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${item.documentId},passageId=${item.match.passageId})}">Open passage<span class="visually-hidden" th:text="| from ${item.name}|"> from document</span></a>
+        </li>
+      </ul>
+    </section>
     <section th:if="${document.state.name() == 'EXTRACTED'}" aria-labelledby="text-title">
       <h2 id="text-title">Extracted text</h2>
       <p>Text is extracted. Search uses completed indexes when embeddings are enabled.</p>

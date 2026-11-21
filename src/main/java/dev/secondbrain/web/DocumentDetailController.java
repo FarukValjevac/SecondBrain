@@ -4,6 +4,9 @@ import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
 import dev.secondbrain.questions.QuestionAnswerService;
+import dev.secondbrain.search.SearchFailure;
+import dev.secondbrain.search.SearchResult;
+import dev.secondbrain.search.SearchService;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,8 +30,10 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Controller
 @ConditionalOnProperty(
@@ -40,16 +45,19 @@ class DocumentDetailController {
     private final DocumentDeletionService deletion;
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
+    private final ObjectProvider<SearchService> search;
 
     DocumentDetailController(
             DocumentInspectionService documents,
             DocumentDeletionService deletion,
             ObjectProvider<DocumentProcessingService> processing,
-            ObjectProvider<QuestionAnswerService> answers) {
+            ObjectProvider<QuestionAnswerService> answers,
+            ObjectProvider<SearchService> search) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
         this.answers = answers;
+        this.search = search;
     }
 
     @GetMapping("/documents/{id}")
@@ -62,7 +70,34 @@ class DocumentDetailController {
         var service = processing.getIfAvailable();
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
+        model.addAttribute("related", related(id));
         return "document";
+    }
+
+    /** Related documents are optional: without search or on a read failure the page omits them. */
+    private List<RelatedDocument> related(UUID id) {
+        var service = search.getIfAvailable();
+        if (service == null) return List.of();
+        try {
+            var matches = service.related(id).matches();
+            var names =
+                    documents.names(
+                            matches.stream()
+                                    .map(SearchResult.Match::documentId)
+                                    .collect(Collectors.toSet()));
+            // A document deleted since the similarity read has no name and is dropped.
+            return matches.stream()
+                    .filter(match -> names.containsKey(match.documentId()))
+                    .map(
+                            match ->
+                                    new RelatedDocument(
+                                            match.documentId(),
+                                            names.get(match.documentId()),
+                                            match))
+                    .toList();
+        } catch (SearchFailure | DataAccessException | TransactionException unavailable) {
+            return List.of();
+        }
     }
 
     @GetMapping("/documents/{id}/delete")
