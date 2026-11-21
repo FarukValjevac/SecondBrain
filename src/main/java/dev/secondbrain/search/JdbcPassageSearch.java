@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -169,6 +170,43 @@ final class JdbcPassageSearch {
                     """)
                                                 .param("document", documentId)
                                                 .param("minimum", minimumScore)
+                                                .param("limit", limit)
+                                                .query(JdbcPassageSearch::match)
+                                                .list())));
+    }
+
+    /**
+     * A document's own passages closest to the mean of its stored vectors, best first. These are
+     * the passages most typical of the document, chosen without any provider call.
+     */
+    SearchResult representative(UUID documentId, EmbeddingModel model, int limit) {
+        Objects.requireNonNull(documentId, "documentId");
+        Objects.requireNonNull(model, "model");
+        if (limit < 1) throw new IllegalArgumentException("Limit must be positive");
+        return Objects.requireNonNull(
+                reads.execute(
+                        status ->
+                                new SearchResult(
+                                        eligible(
+                                                        SearchScope.selected(Set.of(documentId)),
+                                                        model,
+                                                        """
+                    , source AS (
+                        SELECT avg(v.embedding) AS centroid
+                        FROM eligible_indexes i JOIN document_embeddings v
+                          ON v.document_id = i.document_id AND v.indexing_version = i.indexing_version
+                    )
+                    SELECT p.passage_id, p.document_id, p.indexing_version, p.sequence_number,
+                           p.passage_text, p.start_line, p.start_column, p.end_line, p.end_column, p.page_number,
+                           1.0 - (v.embedding <=> s.centroid) AS score
+                    FROM eligible_indexes i JOIN document_passages p
+                      ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
+                    JOIN document_embeddings v ON v.passage_id = p.passage_id
+                      AND v.document_id = p.document_id AND v.indexing_version = p.indexing_version
+                    CROSS JOIN source s
+                    WHERE s.centroid IS NOT NULL
+                    ORDER BY score DESC NULLS LAST, p.sequence_number LIMIT :limit
+                    """)
                                                 .param("limit", limit)
                                                 .query(JdbcPassageSearch::match)
                                                 .list())));

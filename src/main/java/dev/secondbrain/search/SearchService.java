@@ -92,6 +92,22 @@ public final class SearchService {
         }
     }
 
+    /**
+     * The passages most typical of one document, best first, from stored vectors only. Empty when
+     * the document has no active complete index or is not visible.
+     */
+    public SearchResult representative(UUID documentId, int limit) {
+        Objects.requireNonNull(documentId, "documentId");
+        if (TransactionSynchronizationManager.isActualTransactionActive())
+            throw new IllegalStateException(
+                    "Representative passages are read outside a transaction");
+        try {
+            return passages.representative(documentId, embedding.model(), limit);
+        } catch (DataAccessException | TransactionException unavailable) {
+            throw new SearchFailure(SearchFailure.Reason.DATABASE_UNAVAILABLE, null, unavailable);
+        }
+    }
+
     private static void checkInterrupted() {
         if (Thread.currentThread().isInterrupted())
             throw new SearchFailure(SearchFailure.Reason.INTERRUPTED, null, null);

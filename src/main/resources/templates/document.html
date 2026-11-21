@@ -28,6 +28,26 @@
     <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">
       <h2>Processing information</h2><p th:text="${document.message}">Processing failed.</p>
     </section>
+    <section class="notice notice-success" role="status" th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>
+    <section th:if="${summariesEnabled}" aria-labelledby="summary-title">
+      <h2 id="summary-title">Summary</h2>
+      <th:block th:if="${summary != null}">
+        <p class="answer-text"><th:block th:each="segment : ${summarySegments}"><a th:if="${segment.marker.isPresent()}" class="citation-marker" th:href="|#summary-source-${segment.marker.get()}|"><span th:text="${segment.text}">[1]</span><span class="visually-hidden" th:text="| source ${segment.marker.get()}|"> source 1</span></a><span th:unless="${segment.marker.isPresent()}" th:text="${segment.text}">Summary text</span></th:block></p>
+        <p class="hint">Generated from the passages below. Check them before relying on the summary.</p>
+        <ol class="related-list">
+          <li th:each="source, position : ${summary.sources}" th:id="|summary-source-${position.count}|">
+            <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}"
+               th:text="|Lines ${source.location.startLine}–${source.location.endLine}|">Lines 1–2</a>
+            <p class="search-excerpt" th:text="${#strings.abbreviate(source.text, 240)}">Passage</p>
+          </li>
+        </ol>
+      </th:block>
+      <p class="hint" th:if="${summary == null}">No summary yet. One is prepared in the background after the document is ready.</p>
+      <form method="post" th:if="${progress != null and progress.state.name() == 'READY'}"
+            th:action="@{/documents/{id}/summary(id=${document.documentId})}">
+        <button type="submit" th:text="${summary == null ? 'Summarize now' : 'Regenerate summary'}">Summarize now</button>
+      </form>
+    </section>
     <section th:if="${!related.isEmpty()}" aria-labelledby="related-title">
       <h2 id="related-title">Related documents</h2>
       <ul class="related-list">

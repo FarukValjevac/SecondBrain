@@ -21,7 +21,7 @@ public final class CitationMarkers {
     public record Segment(String text, Optional<Integer> marker) {}
 
     /** Removes markers outside 1..citations and repeats of the marker just before it. */
-    static String retainValid(String answer, int citations) {
+    public static String retainValid(String answer, int citations) {
         var result = new StringBuilder(answer.length());
         int position = 0;
         int previousEnd = -1;

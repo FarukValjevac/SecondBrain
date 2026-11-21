@@ -3,10 +3,12 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.search.SearchFailure;
 import dev.secondbrain.search.SearchResult;
 import dev.secondbrain.search.SearchService;
+import dev.secondbrain.summaries.SummaryService;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -46,18 +48,21 @@ class DocumentDetailController {
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<SearchService> search;
+    private final ObjectProvider<SummaryService> summaries;
 
     DocumentDetailController(
             DocumentInspectionService documents,
             DocumentDeletionService deletion,
             ObjectProvider<DocumentProcessingService> processing,
             ObjectProvider<QuestionAnswerService> answers,
-            ObjectProvider<SearchService> search) {
+            ObjectProvider<SearchService> search,
+            ObjectProvider<SummaryService> summaries) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
         this.answers = answers;
         this.search = search;
+        this.summaries = summaries;
     }
 
     @GetMapping("/documents/{id}")
@@ -71,6 +76,24 @@ class DocumentDetailController {
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         model.addAttribute("related", related(id));
+        var summarizer = summaries.getIfAvailable();
+        model.addAttribute("summariesEnabled", summarizer != null);
+        if (summarizer != null) {
+            try {
+                summarizer
+                        .find(id)
+                        .ifPresent(
+                                summary -> {
+                                    model.addAttribute("summary", summary);
+                                    model.addAttribute(
+                                            "summarySegments",
+                                            CitationMarkers.segments(
+                                                    summary.text(), summary.sources().size()));
+                                });
+            } catch (DataAccessException | TransactionException unavailable) {
+                // The summary is optional; the document page still shows its text.
+            }
+        }
         return "document";
     }
 
@@ -98,6 +121,22 @@ class DocumentDetailController {
         } catch (SearchFailure | DataAccessException | TransactionException unavailable) {
             return List.of();
         }
+    }
+
+    @PostMapping("/documents/{id}/summary")
+    RedirectView summarize(
+            @PathVariable UUID id,
+            @RequestAttribute(RequestCorrelationFilter.ATTRIBUTE) UUID correlationId,
+            RedirectAttributes feedback) {
+        var summarizer = summaries.getIfAvailable();
+        if (summarizer == null || documents.find(id).isEmpty())
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        summarizer.request(id, correlationId);
+        feedback.addFlashAttribute(
+                "summaryMessage", "A new summary is being prepared. Refresh in a moment.");
+        var redirect = new RedirectView("/documents/" + id);
+        redirect.setStatusCode(HttpStatus.SEE_OTHER);
+        return redirect;
     }
 
     @GetMapping("/documents/{id}/delete")
