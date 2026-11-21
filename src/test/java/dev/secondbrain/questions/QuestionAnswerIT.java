@@ -1,10 +1,12 @@
 package dev.secondbrain.questions;
 
+import static dev.secondbrain.TestHttp.ready;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Awaitility.await;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.documents.DocumentAcceptanceService;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
@@ -31,10 +33,6 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -52,17 +50,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Real extraction/indexing/search and fresh PostgreSQL source reads; all model calls are fakes. */
-@Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 class QuestionAnswerIT {
     private static final String PRIVATE = "citation-private-source-question-answer-name-sentinel";
     private static final EmbeddingModel MODEL = new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024);
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path storage;
 
@@ -274,19 +267,6 @@ class QuestionAnswerIT {
         }
     }
 
-    private static void ready(ConfigurableApplicationContext context, int count) {
-        await().atMost(Duration.ofSeconds(20))
-                .untilAsserted(
-                        () ->
-                                assertThat(
-                                                context.getBean(JdbcClient.class)
-                                                        .sql(
-                                                                "SELECT count(*) FROM documents WHERE active_indexing_version IS NOT NULL")
-                                                        .query(Integer.class)
-                                                        .single())
-                                        .isEqualTo(count));
-    }
-
     private ConfigurableApplicationContext start(ChatProvider chat) {
         EmbeddingProvider embeddings =
                 new EmbeddingProvider() {
@@ -323,23 +303,20 @@ class QuestionAnswerIT {
                                             Clock.tick(Clock.systemUTC(), Duration.ofNanos(1000)));
                         })
                 .run(
-                        "--spring.config.import=",
-                        "--secondbrain.telemetry.otlp-endpoint=",
-                        "--secondbrain.questions.enabled=true",
-                        "--secondbrain.embeddings.enabled=true",
-                        "--secondbrain.embeddings.batch-size=1",
-                        "--secondbrain.search.minimum-score=0.3",
-                        "--secondbrain.events.polling-enabled=true",
-                        "--secondbrain.events.concurrency=1",
-                        "--secondbrain.events.claim-batch-size=1",
-                        "--secondbrain.events.poll-interval=50ms",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.reconcile-enabled=false",
-                        "--secondbrain.documents.extraction.reconcile-enabled=false",
-                        "--secondbrain.documents.deletion.reconcile-enabled=false",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
+                        POSTGRES.arguments(
+                                "--secondbrain.telemetry.otlp-endpoint=",
+                                "--secondbrain.questions.enabled=true",
+                                "--secondbrain.embeddings.enabled=true",
+                                "--secondbrain.embeddings.batch-size=1",
+                                "--secondbrain.search.minimum-score=0.3",
+                                "--secondbrain.events.polling-enabled=true",
+                                "--secondbrain.events.concurrency=1",
+                                "--secondbrain.events.claim-batch-size=1",
+                                "--secondbrain.events.poll-interval=50ms",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.reconcile-enabled=false",
+                                "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 }

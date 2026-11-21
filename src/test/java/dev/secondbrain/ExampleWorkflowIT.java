@@ -1,5 +1,13 @@
 package dev.secondbrain;
 
+import static dev.secondbrain.TestHttp.client;
+import static dev.secondbrain.TestHttp.encode;
+import static dev.secondbrain.TestHttp.get;
+import static dev.secondbrain.TestHttp.origin;
+import static dev.secondbrain.TestHttp.post;
+import static dev.secondbrain.TestHttp.ready;
+import static dev.secondbrain.TestHttp.upload;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
@@ -26,17 +34,8 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
-import tools.jackson.databind.json.JsonMapper;
-
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -76,7 +75,7 @@ class ExampleWorkflowIT {
     @Test
     void emptyDatabaseRunsUploadProcessingSearchQuestionsSourcesAndDeletion(CapturedOutput output)
             throws Exception {
-        try (var postgres = postgres()) {
+        try (var postgres = TestDatabase.create()) {
             // A fresh container has no schema: every table below must come from Flyway alone.
             assertThat(tableCount(postgres)).isZero();
             var models = new Models();
@@ -209,7 +208,7 @@ class ExampleWorkflowIT {
     @Test
     void failedAndRetriedDeliveriesLeaveSafeDiagnosticSignals(CapturedOutput output)
             throws Exception {
-        try (var postgres = postgres()) {
+        try (var postgres = TestDatabase.create()) {
             var models = new Models();
             try (var context = start(postgres, models);
                     var client = client()) {
@@ -328,16 +327,7 @@ class ExampleWorkflowIT {
         }
     }
 
-    private static PostgreSQLContainer postgres() {
-        var container =
-                new PostgreSQLContainer(
-                        DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                                .asCompatibleSubstituteFor("postgres"));
-        container.start();
-        return container;
-    }
-
-    private ConfigurableApplicationContext start(PostgreSQLContainer postgres, Models models) {
+    private ConfigurableApplicationContext start(TestDatabase postgres, Models models) {
         return new SpringApplicationBuilder(SecondBrainApplication.class)
                 .web(WebApplicationType.SERVLET)
                 .registerShutdownHook(false)
@@ -346,91 +336,20 @@ class ExampleWorkflowIT {
                                 context.getBeanFactory()
                                         .registerSingleton("exampleWorkflowModels", models))
                 .run(
-                        "--spring.config.import=",
-                        "--secondbrain.telemetry.otlp-endpoint=",
-                        "--server.address=127.0.0.1",
-                        "--server.port=0",
-                        "--secondbrain.questions.enabled=true",
-                        "--secondbrain.embeddings.enabled=true",
-                        "--secondbrain.embeddings.batch-size=1",
-                        "--secondbrain.events.polling-enabled=true",
-                        "--secondbrain.events.concurrency=1",
-                        "--secondbrain.events.claim-batch-size=1",
-                        "--secondbrain.events.poll-interval=50ms",
-                        "--secondbrain.events.initial-backoff=100ms",
-                        "--secondbrain.events.max-backoff=200ms",
-                        "--spring.datasource.url=" + postgres.getJdbcUrl(),
-                        "--spring.datasource.username=" + postgres.getUsername(),
-                        "--spring.datasource.password=" + postgres.getPassword(),
-                        "--secondbrain.documents.storage-directory=" + storage);
-    }
-
-    private static HttpClient client() {
-        return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-    }
-
-    private static URI origin(ConfigurableApplicationContext context) {
-        return URI.create(
-                "http://127.0.0.1:"
-                        + context.getEnvironment()
-                                .getRequiredProperty("local.server.port", Integer.class));
-    }
-
-    private static HttpResponse<String> get(HttpClient client, URI origin, String path)
-            throws Exception {
-        return client.send(
-                HttpRequest.newBuilder(origin.resolve(path))
-                        .timeout(Duration.ofSeconds(15))
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
-    }
-
-    private static HttpResponse<String> post(
-            HttpClient client, URI origin, String path, String body) throws Exception {
-        return client.send(
-                HttpRequest.newBuilder(origin.resolve(path))
-                        .timeout(Duration.ofSeconds(15))
-                        .header("Content-Type", "application/x-www-form-urlencoded")
-                        // What a browser sends from a page with Referrer-Policy: no-referrer.
-                        .header("Origin", "null")
-                        .header("Sec-Fetch-Site", "same-origin")
-                        .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
-    }
-
-    private static String encode(String text) {
-        return URLEncoder.encode(text, StandardCharsets.UTF_8);
-    }
-
-    private static UUID upload(HttpClient client, URI origin, String name, byte[] data)
-            throws Exception {
-        var boundary = "example-workflow-boundary";
-        var body = new ByteArrayOutputStream();
-        body.write(
-                ("--"
-                                + boundary
-                                + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
-                                + name
-                                + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-        body.write(data);
-        body.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        var response =
-                client.send(
-                        HttpRequest.newBuilder(origin.resolve("/documents"))
-                                .timeout(Duration.ofSeconds(15))
-                                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).isEqualTo(202);
-        return UUID.fromString(
-                new JsonMapper().readTree(response.body()).path("documentId").stringValue());
+                        postgres.arguments(
+                                "--secondbrain.telemetry.otlp-endpoint=",
+                                "--server.address=127.0.0.1",
+                                "--server.port=0",
+                                "--secondbrain.questions.enabled=true",
+                                "--secondbrain.embeddings.enabled=true",
+                                "--secondbrain.embeddings.batch-size=1",
+                                "--secondbrain.events.polling-enabled=true",
+                                "--secondbrain.events.concurrency=1",
+                                "--secondbrain.events.claim-batch-size=1",
+                                "--secondbrain.events.poll-interval=50ms",
+                                "--secondbrain.events.initial-backoff=100ms",
+                                "--secondbrain.events.max-backoff=200ms",
+                                "--secondbrain.documents.storage-directory=" + storage));
     }
 
     private static List<String> sourceLinks(HttpResponse<String> response) {
@@ -442,20 +361,7 @@ class ExampleWorkflowIT {
                 .toList();
     }
 
-    private static void ready(ConfigurableApplicationContext context, int count) {
-        await().atMost(Duration.ofSeconds(30))
-                .untilAsserted(
-                        () ->
-                                assertThat(
-                                                context.getBean(JdbcClient.class)
-                                                        .sql(
-                                                                "SELECT count(*) FROM documents WHERE active_indexing_version IS NOT NULL")
-                                                        .query(Integer.class)
-                                                        .single())
-                                        .isEqualTo(count));
-    }
-
-    private static int tableCount(PostgreSQLContainer postgres) {
+    private static int tableCount(TestDatabase postgres) {
         return JdbcClient.create(
                         new DriverManagerDataSource(
                                 postgres.getJdbcUrl(),

@@ -1,6 +1,7 @@
 package dev.secondbrain.config;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.events.EventEnvelope;
 import dev.secondbrain.events.EventHandler;
 import dev.secondbrain.events.EventPublisher;
@@ -32,9 +33,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -49,15 +47,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-@Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 class ObservabilityIT {
     private static final Instant NOW = Instant.parse("2026-10-16T00:00:00Z");
     private static final EventEnvelope.Type TYPE = new EventEnvelope.Type("TelemetryProbe", 1);
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer("pgvector/pgvector:0.8.7-pg18-bookworm");
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     private ConfigurableApplicationContext context;
     private JdbcClient jdbc;
@@ -272,22 +267,19 @@ class ObservabilityIT {
                 new SpringApplicationBuilder(SecondBrainApplication.class, ProbeConfiguration.class)
                         .web(WebApplicationType.NONE)
                         .run(
-                                "--spring.config.import=",
-                                "--management.otlp.metrics.export.enabled=" + metrics,
-                                "--management.otlp.metrics.export.url=http://127.0.0.1:1/v1/metrics",
-                                "--secondbrain.documents.cleanup.enabled=false",
-                                "--secondbrain.documents.indexing.enabled=false",
-                                // Probe fixtures reset event tables; document schedulers must not
-                                // race them.
-                                "--secondbrain.documents.extraction.reconcile-enabled=false",
-                                "--secondbrain.documents.deletion.reconcile-enabled=false",
-                                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                                "--spring.datasource.username=" + POSTGRES.getUsername(),
-                                "--spring.datasource.password=" + POSTGRES.getPassword(),
-                                "--secondbrain.events.polling-enabled=" + polling,
-                                "--secondbrain.events.poll-interval=50ms",
-                                "--secondbrain.events.initial-backoff=100ms",
-                                "--management.tracing.sampling.probability=1");
+                                POSTGRES.arguments(
+                                        "--management.otlp.metrics.export.enabled=" + metrics,
+                                        "--management.otlp.metrics.export.url=http://127.0.0.1:1/v1/metrics",
+                                        "--secondbrain.documents.cleanup.enabled=false",
+                                        "--secondbrain.documents.indexing.enabled=false", // Probe
+                                        // fixtures reset event tables; document schedulers must not
+                                        // race them.
+                                        "--secondbrain.documents.extraction.reconcile-enabled=false",
+                                        "--secondbrain.documents.deletion.reconcile-enabled=false",
+                                        "--secondbrain.events.polling-enabled=" + polling,
+                                        "--secondbrain.events.poll-interval=50ms",
+                                        "--secondbrain.events.initial-backoff=100ms",
+                                        "--management.tracing.sampling.probability=1"));
         jdbc = context.getBean(JdbcClient.class);
     }
 

@@ -3,6 +3,7 @@ package dev.secondbrain.documents;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.secondbrain.SecondBrainApplication;
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.events.EventPublisher;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -17,10 +18,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -36,7 +33,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-@Testcontainers
 class OriginalFileReconciliationIT {
     private static final Instant NOW = Instant.parse("2030-01-01T12:00:00Z");
     private static final Instant OLD = NOW.minus(Duration.ofHours(2));
@@ -45,11 +41,7 @@ class OriginalFileReconciliationIT {
     private static final OriginalCleanupProperties SETTINGS =
             new OriginalCleanupProperties(Duration.ofHours(1), Duration.ofMinutes(1), 100);
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     @TempDir private Path directory;
 
@@ -216,14 +208,11 @@ class OriginalFileReconciliationIT {
         return new SpringApplicationBuilder(SecondBrainApplication.class)
                 .web(WebApplicationType.NONE)
                 .run(
-                        "--spring.config.import=",
-                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "--spring.datasource.username=" + POSTGRES.getUsername(),
-                        "--spring.datasource.password=" + POSTGRES.getPassword(),
-                        "--secondbrain.events.polling-enabled=false",
-                        "--secondbrain.documents.cleanup.enabled=false",
-                        "--secondbrain.documents.indexing.enabled=false",
-                        "--secondbrain.documents.storage-directory=" + directory);
+                        POSTGRES.arguments(
+                                "--secondbrain.events.polling-enabled=false",
+                                "--secondbrain.documents.cleanup.enabled=false",
+                                "--secondbrain.documents.indexing.enabled=false",
+                                "--secondbrain.documents.storage-directory=" + directory));
     }
 
     private static void await(CountDownLatch latch) {

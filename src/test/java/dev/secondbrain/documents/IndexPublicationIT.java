@@ -3,6 +3,7 @@ package dev.secondbrain.documents;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import dev.secondbrain.TestDatabase;
 import dev.secondbrain.embeddings.EmbeddingModel;
 import dev.secondbrain.embeddings.EmbeddingVector;
 
@@ -21,10 +22,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -39,16 +36,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /** Publication storage prerequisites only: no live inference, pollers, or publication events. */
-@Testcontainers
 class IndexPublicationIT {
     private static final Instant AT = Instant.parse("2030-01-01T00:00:00.123456Z");
     private static final EmbeddingModel MODEL = new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024);
 
-    @Container
-    private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("pgvector/pgvector:0.8.7-pg18-bookworm")
-                            .asCompatibleSubstituteFor("postgres"));
+    private static final TestDatabase POSTGRES = TestDatabase.create();
 
     private static JdbcClient jdbc;
     private static JdbcDocumentRepository documents;
