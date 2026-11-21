@@ -1035,3 +1035,256 @@
     font-weight: 600;
   }
 }
+
+/* ---------- Command palette, shortcuts and toasts ---------- */
+@layer components {
+  kbd {
+    display: inline-block;
+    min-inline-size: 1.5em;
+    padding: 0 0.35em;
+    border: 1px solid var(--line);
+    border-block-end-width: 2px;
+    border-radius: 0.35rem;
+    background: var(--surface-sunken);
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+    text-align: center;
+  }
+
+  .palette-button {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    justify-self: stretch;
+    inline-size: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    background: var(--surface-sunken);
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .palette-button[hidden] {
+    display: none;
+  }
+  .palette-button:hover:not(:disabled) {
+    background: var(--surface-sunken);
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .palette-button svg {
+    inline-size: 1.1rem;
+    block-size: 1.1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+  .palette-key {
+    margin-inline-start: auto;
+  }
+  @media (width < 48rem) {
+    .palette-button {
+      inline-size: auto;
+      margin-inline-start: auto;
+    }
+    .palette-button :is(.palette-label, .palette-key) {
+      display: none;
+    }
+    .sidebar .nav-add {
+      margin-inline-start: 0;
+    }
+  }
+
+  /* Shared modal dialog surface (palette and shortcuts). */
+  :is(.palette, .shortcuts) {
+    inline-size: min(36rem, calc(100vw - 2rem));
+    margin-block-start: 12vh;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--surface-raised);
+    color: var(--text);
+    box-shadow: var(--shadow-raised);
+  }
+  dialog:modal {
+    overscroll-behavior: contain;
+  }
+  dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+    background: oklch(15% 0.02 265 / 0.45);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    :is(.palette, .shortcuts)[open] {
+      transition:
+        opacity 160ms var(--ease-out),
+        scale 160ms var(--ease-out);
+      @starting-style {
+        opacity: 0;
+        scale: 0.97;
+      }
+    }
+  }
+
+  .palette-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-block-end: 1px solid var(--line);
+  }
+  .palette-field svg {
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    flex: none;
+    fill: none;
+    stroke: var(--text-muted);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+  .palette-field input {
+    flex: 1;
+    padding: var(--space-2) 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--text-lg);
+  }
+  .palette-field input:focus-visible {
+    outline: none;
+  }
+  .palette-options {
+    list-style: none;
+    margin: 0;
+    padding: var(--space-2);
+    max-block-size: 50vh;
+    overflow-y: auto;
+  }
+  .palette-options [role="option"] {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .palette-options [role="option"][hidden] {
+    display: none;
+  }
+  .palette-options [role="option"] span {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+  .palette-options [role="option"]:hover {
+    background: var(--surface-sunken);
+  }
+  .palette-options [role="option"][aria-selected="true"] {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    /* Not colour alone: the selected row also gets an inline marker. */
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .palette-empty:empty {
+    display: none;
+  }
+  .palette-empty {
+    padding: 0 var(--space-5) var(--space-3);
+    color: var(--text-muted);
+  }
+  .palette-hint {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+    padding: var(--space-2) var(--space-4);
+    border-block-start: 1px solid var(--line);
+  }
+
+  .shortcuts {
+    padding: var(--space-5);
+  }
+  .shortcuts[open] {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .shortcut-list {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .shortcut-list > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-block: var(--space-2);
+    border-block-end: 1px solid var(--line);
+  }
+
+  /* Toast stack: one manual popover in the top layer, so messages never light-dismiss. */
+  .toasts {
+    inset: auto var(--space-4) var(--space-4) auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    overflow: visible;
+    inline-size: min(24rem, calc(100vw - 2 * var(--space-4)));
+    max-block-size: calc(100dvh - 2 * var(--space-4));
+    overflow-y: auto;
+  }
+  .toasts:is(:popover-open) {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .toast {
+    display: flex;
+    align-items: start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-inline-start: 4px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+    color: var(--text);
+    box-shadow: var(--shadow-raised);
+    overflow-wrap: anywhere;
+  }
+  .toast.notice-success {
+    border-inline-start-color: var(--success);
+  }
+  .toast-body {
+    flex: 1;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .toast-body h2 {
+    font-size: var(--text-base);
+  }
+  .toast-close {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    min-block-size: 2.25rem;
+    inline-size: 2.25rem;
+    padding: 0;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .toast-close:hover:not(:disabled) {
+    background: var(--surface-sunken);
+    border-color: var(--line);
+    color: var(--text);
+  }
+  .toast-close svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .toast {
+      animation: rise 220ms var(--ease-out);
+    }
+  }
+}

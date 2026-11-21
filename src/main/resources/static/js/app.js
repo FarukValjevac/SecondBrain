@@ -1,5 +1,10 @@
 // Progressive enhancements shared by every page. Without this script every page still works:
-// on narrow screens the navigation simply stays a scrollable row of links.
+// on narrow screens the navigation stays a scrollable row of links, messages stay in the page,
+// and the palette and shortcuts are simply absent.
+
+import { lightDismissFallback } from './dialogs.js';
+import { setUpPalette } from './palette.js';
+import { showToasts } from './toasts.js';
 
 const root = document.documentElement;
 root.dataset.js = '';
@@ -20,8 +25,8 @@ if (drawer && menu && links) {
   });
   drawer.addEventListener('close', () => menu.setAttribute('aria-expanded', 'false'));
   drawer.querySelector('.drawer-close').addEventListener('click', () => drawer.close());
-  // A click on the dimmed area outside the sheet lands on the dialog itself.
-  drawer.addEventListener('click', (event) => {
-    if (event.target === drawer) drawer.close();
-  });
 }
+
+lightDismissFallback();
+setUpPalette();
+showToasts();

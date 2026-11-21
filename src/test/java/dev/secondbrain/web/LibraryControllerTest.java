@@ -279,6 +279,17 @@ class LibraryControllerTest {
                         "href=\"/library\" aria-current=\"page\"",
                         "src=\"/js/app.js\"",
                         "id=\"nav-drawer\"",
+                        // Palette, shortcut help and toast stack: native dialogs and a manual
+                        // popover, inert until app.js opens them.
+                        "<dialog class=\"palette\" id=\"command-palette\" closedby=\"any\"",
+                        "role=\"combobox\"",
+                        "role=\"listbox\"",
+                        "data-href=\"/library\"",
+                        "data-action=\"shortcuts\"",
+                        "aria-keyshortcuts=\"Control+K Meta+K\"",
+                        "<dialog class=\"shortcuts\" id=\"shortcuts-dialog\"",
+                        "<form method=\"dialog\"><button autofocus>Close</button></form>",
+                        "id=\"toasts\" popover=\"manual\" aria-label=\"Notifications\"",
                         "src=\"/js/forms.js\" defer")
                 .doesNotContain("0 documents", "Your library is empty.", "th:href");
 
@@ -338,7 +349,9 @@ class LibraryControllerTest {
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
-        Assertions.assertThat(firstPage).contains("Saved and queued", "QUEUED", "role=\"status\"");
+        // A one-time message: shown as a toast with JavaScript, an ordinary notice without it.
+        Assertions.assertThat(firstPage)
+                .contains("Saved and queued", "QUEUED", "role=\"status\" data-toast");
         var refreshedPage =
                 mvc.perform(MockMvcRequestBuilders.get("/library").session(session))
                         .andExpect(status().isOk())
