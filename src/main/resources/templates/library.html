@@ -1,19 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{::script})}">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Document library | SecondBrain</title>
-  <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
-  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
   <script src="/js/upload.js" th:src="@{/js/upload.js}" defer></script>
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="/" th:href="@{/}">SecondBrain</a>
-  </header>
-  <main>
+  <main id="content">
     <div class="library-heading">
       <h1>Document library</h1>
       <nav class="primary-links" aria-label="Library tools">

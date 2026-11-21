@@ -261,12 +261,19 @@ class LibraryControllerTest {
                         "data-drop-zone",
                         "src=\"/js/upload.js\" defer")
                 .contains(
-                        "href=\"/css/library.css\"",
+                        "href=\"/css/app.css\"",
                         "<meta name=\"color-scheme\" content=\"light dark\">",
+                        // Shared shell: skip link, navigation with the current page marked.
+                        "class=\"skip-link\" href=\"#content\"",
+                        "<main id=\"content\">",
+                        "<nav class=\"nav\" aria-label=\"Main\">",
+                        "href=\"/\" aria-current=\"page\"",
+                        "src=\"/js/app.js\"",
+                        "id=\"nav-drawer\"",
                         "src=\"/js/forms.js\" defer")
                 .doesNotContain("0 documents", "Your library is empty.", "th:href");
 
-        mvc.perform(MockMvcRequestBuilders.get("/css/library.css"))
+        mvc.perform(MockMvcRequestBuilders.get("/css/app.css"))
                 .andExpect(status().isOk())
                 .andExpect(MockMvcResultMatchers.content().contentTypeCompatibleWith("text/css"));
         mvc.perform(MockMvcRequestBuilders.get("/js/forms.js"))
