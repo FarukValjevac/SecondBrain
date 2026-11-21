@@ -1016,6 +1016,16 @@ With embeddings enabled, each document page lists up to five other documents mos
 
 Check with `./mvnw -Dtest=SearchServiceTest,RelatedDocumentsTest test` and `./mvnw -Dit.test=JdbcPassageSearchIT verify`.
 
+## Document summaries
+
+Summaries are **off by default** because each one is a chat request against the shared Workers Free allowance. Enable them with `SECONDBRAIN_SUMMARIES_ENABLED=true` (requires embeddings and questions) and restart.
+
+After an index is published, a background stage (`IndexPublished` → `summaries.index-published.v1`) picks the document's five most typical passages, those closest to the mean of its stored vectors, as many as fit the 8,000-byte chat input budget. It then sends **one** chat request. Long documents are summarized from these representative passages rather than in several rounds, so cost stays one request per index generation. The reply goes through the same rules as answers: it may cite only the supplied passages, each once, and only valid `[n]` markers are kept. A summary is stored only if the document is still visible and the generation it was built from is still active, so stale or deleted work never publishes one. Reindexing replaces it and deletion removes it (`document_summaries`, migration V16).
+
+The document page shows the summary with numbered, linked source passages, and a **Summarize now** / **Regenerate summary** button for ready documents. The button only queues a `SummaryRequested` event; the background worker makes the request. Quota exhaustion or a provider outage retries this stage with backoff and never affects indexing or search. Documents indexed before summaries were enabled get a summary only when you press the button. `secondbrain.summaries.generated{outcome=stored|insufficient|skipped|failed}` counts results without any text.
+
+Check with `./mvnw -Dtest=SummaryGeneratorTest,SummaryPageTest test` and `./mvnw -Dit.test=SummaryWorkflowIT verify`.
+
 ## Retrieval telemetry
 
 The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:
