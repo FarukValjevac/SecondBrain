@@ -22,6 +22,7 @@ public final class UploadRejectedException extends RuntimeException {
         INVALID_FILENAME(
                 "The filename must contain no null characters and be at most 1024 UTF-8 bytes."),
         SINGLE_FILE_REQUIRED("Upload one file at a time."),
+        TOO_MANY_FILES("Too many files in one upload. Choose fewer files and try again."),
         EMPTY_FILE("The selected file is empty."),
         FILE_TOO_LARGE("The file exceeds the configured upload size limit."),
         UNSUPPORTED_TYPE(

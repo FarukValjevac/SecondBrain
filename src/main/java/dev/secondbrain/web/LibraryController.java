@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 class LibraryController {
     private final boolean uploadsEnabled;
     private final String maximumUploadSize;
+    private final int maximumFilesPerUpload;
     private final ObjectProvider<DocumentInspectionService> documents;
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
@@ -32,11 +33,13 @@ class LibraryController {
     LibraryController(
             @Value("${secondbrain.events.enabled:true}") boolean uploadsEnabled,
             @Value("${secondbrain.documents.max-upload-size}") String maximumUploadSize,
+            @Value("${secondbrain.documents.max-files-per-upload:10}") int maximumFilesPerUpload,
             ObjectProvider<DocumentInspectionService> documents,
             ObjectProvider<DocumentProcessingService> processing,
             ObjectProvider<QuestionAnswerService> answers) {
         this.uploadsEnabled = uploadsEnabled;
         this.maximumUploadSize = maximumUploadSize;
+        this.maximumFilesPerUpload = maximumFilesPerUpload;
         this.documents = Objects.requireNonNull(documents, "documents");
         this.processing = Objects.requireNonNull(processing, "processing");
         this.answers = Objects.requireNonNull(answers, "answers");
@@ -47,6 +50,7 @@ class LibraryController {
         if (page < 0) throw new IllegalArgumentException("Page must not be negative");
         model.addAttribute("uploadsEnabled", uploadsEnabled);
         model.addAttribute("maximumUploadSize", maximumUploadSize);
+        model.addAttribute("maximumFilesPerUpload", maximumFilesPerUpload);
         model.addAttribute("libraryAvailable", uploadsEnabled);
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         if (uploadsEnabled) {

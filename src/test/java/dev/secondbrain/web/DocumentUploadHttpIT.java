@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -57,6 +58,8 @@ class DocumentUploadHttpIT {
                         .run(
                                 "--spring.config.import=",
                                 "--secondbrain.documents.max-upload-size=32B",
+                                // Several files fit in one browser request, still bounded overall.
+                                "--secondbrain.documents.max-upload-request-size=64B",
                                 "--management.endpoint.health.group.readiness.include=readinessState",
                                 "--server.address=127.0.0.1",
                                 "--server.port=0");
@@ -186,6 +189,32 @@ class DocumentUploadHttpIT {
         assertThat(response.statusCode()).isEqualTo(413);
         assertThat(response.body()).contains("FILE_TOO_LARGE");
         verifyNoInteractions(acceptanceService);
+    }
+
+    @Test
+    void acceptsEveryFileOfABrowserBatchWithinTheRequestLimit() throws Exception {
+        when(acceptanceService.accept(any(), anyLong(), any(), any()))
+                .thenReturn(
+                        new DocumentAcceptanceService.Receipt(
+                                UUID.randomUUID(), ExtractionState.QUEUED));
+        var boundary = "secondbrain-boundary";
+        var body = new StringBuilder();
+        for (var name : new String[] {"first.txt", "second.md"})
+            body.append("--")
+                    .append(boundary)
+                    .append("\r\nContent-Disposition: form-data; name=\"file\"; filename=\"")
+                    .append(name)
+                    .append("\"\r\nContent-Type: text/plain\r\n\r\nshort note\r\n");
+        body.append("--").append(boundary).append("--\r\n");
+        var response =
+                send(
+                        "/documents/upload",
+                        "multipart/form-data; boundary=" + boundary,
+                        body.toString());
+        assertThat(response.statusCode()).isEqualTo(303);
+        assertThat(response.headers().firstValue("Location"))
+                .hasValueSatisfying(location -> assertThat(location).endsWith("/"));
+        verify(acceptanceService, times(2)).accept(any(), anyLong(), any(), any());
     }
 
     @Test
