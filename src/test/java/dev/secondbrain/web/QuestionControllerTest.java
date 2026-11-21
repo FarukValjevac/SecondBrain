@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -47,6 +48,7 @@ import java.util.UUID;
 @WebMvcTest(
         controllers = {QuestionController.class, DocumentSourceController.class},
         properties = "spring.config.import=")
+@Import(AnswerSignature.class)
 @ExtendWith(OutputCaptureExtension.class)
 class QuestionControllerTest {
     private static final String PRIVATE = "question-private-sentinel";
@@ -155,6 +157,20 @@ class QuestionControllerTest {
                         "like a[1] stays text.")
                 .doesNotContain("<b>Sets", "href=\"#source-3\"");
         assertThat(html.split("class=\"citation-marker\"", -1)).hasSize(3);
+        // The answer can be rated; the form carries a server signature, not a stored copy.
+        assertThat(html)
+                .contains(
+                        "action=\"/questions/feedback\"",
+                        "name=\"signature\"",
+                        "name=\"rating\" value=\"helpful\"",
+                        "name=\"rating\" value=\"not-helpful\"");
+        var confirmed =
+                mvc.perform(get("/questions").flashAttr("feedbackMessage", "Thanks, saved."))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(confirmed).contains("Thanks, saved.");
     }
 
     private static DocumentInspectionService.PassageSource source(String text) {
