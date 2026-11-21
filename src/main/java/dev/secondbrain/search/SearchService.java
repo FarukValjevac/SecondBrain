@@ -42,8 +42,8 @@ public final class SearchService {
                 var model = embedding.model();
                 if (!passages.hasCompatibleIndex(query.scope(), model)) {
                     // Deleted documents are excluded immediately, exactly like an empty selection:
-                    // no evidence, no inference. Unknown or unindexed selections remain failures.
-                    if (passages.selectionIsOnlyDeleted(query.scope())) {
+                    // no evidence, no inference. Visible but unindexed selections remain failures.
+                    if (passages.selectionHasNoVisibleDocument(query.scope())) {
                         operation.emptyScope();
                         return new SearchResult(List.of());
                     }

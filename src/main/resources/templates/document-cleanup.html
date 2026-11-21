@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Deleted-document cleanup | SecondBrain</title>
+  <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
 </head>
 <body>
   <header class="site-header"><a class="brand" th:href="@{/}">SecondBrain</a></header>
@@ -15,7 +17,7 @@
     <p class="notice notice-success" role="status" th:if="${cleanupMessage != null}" th:text="${cleanupMessage}">Cleanup queued.</p>
     <p class="notice notice-info" th:unless="${cleanup.enabled}">Cleanup is paused. Enable event polling and document deletion in the application configuration, then restart.</p>
     <p th:if="${cleanup.requests.isEmpty()}">No outstanding cleanup on this page.</p>
-    <ul class="document-list" th:unless="${cleanup.requests.isEmpty()}">
+    <ul class="document-list" role="list" th:unless="${cleanup.requests.isEmpty()}">
       <li th:each="request : ${cleanup.requests}">
         <div class="document-summary">
           <strong th:text="${request.state.label}">Awaiting cleanup</strong>

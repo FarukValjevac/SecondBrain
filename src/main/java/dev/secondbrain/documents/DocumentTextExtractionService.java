@@ -16,16 +16,22 @@ final class DocumentTextExtractionService {
     private final OriginalFileStore originals;
     private final Utf8TextExtractor extractor;
     private final PdfTextExtractor pdfExtractor;
+    private final HtmlTextExtractor htmlExtractor;
+    private final DocxTextExtractor docxExtractor;
     private final Clock clock;
 
     DocumentTextExtractionService(
             OriginalFileStore originals,
             Utf8TextExtractor extractor,
             PdfTextExtractor pdfExtractor,
+            HtmlTextExtractor htmlExtractor,
+            DocxTextExtractor docxExtractor,
             Clock clock) {
         this.originals = Objects.requireNonNull(originals, "originals");
         this.extractor = Objects.requireNonNull(extractor, "extractor");
         this.pdfExtractor = Objects.requireNonNull(pdfExtractor, "pdfExtractor");
+        this.htmlExtractor = Objects.requireNonNull(htmlExtractor, "htmlExtractor");
+        this.docxExtractor = Objects.requireNonNull(docxExtractor, "docxExtractor");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -37,6 +43,8 @@ final class DocumentTextExtractionService {
                     switch (document.documentType()) {
                         case TXT, MARKDOWN -> extractor.extract(input);
                         case PDF -> extractPdfLines(input);
+                        case HTML -> htmlExtractor.extract(input);
+                        case DOCX -> docxExtractor.extract(input);
                     };
             return new ExtractedText(
                     document.documentId(), document.processingVersion(), clock.instant(), lines);

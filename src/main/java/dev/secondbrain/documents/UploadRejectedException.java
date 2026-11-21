@@ -24,7 +24,8 @@ public final class UploadRejectedException extends RuntimeException {
         SINGLE_FILE_REQUIRED("Upload one file at a time."),
         EMPTY_FILE("The selected file is empty."),
         FILE_TOO_LARGE("The file exceeds the configured upload size limit."),
-        UNSUPPORTED_TYPE("Only TXT, Markdown, and PDF files are supported.");
+        UNSUPPORTED_TYPE(
+                "Supported formats are PDF, Word (.docx), HTML, Markdown and UTF-8 text files such as .txt, .csv and .json.");
 
         private final String message;
 

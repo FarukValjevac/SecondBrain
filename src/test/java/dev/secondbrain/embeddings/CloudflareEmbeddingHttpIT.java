@@ -310,6 +310,38 @@ class CloudflareEmbeddingHttpIT {
     }
 
     @Test
+    void briefContentionWaitsForCapacityInsteadOfFailingTheThirdCaller() throws Exception {
+        var entered = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        behavior.set(
+                exchange -> {
+                    entered.countDown();
+                    try {
+                        if (!release.await(5, TimeUnit.SECONDS))
+                            throw new IOException("Stub wait expired");
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Stub interrupted", interrupted);
+                    }
+                    reply(exchange, 200, "{\"data\":[" + entry(0, "1") + "]}");
+                });
+        try (var provider = provider(Duration.ofSeconds(4));
+                var callers = java.util.concurrent.Executors.newFixedThreadPool(3)) {
+            var first = callers.submit(() -> provider.embed(List.of(PRIVATE_TEXT)));
+            var second = callers.submit(() -> provider.embed(List.of(PRIVATE_TEXT)));
+            assertThat(entered.await(3, TimeUnit.SECONDS)).isTrue();
+            // Both permits are held: the interactive caller queues rather than failing at once.
+            var third = callers.submit(() -> provider.embed(List.of(PRIVATE_TEXT)));
+            assertThat(calls).hasValue(2);
+            release.countDown();
+            assertThat(third.get(5, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(first.get(5, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(second.get(5, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(calls).hasValue(3);
+        }
+    }
+
+    @Test
     void boundsSharedBackgroundAndInteractiveCallsAndReleasesCapacityAfterFailures()
             throws Exception {
         var entered = new CountDownLatch(2);

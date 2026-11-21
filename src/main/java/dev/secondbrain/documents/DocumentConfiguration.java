@@ -297,14 +297,18 @@ class DocumentConfiguration {
     @Bean
     DocumentTextExtractionService documentTextExtractionService(
             OriginalFileStore originals, DocumentUploadPolicy uploadPolicy, Clock clock) {
+        var text = new Utf8TextExtractor(uploadPolicy.maximumUploadBytes());
         return new DocumentTextExtractionService(
                 originals,
-                new Utf8TextExtractor(uploadPolicy.maximumUploadBytes()),
+                text,
                 new PdfTextExtractor(
                         Math.min(
                                 uploadPolicy.maximumUploadBytes(),
                                 PdfTextExtractor.MAXIMUM_INPUT_BYTES),
                         clock),
+                new HtmlTextExtractor(text),
+                // Word compresses its XML well; allow a decompressed body larger than the upload.
+                new DocxTextExtractor(4 * uploadPolicy.maximumUploadBytes()),
                 clock);
     }
 

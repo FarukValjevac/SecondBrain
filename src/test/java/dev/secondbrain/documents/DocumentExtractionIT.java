@@ -603,6 +603,9 @@ class DocumentExtractionIT {
                                     originals,
                                     new Utf8TextExtractor(policy.maximumUploadBytes()),
                                     new PdfTextExtractor(policy.maximumUploadBytes(), clock),
+                                    new HtmlTextExtractor(
+                                            new Utf8TextExtractor(policy.maximumUploadBytes())),
+                                    new DocxTextExtractor(policy.maximumUploadBytes()),
                                     clock));
             doAnswer(
                             invocation -> {

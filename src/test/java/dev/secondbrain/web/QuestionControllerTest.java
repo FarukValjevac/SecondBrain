@@ -249,6 +249,7 @@ class QuestionControllerTest {
                         "Check your question",
                         id.toString(),
                         "aria-invalid=\"true\"",
+                        "aria-describedby=\"question-help question-feedback-message\"",
                         "Selected documents: 1");
         verifyNoInteractions(documents, answers);
     }

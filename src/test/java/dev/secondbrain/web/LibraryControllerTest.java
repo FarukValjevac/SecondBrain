@@ -119,7 +119,9 @@ class LibraryControllerTest {
                         "Retry processing",
                         "Deleted-document cleanup",
                         "Refresh status",
-                        "&lt;script&gt;private-note")
+                        "&lt;script&gt;private-note",
+                        // Safari drops list semantics from unstyled flex lists.
+                        "class=\"document-list\" role=\"list\"")
                 .doesNotContain("<script>", "100%", "documents.embed-passages");
         Assertions.assertThat(output).doesNotContain("private-note");
     }
@@ -248,18 +250,26 @@ class LibraryControllerTest {
                         "enctype=\"multipart/form-data\"",
                         "method=\"post\"",
                         "name=\"file\"",
-                        "accept=\".txt,.md,.markdown,.pdf\"",
+                        "accept=\".pdf,.docx,.html,.htm,.md,.markdown,.txt,",
                         "PDFs need selectable text",
-                        "encrypted and scanned-only PDFs are unsupported",
+                        "encrypted and scanned-only PDFs and legacy .doc files are unsupported",
                         "aria-describedby=\"upload-help\"",
                         "2KB",
                         "Upload document")
-                .contains("href=\"/css/library.css\"")
+                .contains(
+                        "href=\"/css/library.css\"",
+                        "<meta name=\"color-scheme\" content=\"light dark\">",
+                        "src=\"/js/forms.js\" defer")
                 .doesNotContain("0 documents", "Your library is empty.", "th:href");
 
         mvc.perform(MockMvcRequestBuilders.get("/css/library.css"))
                 .andExpect(status().isOk())
                 .andExpect(MockMvcResultMatchers.content().contentTypeCompatibleWith("text/css"));
+        mvc.perform(MockMvcRequestBuilders.get("/js/forms.js"))
+                .andExpect(status().isOk())
+                .andExpect(
+                        MockMvcResultMatchers.content()
+                                .contentTypeCompatibleWith("text/javascript"));
     }
 
     @ParameterizedTest

@@ -305,6 +305,17 @@ final class JdbcEventStore {
                         if (!lockToken(lease, true, clock.instant())) return Optional.empty();
                         var outcome = Objects.requireNonNull(effect.apply(), "Checkpoint outcome");
                         if (!lockToken(lease, true, clock.instant())) throw new LostLease();
+                        // The attempt budget bounds consecutive attempts without durable progress.
+                        // Saved progress forgives earlier attempts of this cycle, so long work that
+                        // advances on every attempt cannot exhaust it. Lifetime attempts are kept.
+                        if (outcome == EventHandler.Outcome.COMPLETED)
+                            jdbc.sql(
+                                            """
+                            UPDATE event_deliveries SET cycle_attempts = 1
+                            WHERE delivery_id = :id AND cycle_attempts > 1
+                            """)
+                                    .param("id", lease.deliveryId())
+                                    .update();
                         return Optional.of(outcome);
                     });
         } catch (LostLease lost) {

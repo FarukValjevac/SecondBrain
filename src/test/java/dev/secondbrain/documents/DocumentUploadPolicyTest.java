@@ -19,6 +19,16 @@ class DocumentUploadPolicyTest {
         assertThat(policy.validate("notes.MD", MAXIMUM_BYTES)).isEqualTo(DocumentType.MARKDOWN);
         assertThat(policy.validate("notes.markdown", 1)).isEqualTo(DocumentType.MARKDOWN);
         assertThat(policy.validate("notes.PDF", MAXIMUM_BYTES)).isEqualTo(DocumentType.PDF);
+        assertThat(policy.validate("report.DOCX", 1)).isEqualTo(DocumentType.DOCX);
+        assertThat(policy.validate("page.html", 1)).isEqualTo(DocumentType.HTML);
+        assertThat(policy.validate("page.htm", 1)).isEqualTo(DocumentType.HTML);
+    }
+
+    @Test
+    void storesTheUtf8TextFamilyAsTextSoItsSyntaxRemainsReferenceText() {
+        for (var name :
+                new String[] {"data.csv", "data.json", "config.yaml", "app.log", "Main.java"})
+            assertThat(policy.validate(name, 1)).as(name).isEqualTo(DocumentType.TXT);
     }
 
     @Test
@@ -28,6 +38,9 @@ class DocumentUploadPolicyTest {
         assertRejected("notes.txt", MAXIMUM_BYTES + 1, Reason.FILE_TOO_LARGE);
         assertRejected("notes.exe", 1, Reason.UNSUPPORTED_TYPE);
         assertRejected("notes", 1, Reason.UNSUPPORTED_TYPE);
+        // Legacy binary Word and spreadsheets have no extractor.
+        assertRejected("notes.doc", 1, Reason.UNSUPPORTED_TYPE);
+        assertRejected("table.xlsx", 1, Reason.UNSUPPORTED_TYPE);
     }
 
     @Test

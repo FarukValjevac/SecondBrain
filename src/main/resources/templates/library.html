@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Document library | SecondBrain</title>
+  <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -37,14 +39,15 @@
         <path d="M28 6v10h8M20 24h10M20 31h10"/>
       </svg>
       <h2 id="upload-title">Add a document</h2>
-      <p>Upload a TXT, Markdown, or PDF file. Your original is stored privately.</p>
+      <p>Upload a PDF, Word, HTML, Markdown or text file. Your original is stored privately.</p>
       <form method="post" enctype="multipart/form-data" action="/documents/upload" th:action="@{/documents/upload}">
         <label for="document-file">Choose a file</label>
         <p id="upload-help" class="upload-help">
-          Supported formats: .txt, .md, .markdown, .pdf. PDFs need selectable text; encrypted and scanned-only PDFs are unsupported.
+          Supported formats: .pdf, .docx, .html, .md and UTF-8 text such as .txt, .csv, .json, .xml, .yaml, .log and source code.
+          PDFs need selectable text; encrypted and scanned-only PDFs and legacy .doc files are unsupported.
           Maximum file size: <span th:text="${maximumUploadSize}">10MB</span>.
         </p>
-        <input type="file" id="document-file" name="file" accept=".txt,.md,.markdown,.pdf" aria-describedby="upload-help" required>
+        <input type="file" id="document-file" name="file" accept=".pdf,.docx,.html,.htm,.md,.markdown,.txt,.text,.log,.csv,.tsv,.json,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.sql,.java,.kt,.py,.js,.ts,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.sh,.swift" aria-describedby="upload-help" required>
         <button type="submit">Upload document</button>
       </form>
     </section>
@@ -62,7 +65,7 @@
         <p><a th:href="@{/documents/cleanup}">Inspect cleanup and retry failures</a></p>
       </section>
       <p th:if="${library.documents.isEmpty()}">No documents on this page.</p>
-      <ul class="document-list" th:unless="${library.documents.isEmpty()}">
+      <ul class="document-list" role="list" th:unless="${library.documents.isEmpty()}">
         <li th:each="document : ${library.documents}">
           <div class="document-summary">
             <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}">Document name</a>

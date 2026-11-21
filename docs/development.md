@@ -98,11 +98,19 @@ The [DevTools reference](https://docs.spring.io/spring-boot/reference/using/devt
 
 ## Uploading documents in the browser
 
-Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one TXT, Markdown, or PDF file, and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
+Open the library at [http://127.0.0.1:8080/](http://127.0.0.1:8080/), choose one supported file (PDF, Word `.docx`, HTML, Markdown or UTF-8 text) and select **Upload document**. The page displays the supported extensions and configured size limit. A successful submission returns to the library with **Saved and queued** and status **QUEUED**. Validation or storage failures return to the form with a safe error message; select a file again to retry.
 
 The browser uses a normal multipart form and a `303 See Other` redirect after submission. Feedback appears once; refreshing the resulting page does not repeat the upload. **Your documents** lists stored uploads with their processing states and detail links, newest first, with 50 per page. Use **Previous** and **Next** for other pages; refresh to update processing states. When durable events are disabled, the form is hidden and the library reports that it is unavailable.
 
 Allow cookies for the local application to receive this feedback. Sessions use cookies only (`server.servlet.session.tracking-modes=cookie`), so redirects keep the library URL `/` without adding a session ID. After changing application configuration, restart the server and check the first upload in a fresh browser session as well as subsequent uploads.
+
+### Page appearance and form behavior
+
+Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/library.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
+
+`static/js/forms.js` is the only script. After a form passes its built-in validation, it ignores further submissions of that form, so a double click cannot send a second upload, search or question to the provider. Forms still submit normally without it, and the server keeps all checks. A page restored with the browser's Back button accepts submissions again.
+
+Search results add a visually hidden document name to each **Open source passage** link so screen-reader link lists can tell them apart. A rejected search or question links its error message to the input with `aria-describedby`. Check with `./mvnw -Dtest=LibraryControllerTest,SearchControllerTest,QuestionControllerTest test`.
 
 ### Browser and restart walkthrough
 
@@ -116,6 +124,27 @@ Use small, non-sensitive UTF-8 fixtures. Return to document details through **Yo
 6. Stop the application with `Ctrl+C`, then start it again from the same working directory with the same configuration. Repeat the database and original-file checks: IDs, bytes, checksums, and events should remain unchanged, and extracted text should remain available at the saved document URLs. If checking Compose persistence too, run `docker compose down`, bring PostgreSQL back using the README command, and restart the application.
 
 Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance use isolated automated fixtures; see [verification](#verification-and-formatting). Passing this browser walkthrough does not replace `./mvnw verify`.
+
+## Supported formats
+
+| Extension | Stored as | How it is read |
+|---|---|---|
+| `.pdf` | `PDF` | Selectable text per physical page; see [PDF support and limits](#pdf-support-and-limits). |
+| `.docx` | `DOCX` | Body text of `word/document.xml`: one line per paragraph, tabs and line breaks kept. Headers, footers, comments, footnotes, deleted revisions, field codes and images are ignored. |
+| `.html`, `.htm` | `HTML` | Visible text: scripts, styles and comments are dropped, block elements such as `<p>`, `<li>` and `<h1>` become lines, and common entities are decoded. |
+| `.md`, `.markdown` | `MARKDOWN` | UTF-8 text, Markdown syntax kept as written. |
+| `.txt`, `.text`, `.log`, `.csv`, `.tsv`, `.json`, `.xml`, `.yaml`, `.yml`, `.toml`, `.ini`, `.rst`, `.tex`, `.sql` and source code (`.java`, `.kt`, `.py`, `.js`, `.ts`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.go`, `.rs`, `.rb`, `.php`, `.sh`, `.swift`) | `TXT` | UTF-8 text kept exactly, so structure and syntax stay searchable reference text. |
+
+HTML and Word text is rebuilt from markup, so line numbers refer to the extracted text shown on the document page, not to the original file's source lines. Consecutive blank lines collapse to one there. HTML, Markdown and text must be valid UTF-8.
+
+Both extractors use only the JDK, with no new dependency. A `.docx` is read as a zip archive: at most 10,000 entries are scanned, and its body may decompress to at most four times the upload limit, so a zip bomb stops early. DTDs and external entities are disabled, so a crafted document cannot expand entities or read local files. Encrypted Word files and legacy `.doc` files are not zip archives and fail with **The Word document is corrupt, encrypted or not a .docx file.** The HTML scan is a single forward pass that stays linear in the input size.
+
+Legacy `.doc`, spreadsheets (`.xlsx`), presentations (`.pptx`), `.odt`, `.rtf` and `.epub` are rejected at upload. Check with:
+
+```sh
+./mvnw -Dtest=DocxTextExtractorTest,HtmlTextExtractorTest,DocumentUploadPolicyTest test
+./mvnw -Dit.test=ExampleWorkflowIT,DatabaseMigrationIT verify
+```
 
 ## PDF support and limits
 
@@ -210,7 +239,7 @@ Safe request measurements are `secondbrain.document.indexing.requests` and `seco
 
 Embedding settings are opt-in. Enabling them constructs the Cloudflare HTTP adapter after validation; client construction and health probes make no inference request. The document embedding consumer is enabled by the same opt-in and can process new and retained passages when background polling runs. This sends bounded passage text to Cloudflare; normal disabled startup needs no AI credentials and makes no model calls. Run `./mvnw -Dtest=CloudflareEmbeddingProviderTest,EmbeddingConfigurationTest,EmbeddingVectorTest test` for configuration/protocol checks without an account.
 
-The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not yet a live-verified default. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
+The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimensions; it is not a default; select it explicitly. A bounded live evaluation on 2026-11-16 retrieved the expected passages for a small synthetic corpus, but that does not measure your own documents. Unknown models and incompatible dimensions fail validation. Model changes require deliberate reindexing. A vector must have exactly the configured number of finite components, with at least one nonzero component for cosine retrieval; callers cannot mutate its stored components.
 
 | Setting | Default | Accepted value or purpose |
 |---|---|---|
@@ -225,13 +254,13 @@ The supported contract is explicitly selected `@cf/baai/bge-m3` with 1024 dimens
 
 The uppercase settings work in the imported `.env` file; corresponding application properties use the `secondbrain.embeddings` prefix. The endpoint is fixed to the account-scoped HTTPS API on `api.cloudflare.com`. Credentials are excluded from settings diagnostics and validation messages. Each explicit Java `embed` call enforces those settings. An explicitly supplied `EmbeddingProvider` bean replaces the default adapter without requiring Cloudflare credentials, supporting controlled tests.
 
-Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). No live model quality, quota consumption, or account permissions have been verified.
+Live inference requires a Cloudflare account on **Workers Free** and an API token with Workers AI access, and sends passage/query text to Cloudflare. Originals and persisted content remain local. Stay on Workers Free: the application cannot inspect or enforce an account's billing plan. The free allowance is shared and finite; calls after exhaustion fail. See [Cloudflare pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [data usage](https://developers.cloudflare.com/workers-ai/platform/data-usage/). Your own account permissions and remaining allowance are never verified by the application; the 2026-11-16 evaluation covers only a small synthetic corpus.
 
 ## Embedding HTTP adapter
 
 `CloudflareEmbeddingProvider` sends one bounded application request to the account-scoped compatible embeddings endpoint and validates one vector per input. It restores input ordering using response indexes. Calls are rejected inside database transactions. Inputs are limited to the configured batch size (default 8, maximum 32), 1200 Unicode code points per nonblank input, valid Unicode without NUL, and a 256 KiB encoded body. Response reading is capped at 1 MiB; JSON depth, strings, numbers, and token counts are bounded. Incorrect model metadata, indexes/counts, dimensions, nonnumeric/nonfinite/zero components, malformed JSON, and unexpected success content types fail safely.
 
-Redirects are disabled, and production has no endpoint override. The configured request deadline includes receiving the complete body; timeout/interruption cancels the pending operation. The shared embedding client permits at most two in-flight requests across background batches and interactive queries; excess calls fail immediately as unavailable. Its two networking threads and 64-task internal executor queue are independently bounded. Owned HTTP resources close with the application. The adapter performs no automatic application retry, fallback, paid upgrade, database write, or event acknowledgment.
+Redirects are disabled, and production has no endpoint override. The configured request deadline includes receiving the complete body; timeout/interruption cancels the pending operation. The shared embedding client permits at most two in-flight requests across background batches and interactive queries; an excess call waits in arrival order for at most the connect timeout, then fails as unavailable. Its two networking threads and 64-task internal executor queue are independently bounded. Owned HTTP resources close with the application. The adapter performs no automatic application retry, fallback, paid upgrade, database write, or event acknowledgment.
 
 Failures expose fixed reasons: access denial, unavailable model, invalid input/response, rate limiting, daily quota exhaustion, provider/transport unavailability, and timeout. Valid `Retry-After` hints are returned as timestamps for retryable rate/quota/service failures. Documented Cloudflare quota code `3036` also suggests the next UTC reset; private message text is not used for classification. Oversized/incomplete response streams are safe transport failures. The adapter never sleeps until a retry time. The document handler passes these hints to durable delivery scheduling, using the later of normal backoff and the hint. The configured attempt limit still applies; no worker waits until the reset. Raw parser/transport causes remain private and outside the default logged/serialized cause chain.
 
@@ -245,10 +274,10 @@ These are application limits, not a guarantee of remote cancellation, refunded a
 |---|---|---|
 | Embedding connection / complete response | `2s` / `30s` | `secondbrain.embeddings.connect-timeout`: 100 ms–10 s; `request-timeout`: connect timeout–60 s. Deadline includes body reception; cancellation releases local capacity. |
 | Chat connection / complete response | `2s` / `30s` | Same ranges under `secondbrain.questions`; no automatic interactive retry. |
-| Shared embedding requests | 2 in flight | Background and query calls share one client; a third call fails immediately. Two HTTP executor threads, 64 queued internal transport tasks. |
+| Shared embedding requests | 2 in flight | Background and query calls share one client; a third call waits in arrival order for up to the connect timeout, then fails as unavailable. Two HTTP executor threads, 64 queued internal transport tasks. |
 | Chat requests | 2 in flight | A third call fails immediately. Two HTTP executor threads, 32 queued internal transport tasks. |
 | Embedding batch / chat output | 8 inputs / 512 tokens | Batch 1–32 under `secondbrain.embeddings.batch-size`; output 1–2048 under `secondbrain.questions.max-output-tokens`. Existing text/body limits still apply. |
-| Event workers / claims per poll | 2 / 2 | `secondbrain.events.concurrency`: 1–4; `claim-batch-size`: 1–concurrency. More workers do not increase provider capacity; shared-client contention may consume a retry attempt. |
+| Event workers / claims per poll | 2 / 2 | `secondbrain.events.concurrency`: 1–4; `claim-batch-size`: 1–concurrency. More workers do not increase provider capacity; sustained shared-client contention beyond the connect timeout can still consume a retry attempt. |
 | Poll / renewable lease | `1s` / `30s` | Poll 50 ms–30 s; lease at least three poll intervals, at most 5 minutes. Renewal never extends the fixed attempt deadline. |
 | Attempt deadline / database transaction | `2m` / `5s` | Execution from lease duration through 15 minutes; transaction whole seconds from 1 second through half a lease. PostgreSQL statement/transaction limits apply; lock timeout is 1 second. |
 | Automatic attempts per cycle | 5 | `secondbrain.events.max-attempts`: 1–10, including the first claim. Restart and reconciliation preserve the budget; an explicit eligible manual retry starts another cycle. |
@@ -285,7 +314,7 @@ Questions are available at `/questions` when embeddings and questions are enable
 |---|---|
 | `SECONDBRAIN_QUESTIONS_ENABLED` | Defaults to false. Opting in validates settings and creates the chat client; with embeddings enabled it also enables the answer service and question form. Construction makes no inference request. |
 | `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Same external account/token keys as embeddings; required when settings are enabled. |
-| `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; model quality remains unmeasured. |
+| `CLOUDFLARE_CHAT_MODEL` | No default. The supported initial candidate is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; quality was measured only on a small synthetic corpus (see [grounding evaluation](#separate-retrieval-and-answer-grounding-evaluation)); inspect cited excerpts for your own documents. |
 | `CLOUDFLARE_CHAT_MAX_OUTPUT_TOKENS` | Defaults to 512; permitted range 1–2,048. |
 | `secondbrain.questions.connect-timeout` / `request-timeout` | Default 2s / 30s. Connect range 100ms–10s; request range connect-timeout–60s. |
 
@@ -590,7 +619,7 @@ Upload -> DocumentAccepted -> extracted text -> TextExtracted
        -> embedding batches -> active index + IndexPublished
 ```
 
-The upload returns `202 Accepted` with `QUEUED` after storing its original and durable request. The automatic worker handles later stages. A successful provider response alone does not make an index ready: all batches, guarded activation, publication, and acknowledgment must complete. Library pages currently show extraction status; use the active pointer or index metrics to inspect indexing. Semantic search is not yet implemented.
+The upload returns `202 Accepted` with `QUEUED` after storing its original and durable request. The automatic worker handles later stages. A successful provider response alone does not make an index ready: all batches, guarded activation, publication, and acknowledgment must complete. Library and document pages show processing stages and search readiness; the active pointer and index metrics remain available for deeper inspection. Browser search and questions use only active, complete indexes.
 
 Run the complete offline workflow checks with Docker and local HTTP listeners available:
 
@@ -618,6 +647,64 @@ ORDER BY d.created_at DESC;
 ```
 
 A null active version is expected with embeddings disabled or incomplete processing. An extracted document can still be waiting for embeddings. Do not set the active pointer manually. The offline tests prove deterministic processing boundaries; they do not establish live account permissions, remaining allowance, model quality, or semantic search quality. The separate [live embedding smoke check](#embedding-request-telemetry) remains explicitly invoked within its documented budget.
+
+## Example workflow: fresh checkout to deletion
+
+This is the reproducible path from a fresh checkout and empty database to upload, processing, search, questions, source inspection and deletion. Use only the disposable, non-sensitive files below.
+
+**Prerequisites:** the [README requirements](../README.md#requirements) and a private `.env` copied from `.env.example`. Steps 1–3 and 8 need no Cloudflare account. Steps 4–7 need embeddings and questions enabled with your own Workers Free account; they send the sample text and your questions to Cloudflare and consume its free allowance.
+
+1. Create the notes and start from an empty database. `docker compose down -v` deletes only this project's disposable Docker volume; skip it if you want to keep an existing library:
+
+   ```sh
+   printf '# Java study notes\n\nArrayList keeps values in list order and permits duplicates.\n' > /tmp/arraylist-notes.md
+   printf 'HashSet stores each distinct value only once.\n' > /tmp/hashset-notes.txt
+   docker compose down -v
+   docker compose up -d --wait --wait-timeout 60 postgres
+   ./mvnw spring-boot:run
+   ```
+
+   Flyway creates the schema on startup, so no manual database step is needed. `curl -i http://127.0.0.1:8080/actuator/health/readiness` should return `200`/`UP`.
+2. Upload both files in the browser at `http://127.0.0.1:8080/`, or with `curl -F 'file=@/tmp/arraylist-notes.md' http://127.0.0.1:8080/documents`. Expect `Saved and queued` (HTTP `202` for curl), then both names under **Your documents**.
+3. Open a document. With embeddings disabled it shows **Text available** with numbered lines; it is not search-ready. With embeddings enabled it becomes **Ready** after background indexing.
+4. Enable [embeddings](#embedding-configuration), restart, and wait for **Ready**. Search `Does ArrayList allow duplicates?` over the whole library: expect the ArrayList excerpt with its line range and **Open source passage**.
+5. Enable [questions](#question-provider-boundary), restart, and ask the same question. Expect an answer with a source link whose excerpt supports it. A citation proves only that the passage was supplied to the model; read the excerpt. Ask `What is the weather?`: expect **Insufficient information**.
+6. Select only the HashSet note and repeat the ArrayList question: expect **Insufficient information**, since the selected document does not contain the answer (a live model's wording is not guaranteed; the controlled test asserts it).
+7. Delete the ArrayList note and confirm. It leaves the library at once, its saved source link returns `404`, and search no longer finds it. Cleanup of saved text, passages, vectors and the original runs in the background.
+8. Stop with `Ctrl+C` and `docker compose down`.
+
+**Controlled versus live results.** `./mvnw -Dit.test=ExampleWorkflowIT verify` runs this workflow through real HTTP against an empty PostgreSQL/pgvector container, with deterministic embedding/chat providers and temporary storage. It asserts Flyway creates the schema from nothing, health endpoints report UP, upload through deletion works, and nothing private reaches default logs. It makes no Cloudflare request and needs no credentials; it does not show model quality. Steps 4–6 against Cloudflare are the only live parts. Live quality was measured separately on a different small synthetic corpus (see [grounding evaluation](#separate-retrieval-and-answer-grounding-evaluation)), not on these two notes.
+
+### Failed and retried deliveries
+
+The same test shows the diagnostic signals for a failed and a retried delivery:
+
+- A transient embedding failure retries the same delivery automatically with backoff and then succeeds. `secondbrain.event.delivery.attempts` shows `outcome=retry`, then `completed`; no manual action or new retry cycle is involved.
+- A file with invalid UTF-8 fails extraction permanently. The document page shows the safe message **The document must use valid UTF-8 encoding.** `outcome=failed` increments, and the `failed` backlog (`secondbrain.event.backlog{state=failed}`) rises within its five-second refresh. Readiness stays `UP`.
+- **Retry processing** requeues the failed delivery once: `secondbrain.document.processing.retries{outcome=requested}` and one `event_delivery_retries` audit row appear, and the unchanged bytes fail again. Upload a corrected file instead of expecting a retry to repair it.
+
+To see these by hand without a provider, upload `printf '\303(' > /tmp/broken-encoding.txt` and follow the [no-inference walkthrough](#no-inference-success-failure-and-cleanup-walkthrough). Metrics and logs omit filenames, text, queries and provider bodies.
+
+### Demonstration recording
+
+No demonstration recording exists in this repository. Record one only from disposable files above, without `.env` contents, tokens, account IDs or personal documents visible, and record its location here. A recording by the author does not count as another developer's reproduction.
+
+## Release capabilities and known limitations
+
+Implemented and verified by `./mvnw verify` without live credentials: selectable-text PDF, Word `.docx`, HTML, Markdown and UTF-8 text upload; background extraction, passage preparation and optional embeddings; atomic index activation; whole-library or selected-document search; cited answers with fresh source checks; processing status, manual retry and recoverable deletion; health, metrics, safe logs and optional local tracing.
+
+Known limitations:
+
+- Single user, loopback only, no authentication; not a public deployment. Requests must name this machine in `Host` (`127.0.0.1`, `localhost` or `[::1]`), and state-changing requests from another site or another local port are rejected with `403` using `Origin` and `Sec-Fetch-Site`. Clients that send neither header, such as curl, are accepted, so any local program can still use the application.
+- Search and questions share a two-request embedding client with background indexing. Brief contention waits; a search can still fail as provider unavailable when both slots stay busy longer than the connect timeout.
+- A very large document is embedded over several delivery attempts when one exceeds the two-minute execution timeout. Each timed-out attempt is reported as a retry even though saved batches are kept.
+- Semantic search and answers need your own Cloudflare Workers AI account on the Workers Free plan. The application cannot check your plan or remaining allowance; calls fail once the allowance is exhausted. There is no fallback provider.
+- Passage text, queries and bounded evidence are sent to Cloudflare when those features are enabled. Originals and stored content remain local.
+- Exact vector search scans eligible vectors; it is not tuned for large libraries. Quality was measured only on a small synthetic corpus, once, on a hosted model whose revision is not pinned.
+- A valid citation shows which passage was supplied, not that the claim is true. Review the excerpt.
+- Scanned PDFs, encrypted PDFs, legacy `.doc`, spreadsheets, presentations, other formats, and files over the configured limits are rejected. Word extraction reads body text only.
+- The event failure matrix, telemetry privacy and exporter-failure checks run in the required integration tests; telemetry backends are optional.
+- A separate developer has not yet reproduced this walkthrough from a fresh checkout.
 
 ## Search query contracts
 
@@ -667,7 +754,7 @@ The first query prints a safe summary with `SelectedDocuments[count=0]` and limi
 
 ## Local passage retrieval
 
-When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A selection naming only deleted documents (none still visible) is treated the same way: one bounded read, an empty result, the `empty_scope` outcome and no provider call. A nonempty scope that is not deleted-only and has no compatible complete active index (unknown IDs, documents still indexing, or a mix) raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
+When embeddings are enabled, `SearchService.search(SearchQuery)` checks index availability, prepares one query vector, and ranks eligible stored passages in PostgreSQL. It reuses saved vectors. An explicit empty selection returns an empty result without database/provider work. A selection that names no visible document is treated the same way: one bounded read, an empty result, the `empty_scope` outcome and no provider call. That covers deleted documents both before and after background cleanup removes their rows, since a cleaned-up ID is indistinguishable from an unknown one. A selection with at least one visible document but no compatible complete active index (for example, still indexing) raises `SearchFailure` with `NO_COMPATIBLE_INDEX` before inference. A valid search with no sufficiently similar passage returns an empty result; database failures use `DATABASE_UNAVAILABLE` and keep private SQL/vector details out of printable errors.
 
 The read-only projection joins the selected active index to its current extracted source, passages, and vectors. It excludes deleted/queued/processing/failed documents, stale extraction sources, unsupported/unbound model/configuration metadata, and generations with missing vectors/passages or sequence gaps. A compatible old active generation remains eligible while a replacement is staged; desired does not have to equal active. Selected-document filtering happens before ranking/limits.
 
@@ -786,7 +873,7 @@ This explicit invocation authorizes sending the synthetic fixture text/questions
 
 The ignored `evaluation-runs/java-study-v2-live-*/report.json` contains case IDs, scope/deletion selections, expected/returned passage IDs, recall, absence, durations, configuration, token-report coverage and safe failure codes. It contains no prompts, excerpts, credentials or answers. `COMPLETED` means the measurement finished, not that quality passed. Interrupted/quota-failed cases have no fabricated recall or latency; later cases remain `NOT_RUN`. JUnit command diagnostics are separate under `target/retrieval-evaluation-reports/`. Source bindings retain physical PDF pages and indexing/passage configuration. Durations come from the interactive search-service observation, excluding fixture/deletion setup and passage embedding.
 
-A `NO_COMPATIBLE_INDEX` response is recorded as a measured application outcome with its explicit failure code and no invented recall or empty-result success. It does not abort later reference cases. A selection of only deleted documents no longer produces this response; it is an empty result, so the removed-pdf case is a normal absence case. It can still occur for unknown or unindexed selections. Provider, quota, budget and storage failures still stop the run. In reports, a case marked `COMPLETED` means the response was observed, including an unavailable-index response; check `failureCode` as well as execution status.
+A `NO_COMPATIBLE_INDEX` response is recorded as a measured application outcome with its explicit failure code and no invented recall or empty-result success. It does not abort later reference cases. A selection of only deleted documents no longer produces this response; it is an empty result, so the removed-pdf case is a normal absence case. It can still occur when the selected documents are visible but not yet indexed. Provider, quota, budget and storage failures still stop the run. In reports, a case marked `COMPLETED` means the response was observed, including an unavailable-index response; check `failureCode` as well as execution status.
 
 ## Separate retrieval and answer-grounding evaluation
 
@@ -925,7 +1012,7 @@ The enabled search service uses the shared local registries and optional trace e
 | `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
 | `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
 
-Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection or a deleted-only selection), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
+Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection, or a selection that names no visible document), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
 
 The result summary records only final returned counts from 0 through 20. Completed empty selections/no-matches contribute zero; failed requests contribute no sample. It therefore does not interpret a provider/database outage as absent evidence. Counters/timers/summary reset per process and are best effort. Metrics, observations, and safe logging fail independently without changing a successful result or an original error.
 
@@ -1016,7 +1103,7 @@ Run `./mvnw -Dit.test=DocumentDeletionIT,DocumentDeletionDeliveryIT verify` for 
 
 ## Uploading documents over HTTP
 
-With the application running, submit one existing TXT, Markdown, or PDF file using the `file` field:
+With the application running, submit one existing supported file using the `file` field:
 
 ```sh
 curl -i -F 'file=@notes.txt' http://127.0.0.1:8080/documents
@@ -1042,7 +1129,7 @@ To check unsupported-extension rejection despite the browser's file-picker filte
 curl -i -F 'file=@notes.txt;filename=notes.exe' http://127.0.0.1:8080/documents
 ```
 
-Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Only TXT, Markdown, and PDF files are supported.`
+Expected: HTTP `400` with code `UNSUPPORTED_TYPE` and message `Supported formats are PDF, Word (.docx), HTML, Markdown and UTF-8 text files such as .txt, .csv and .json.`
 
 To associate acceptance with a known request, supply a canonical UUID in `X-Correlation-ID`; otherwise the application generates one. The accepted ID is returned in the response header and persisted in the durable event. Disabling durable events with `secondbrain.events.enabled=false` also disables the upload endpoint; disabling only worker polling still permits uploads to be durably queued.
 
@@ -1221,6 +1308,18 @@ Application logs are written as one JSON object per entry using Spring Boot's bu
 
 Logs stay on the console; no Logstash server or log file is configured. Maven's `[INFO]` build output and JVM warnings keep their own format. HTTP and event-worker summaries use separate JSON fields; tracing adds `traceId`/`spanId` while a span is in scope. Formatting preserves message contents; application logs must use safe messages and metadata.
 
+### Local request checks
+
+`LocalRequestFilter` applies to every route, including health and metrics. A request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` receives `403`, which stops a rebound attacker domain from reading the library. A request other than `GET`/`HEAD` also receives `403` when the browser's `Sec-Fetch-Site` is not `same-origin`/`none`; this covers other websites and other local ports. `Sec-Fetch-Site` decides whenever it is present, because pages sent with `Referrer-Policy: no-referrer` (search, questions, sources, cleanup) make browsers send `Origin: null` even for their own forms. Only when it is absent must `Origin` match the address the request was sent to. The response is fixed text and the log records only `outcome=rejected` with `code=FOREIGN_HOST` or `FOREIGN_ORIGIN`, never the supplied values. Open the application through the same address you submit forms to. Check with:
+
+```sh
+curl -i -H 'Host: example.test' http://127.0.0.1:8080/
+curl -i -X POST -H 'Origin: https://example.test' http://127.0.0.1:8080/documents/upload
+./mvnw -Dtest=LocalRequestFilterTest test
+```
+
+Both curl requests should return `403`.
+
 ### Request correlation
 
 Each synchronous HTTP request returns an `X-Correlation-ID` response header. Supply one canonical lowercase UUID to reuse it; missing, malformed, or repeated header values receive a generated UUID. For example:
@@ -1352,7 +1451,7 @@ Run `./mvnw verify` for the completion gate. `LocalMetricsConfigurationTest`, `O
 
 ## Durable event processing
 
-The application includes a PostgreSQL-backed event publisher and background delivery workers. Events and their registered deliveries commit with the caller's database changes. Delivery is at least once: interrupted work can be retried, while a current lease is required to commit handler effects and acknowledgment. The application currently has no production event handlers; test handlers run only in isolated integration tests.
+The application includes a PostgreSQL-backed event publisher and background delivery workers. Events and their registered deliveries commit with the caller's database changes. Delivery is at least once: interrupted work can be retried, while a current lease is required to commit handler effects and acknowledgment. Production handlers cover document extraction, passage preparation, embedding, index publication and deletion cleanup; isolated integration tests add their own handlers for generic delivery mechanics.
 
 Workers start with the application. Configure them using Spring properties or environment variables. For example, limit processing and each claim batch to one delivery:
 
@@ -1370,7 +1469,7 @@ Workers start with the application. Configure them using Spring properties or en
 | `lease-duration` | `30s` | Renewable ownership interval |
 | `execution-timeout` | `2m` | Maximum duration of one delivery attempt |
 | `transaction-timeout` | `5s` | Database statement/transaction limit, including the publishing caller's transaction |
-| `max-attempts` | `5` | Total automatic attempts, including expired leases; configurable from 1 to 10 |
+| `max-attempts` | `5` | Automatic attempts allowed without saved progress, including expired leases; configurable from 1 to 10. A committed checkpoint, such as a saved embedding batch, forgives earlier attempts in the cycle, so long work that advances on every attempt is not failed; lifetime attempt history is kept |
 | `initial-backoff` | `1s` | Initial exponential retry ceiling; jitter chooses 50–100% of the ceiling |
 | `max-backoff` | `1m` | Maximum retry ceiling |
 | `completed-retention` | `30d` | Retain completed/skipped payloads and attempt history for this interval |
