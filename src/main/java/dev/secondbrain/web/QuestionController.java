@@ -1,6 +1,7 @@
 package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentInspectionService;
+import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.questions.QuestionFailure;
 import dev.secondbrain.search.SearchQuery;
@@ -126,6 +127,9 @@ class QuestionController {
                                 : QuestionFeedback.INSUFFICIENT_INFORMATION,
                         Optional.empty());
             model.addAttribute("questionAnswer", result);
+            model.addAttribute(
+                    "answerSegments",
+                    CitationMarkers.segments(result.text(), result.citations().size()));
             model.addAttribute("questionFeedback", QuestionFeedback.ANSWERED);
         } catch (QuestionFailure failure) {
             if (failure.reason() == QuestionFailure.Reason.SOURCE_UNAVAILABLE

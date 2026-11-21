@@ -38,6 +38,8 @@ final class CloudflareChatProtocol {
             Do not use outside knowledge or invent facts. Cite only the supplied passage_id values.
             Return one JSON object with outcome, answer and citations.
             For a supported answer use outcome ANSWERED, nonblank answer text and supporting citations.
+            After each sentence that uses evidence, add a marker like [1] or [2], where the number is
+            the position of that passage_id in your citations array, counting from 1.
             If the evidence cannot support an answer use outcome INSUFFICIENT_INFORMATION,
             an empty answer string and an empty citations array. Do not invent an explanation.
             """;

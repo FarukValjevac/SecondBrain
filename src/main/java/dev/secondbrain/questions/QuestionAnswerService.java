@@ -95,7 +95,9 @@ public final class QuestionAnswerService {
             return Answer.insufficientInformation();
         var citations = new ArrayList<DocumentInspectionService.PassageSource>();
         for (var id : candidate.reply().citations()) citations.add(visible.get(id));
-        return new Answer(Outcome.ANSWERED, candidate.reply().answer(), citations);
+        // Citations are checked above; markers may only point at those accepted citations.
+        var text = CitationMarkers.retainValid(candidate.reply().answer(), citations.size());
+        return new Answer(Outcome.ANSWERED, text, citations);
     }
 
     private Map<UUID, DocumentInspectionService.PassageSource> readSources(Map<UUID, UUID> owners) {

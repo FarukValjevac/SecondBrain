@@ -128,6 +128,46 @@ class QuestionControllerTest {
     }
 
     @Test
+    void linksInlineCitationMarkersToTheirNumberedSourcesWithoutRenderingMarkup() throws Exception {
+        var first = source("First <i>source</i>");
+        var second = source("Second source");
+        when(answers.answer(any()))
+                .thenReturn(
+                        new QuestionAnswerService.Answer(
+                                QuestionAnswerService.Outcome.ANSWERED,
+                                "Duplicates are allowed [1]. <b>Sets</b> keep one copy [2]. Code"
+                                        + " like a[1] stays text.",
+                                List.of(first, second)));
+        var html =
+                mvc.perform(submission("Duplicates?", "all"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(html)
+                .contains(
+                        "href=\"#source-1\"",
+                        "href=\"#source-2\"",
+                        "id=\"source-1\"",
+                        "id=\"source-2\"",
+                        "<span class=\"visually-hidden\"> source 2</span>",
+                        "&lt;b&gt;Sets&lt;/b&gt; keep one copy ",
+                        "like a[1] stays text.")
+                .doesNotContain("<b>Sets", "href=\"#source-3\"");
+        assertThat(html.split("class=\"citation-marker\"", -1)).hasSize(3);
+    }
+
+    private static DocumentInspectionService.PassageSource source(String text) {
+        return new DocumentInspectionService.PassageSource(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                1,
+                "notes.md",
+                text,
+                new DocumentInspectionService.SourceLocation(1, 0, 1, 10, OptionalInt.empty()));
+    }
+
+    @Test
     void rendersEscapedQuestionAnswerSourceAndPhysicalPageAndFollowsTheStableSourceLink(
             CapturedOutput output) throws Exception {
         var owner = UUID.randomUUID();
