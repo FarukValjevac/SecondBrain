@@ -14,6 +14,9 @@
     <p><a href="/">Back to library</a></p>
     <h1 th:text="${document.name}">Document</h1>
     <p>Text extraction: <strong th:text="${document.state}">QUEUED</strong></p>
+    <p class="hint" th:if="${webSource != null}">Imported from
+      <a th:href="${webSource.url}" th:text="${webSource.url}" rel="noopener noreferrer" target="_blank">https://example.com</a>
+      on <time th:datetime="${webSource.fetchedAt}" th:text="${webSource.fetchedAt}">time</time>.</p>
     <p><a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a></p>
     <p th:if="${questionsEnabled and progress != null and progress.state.name() == 'READY'}">
       <a th:href="@{/questions(documentId=${document.documentId})}">Ask about this document</a>

@@ -3,6 +3,7 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.imports.WebPageImportService;
 import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.search.SearchFailure;
@@ -51,6 +52,7 @@ class DocumentDetailController {
     private final ObjectProvider<SearchService> search;
     private final ObjectProvider<SummaryService> summaries;
     private final ObjectProvider<FlashcardService> flashcards;
+    private final ObjectProvider<WebPageImportService> imports;
 
     DocumentDetailController(
             DocumentInspectionService documents,
@@ -59,7 +61,8 @@ class DocumentDetailController {
             ObjectProvider<QuestionAnswerService> answers,
             ObjectProvider<SearchService> search,
             ObjectProvider<SummaryService> summaries,
-            ObjectProvider<FlashcardService> flashcards) {
+            ObjectProvider<FlashcardService> flashcards,
+            ObjectProvider<WebPageImportService> imports) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
@@ -67,6 +70,7 @@ class DocumentDetailController {
         this.search = search;
         this.summaries = summaries;
         this.flashcards = flashcards;
+        this.imports = imports;
     }
 
     @GetMapping("/documents/{id}")
@@ -81,6 +85,14 @@ class DocumentDetailController {
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         model.addAttribute("related", related(id));
         model.addAttribute("studyEnabled", flashcards.getIfAvailable() != null);
+        var pages = imports.getIfAvailable();
+        if (pages != null) {
+            try {
+                pages.source(id).ifPresent(source -> model.addAttribute("webSource", source));
+            } catch (DataAccessException | TransactionException unavailable) {
+                // The source line is optional.
+            }
+        }
         var summarizer = summaries.getIfAvailable();
         model.addAttribute("summariesEnabled", summarizer != null);
         if (summarizer != null) {

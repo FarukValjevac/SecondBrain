@@ -84,7 +84,7 @@ class ExampleWorkflowIT {
                 var origin = origin(context);
                 var flyway = context.getBean(Flyway.class);
                 assertThat(flyway.info().pending()).isEmpty();
-                assertThat(flyway.info().applied()).hasSize(19);
+                assertThat(flyway.info().applied()).hasSize(20);
                 assertThat(tableCount(postgres)).isPositive();
                 for (var path :
                         List.of(

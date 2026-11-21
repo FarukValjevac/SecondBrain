@@ -1057,6 +1057,20 @@ Set `SECONDBRAIN_FOLDER_SYNC_DIRECTORY` to one local folder, for example a notes
 
 Relative paths are stored privately and never logged; logs show only fixed codes such as `FOLDER_UNAVAILABLE`. The library page shows how many files are imported, the last scan time and any problem. Check with `./mvnw -Dit.test=FolderSyncIT verify`.
 
+## Importing a web page
+
+Under **Add a document**, **Import a web page** takes one public `http://` or `https://` address. SecondBrain fetches it once and stores it through the normal upload path as HTML, Markdown or text, with the same size limit and extraction rules. The source URL and fetch time are recorded (`document_sources`, migration V20) and shown on the document page.
+
+The fetch is built to avoid server-side request forgery:
+
+- The host is resolved once. If **any** resolved address is loopback, private (10/8, 172.16/12, 192.168/16), link-local (including the 169.254.169.254 cloud metadata address), carrier-grade NAT, multicast, unspecified, IPv6 unique-local, or an IPv4-mapped form of these, the import is refused.
+- The connection goes to that checked address, so a DNS answer that changes later (DNS rebinding) cannot redirect it. HTTPS still verifies the certificate for the host name.
+- Redirects are followed by hand, at most 3, and every hop is checked again.
+- Limits: 5-second connect and 20-second total time, 16 KiB of headers, the upload size limit for the body, and only `text/html`, `application/xhtml+xml`, `text/plain` or `text/markdown`. Other declared character sets are converted to UTF-8.
+- No cookies, credentials or compression are sent. Page text is reference data like any upload.
+
+Errors are fixed messages that never repeat the URL, and the URL is not logged. Check with `./mvnw -Dtest=AddressGuardTest,PageFetcherTest,WebPageImportServiceTest test` and `./mvnw -Dit.test=WebImportIT verify`.
+
 ## Retrieval telemetry
 
 The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:
