@@ -281,6 +281,9 @@ form[data-submitting] button {
 .search-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .source-location { color: var(--muted); }
 .hint { color: var(--muted); }
+.flashcard-answer summary { cursor: pointer; font-weight: 600; }
+.flashcard-grades { margin-top: 1rem; }
+.flashcard-grades button { margin: 0.25rem 0.5rem 0.25rem 0; }
 .answer-feedback fieldset { border: 1px solid var(--line); border-radius: 0.5rem; }
 .answer-feedback select { margin: 0 0.5rem; font: inherit; }
 .citation-marker { font-size: 0.8em; vertical-align: super; line-height: 0; color: var(--brand); }

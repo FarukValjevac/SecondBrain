@@ -19,6 +19,7 @@
       <nav class="primary-links" aria-label="Library tools">
         <a href="/search" th:href="@{/search}">Search documents</a>
         <a href="/questions" th:href="@{/questions}">Ask your documents</a>
+        <a href="/flashcards" th:href="@{/flashcards}" th:if="${questionsEnabled}">Review flashcards</a>
       </nav>
     </div>
     <section class="notice notice-success" role="status" th:if="${uploadReceipt != null}">

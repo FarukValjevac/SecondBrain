@@ -20,6 +20,11 @@
     </p>
     <p class="hint" th:if="${questionsEnabled and (progress == null or progress.state.name() != 'READY')}">
       You can ask about this document once it is ready for search.</p>
+    <form method="post" th:if="${studyEnabled and progress != null and progress.state.name() == 'READY'}"
+          th:action="@{/documents/{id}/flashcards(id=${document.documentId})}">
+      <button type="submit">Make flashcards</button>
+      <span class="hint">Uses one AI request from your allowance.</span>
+    </form>
     <p class="hint" th:unless="${questionsEnabled}">
       Questions are turned off. Enable embeddings and questions to ask about this document.</p>
     <section class="notice notice-success" role="status" th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>

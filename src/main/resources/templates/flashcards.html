@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flashcards | SecondBrain</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="/css/library.css" th:href="@{/css/library.css}">
+  <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="/" th:href="@{/}">SecondBrain</a></header>
+  <main>
+    <div class="library-heading"><h1>Flashcards</h1></div>
+    <section class="notice notice-info" role="status" th:if="${studyMessage != null}">
+      <p th:text="${studyMessage}">Created 5 flashcards.</p>
+    </section>
+    <p th:text="|Cards due now: ${dueCount}|">Cards due now: 0</p>
+    <section class="library-card" th:if="${card != null}" aria-labelledby="card-question">
+      <p class="hint" th:text="|From ${documentName}|">From notes.md</p>
+      <h2 id="card-question" th:text="${card.question}">Question</h2>
+      <details class="flashcard-answer">
+        <summary>Show answer</summary>
+        <p class="answer-text" th:text="${card.answer}">Answer</p>
+        <p th:if="${source != null}">
+          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}">Check the source passage</a>
+        </p>
+        <p class="hint" th:if="${source == null}">The source passage is no longer available.</p>
+        <form method="post" th:action="@{/flashcards/{id}/review(id=${card.cardId})}" class="flashcard-grades">
+          <fieldset>
+            <legend>How well did you remember it?</legend>
+            <button type="submit" name="grade" value="again">Again</button>
+            <button type="submit" name="grade" value="hard">Hard</button>
+            <button type="submit" name="grade" value="good">Good</button>
+            <button type="submit" name="grade" value="easy">Easy</button>
+          </fieldset>
+        </form>
+      </details>
+    </section>
+    <section class="library-card" th:if="${card == null}">
+      <h2>Nothing due</h2>
+      <p>Make flashcards from a ready document's page, or come back when cards are due.</p>
+    </section>
+    <nav class="primary-links" aria-label="Study">
+      <a href="/" th:href="@{/}">Back to document library</a>
+    </nav>
+  </main>
+</body>
+</html>
