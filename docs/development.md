@@ -1026,6 +1026,14 @@ The document page shows the summary with numbered, linked source passages, and a
 
 Check with `./mvnw -Dtest=SummaryGeneratorTest,SummaryPageTest test` and `./mvnw -Dit.test=SummaryWorkflowIT verify`.
 
+## Flashcards
+
+With questions enabled, a ready document's page offers **Make flashcards**. It sends **one** chat request with the document's most typical passages (the same selection as summaries) and asks for up to eight cards in the line format `Q: question || A: answer [n]`. A card is kept only if it matches that format, stays within 300/600 characters, does not repeat a question, and cites a passage that was supplied, using the same citation rule as answers. Cards are stored (`flashcards`, migration V17) only if the document is still visible with the same active index generation.
+
+**Review flashcards** (`/flashcards`, also linked from the library) shows the next due card. Select **Show answer** to see the answer and a link to its source passage, then grade your recall: **Again** (back in 10 minutes), **Hard**, **Good** or **Easy**. A small SM-2 style scheduler sets the next date: new cards go 1 day then 6 days, then the interval grows by the card's ease, capped at about ten years. Reviewing makes no provider call. A review only applies to the state you saw, so submitting the same card twice from two tabs counts once. Deleting a document hides its cards at once and removes them during cleanup. Metrics: `secondbrain.study.flashcards{outcome=created|none}` and `secondbrain.study.reviews{grade}`.
+
+Check with `./mvnw -Dtest=ReviewSchedulerTest,FlashcardParserTest,FlashcardServiceTest,FlashcardControllerTest test` and `./mvnw -Dit.test=FlashcardIT verify`.
+
 ## Retrieval telemetry
 
 The enabled search service uses the shared local registries and optional trace export. Inspect these after an API search:

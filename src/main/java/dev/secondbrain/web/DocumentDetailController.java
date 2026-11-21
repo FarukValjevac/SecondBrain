@@ -8,6 +8,7 @@ import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.search.SearchFailure;
 import dev.secondbrain.search.SearchResult;
 import dev.secondbrain.search.SearchService;
+import dev.secondbrain.study.FlashcardService;
 import dev.secondbrain.summaries.SummaryService;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -49,6 +50,7 @@ class DocumentDetailController {
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<SearchService> search;
     private final ObjectProvider<SummaryService> summaries;
+    private final ObjectProvider<FlashcardService> flashcards;
 
     DocumentDetailController(
             DocumentInspectionService documents,
@@ -56,13 +58,15 @@ class DocumentDetailController {
             ObjectProvider<DocumentProcessingService> processing,
             ObjectProvider<QuestionAnswerService> answers,
             ObjectProvider<SearchService> search,
-            ObjectProvider<SummaryService> summaries) {
+            ObjectProvider<SummaryService> summaries,
+            ObjectProvider<FlashcardService> flashcards) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
         this.answers = answers;
         this.search = search;
         this.summaries = summaries;
+        this.flashcards = flashcards;
     }
 
     @GetMapping("/documents/{id}")
@@ -76,6 +80,7 @@ class DocumentDetailController {
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         model.addAttribute("related", related(id));
+        model.addAttribute("studyEnabled", flashcards.getIfAvailable() != null);
         var summarizer = summaries.getIfAvailable();
         model.addAttribute("summariesEnabled", summarizer != null);
         if (summarizer != null) {
