@@ -32,8 +32,9 @@ class HomeControllerTest {
         assertThat(html)
                 .contains(
                         "What do you want to know?",
-                        // The plain form posts to the normal answer page.
-                        "action=\"/questions\"",
+                        // Without JavaScript the form saves the turn and opens the conversation.
+                        "action=\"/chats/ask\"",
+                        "name=\"conversation\"",
                         "data-chat",
                         // chat.js posts here; form.action is shadowed by the button named action.
                         "data-turn=\"/questions/turn\"",

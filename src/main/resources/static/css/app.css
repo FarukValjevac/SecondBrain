@@ -2094,3 +2094,100 @@
     accent-color: var(--accent);
   }
 }
+
+/* ---------- Saved chats ---------- */
+@layer components {
+  .chat-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-block-end: var(--space-3);
+    border-block-end: 1px solid var(--line);
+  }
+  .chat-header h1 {
+    font-size: var(--text-xl);
+    overflow-wrap: anywhere;
+  }
+  .chat-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .chat-rename summary {
+    cursor: pointer;
+    color: var(--accent);
+  }
+  .chat-rename[open] form {
+    display: flex;
+    gap: var(--space-2);
+    margin-block-start: var(--space-2);
+  }
+  .saved-sources summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .nav-chat span,
+  .nav-more span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nav-chat {
+    font-size: var(--text-sm);
+    padding-block: var(--space-1);
+  }
+  .nav-more {
+    font-size: var(--text-sm);
+    color: var(--accent);
+  }
+  .chat-list {
+    display: grid;
+    gap: 2px;
+  }
+  .chat-list-page {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2);
+  }
+  .chat-list-page li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-raised);
+  }
+  .chat-list-page li > a:first-child {
+    flex: 1;
+    min-inline-size: 0;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .chat-list-page time {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+  .chat-delete-link {
+    font-size: var(--text-sm);
+  }
+  /* A reopened conversation reads from the top, so it does not sit at the bottom like a new one. */
+  .chat:has(.chat-header) {
+    align-content: start;
+  }
+}
+
+@layer components {
+  .nav-chat span {
+    display: block;
+    min-inline-size: 0;
+    white-space: nowrap;
+  }
+}

@@ -90,13 +90,16 @@ class QuestionHttpIT {
         try (var context = start(models);
                 var client = client()) {
             var origin = origin(context);
-            // The home page is the conversation; without JavaScript it posts to /questions.
+            // The home page is the conversation; without JavaScript it posts to /chats/ask.
             assertThat(get(client, origin, "/").body())
-                    .contains("action=\"/questions\"", "data-chat", "src=\"/js/chat.js\"");
+                    .contains("action=\"/chats/ask\"", "data-chat", "src=\"/js/chat.js\"");
             var alpha = uploadSample(client, origin, "ALPHA", pdf);
             var beta = uploadSample(client, origin, "BETA", false);
             ready(context, 2);
             int embeddings = models.queryCalls.get();
+            // Runs share one database: clear chats saved by an earlier run, whose sidebar titles
+            // would legitimately contain the query.
+            context.getBean(dev.secondbrain.conversations.ConversationService.class).deleteAll();
             assertThat(get(client, origin, "/questions?q=" + encode(QUERY)).body())
                     .doesNotContain(QUERY);
             assertThat(models.queryCalls).hasValue(embeddings);
@@ -134,7 +137,7 @@ class QuestionHttpIT {
                             "q=" + encode(QUERY + " ALPHA") + "&scope=all&action=ask");
             assertThat(turn.statusCode()).isEqualTo(200);
             assertThat(turn.body())
-                    .startsWith("<li class=\"turn\">")
+                    .startsWith("<li class=\"turn\" data-conversation=\"")
                     .contains(
                             "bubble-user",
                             ANSWER + " &lt;script&gt;answer()&lt;/script&gt;",
@@ -142,6 +145,18 @@ class QuestionHttpIT {
                     .doesNotContain("<html", "<script>");
             assertPrivateHeaders(turn);
             assertThat(models.chatCalls).hasValue(2);
+            // The turn was saved: its chat reopens with the question and the cited answer.
+            var chatId =
+                    turn.body()
+                            .substring(
+                                    turn.body().indexOf("data-conversation=\"") + 19,
+                                    turn.body().indexOf("data-conversation=\"") + 55);
+            var chat = get(client, origin, "/chats/" + chatId);
+            assertThat(chat.statusCode()).isEqualTo(200);
+            assertThat(chat.body())
+                    .contains(QUERY + " ALPHA", "Ask a follow-up", "Sources (")
+                    .doesNotContain("<script>answer");
+            assertPrivateHeaders(chat);
             var absent = ask(client, origin, QUERY + " UNRELATED", "all", "");
             assertThat(absent.statusCode()).isEqualTo(200);
             assertThat(absent.body())

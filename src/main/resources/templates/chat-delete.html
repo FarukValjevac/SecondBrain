@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'ask', ~{::main}, ~{})}">
+<head>
+  <title>Delete chat | SecondBrain</title>
+</head>
+<body>
+  <main id="content">
+    <th:block th:if="${conversation != null}">
+      <h1>Delete this chat?</h1>
+      <p>Delete <strong th:text="${conversation.title}">this chat</strong> and all its questions and answers? Your documents are not affected. This cannot be undone.</p>
+      <form method="post" th:action="@{/chats/{id}/delete(id=${conversation.conversationId})}" class="deletion-actions">
+        <button type="submit" class="danger-button">Delete chat</button>
+        <a th:href="@{/chats/{id}(id=${conversation.conversationId})}">Cancel</a>
+      </form>
+    </th:block>
+    <th:block th:if="${conversation == null}">
+      <h1>Delete all chats?</h1>
+      <p>Delete every saved chat with all its questions and answers? Your documents are not affected. This cannot be undone.</p>
+      <form method="post" th:action="@{/chats/delete-all}" class="deletion-actions">
+        <button type="submit" class="danger-button">Delete all chats</button>
+        <a href="/chats" th:href="@{/chats}">Cancel</a>
+      </form>
+    </th:block>
+  </main>
+</body>
+</html>
