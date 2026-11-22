@@ -1,5 +1,7 @@
 package dev.secondbrain.web;
 
+import dev.secondbrain.conversations.Conversation;
+import dev.secondbrain.conversations.ConversationService;
 import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.questions.QuestionAnswerService;
 
@@ -14,11 +16,27 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 class ShellModel {
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<FolderService> folders;
+    private final ObjectProvider<ConversationService> conversations;
 
     ShellModel(
-            ObjectProvider<QuestionAnswerService> answers, ObjectProvider<FolderService> folders) {
+            ObjectProvider<QuestionAnswerService> answers,
+            ObjectProvider<FolderService> folders,
+            ObjectProvider<ConversationService> conversations) {
         this.answers = answers;
         this.folders = folders;
+        this.conversations = conversations;
+    }
+
+    /** The most recent chats for the sidebar, titles only; empty when unavailable. */
+    @ModelAttribute("recentChats")
+    java.util.List<Conversation.Summary> recentChats() {
+        var service = conversations.getIfAvailable();
+        if (service == null) return java.util.List.of();
+        try {
+            return service.recent(12);
+        } catch (DataAccessException | TransactionException unavailable) {
+            return java.util.List.of();
+        }
     }
 
     /**

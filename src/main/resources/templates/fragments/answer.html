@@ -60,11 +60,42 @@
 </th:block>
 
 <!-- One conversation turn, returned to the home page's thread by POST /questions/turn. -->
-<li class="turn" th:fragment="turn">
+<li class="turn" th:fragment="turn" th:attr="data-conversation=${conversationId}">
   <div class="bubble bubble-user"><p class="answer-text" th:text="${queryText}">Question</p></div>
   <div class="bubble bubble-assistant">
     <th:block th:replace="~{fragments/answer :: feedback}"></th:block>
     <th:block th:replace="~{fragments/answer :: answer(${turnId} + '-')}"></th:block>
+  </div>
+</li>
+
+<!-- A saved turn of a reopened conversation. Sources are looked up again; deleted ones say so. -->
+<li class="turn saved-turn" th:fragment="saved(turn)" th:id="|turn-${turn.position}|">
+  <div class="bubble bubble-user"><p class="answer-text" th:text="${turn.question}">Question</p></div>
+  <div class="bubble bubble-assistant">
+    <section class="notice notice-info" th:unless="${turn.answered}">
+      <h2>Insufficient information</h2>
+      <p>The documents did not provide enough evidence to answer this question.</p>
+    </section>
+    <section class="library-card answer-card" th:if="${turn.answered}">
+      <p class="answer-text"><th:block th:each="segment : ${turn.segments}"><a th:if="${segment.marker.isPresent()}" class="citation-marker" th:href="|#saved-${turn.position}-source-${segment.marker.get()}|"><span th:text="${segment.text}">[1]</span><span class="visually-hidden" th:text="| source ${segment.marker.get()}|"> source 1</span></a><span th:unless="${segment.marker.isPresent()}" th:text="${segment.text}">Answer text</span></th:block></p>
+      <details class="saved-sources" th:unless="${turn.sources.isEmpty()}">
+        <summary th:text="|Sources (${turn.sources.size()})|">Sources (2)</summary>
+        <ol class="search-hits">
+          <li th:each="source : ${turn.sources}" th:id="|saved-${turn.position}-source-${source.number}|">
+            <th:block th:if="${source.isAvailable()}">
+              <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.passage.documentId},passageId=${source.passage.passageId})}"
+                     th:text="|Source ${source.number}: ${source.passage.name}|">Source document</a></h3>
+              <p class="source-location">
+                <span th:if="${source.passage.location.pageNumber.isPresent()}" th:text="|Page ${source.passage.location.pageNumber.asInt} · |">Page 1 · </span>
+                <span th:text="|Lines ${source.passage.location.startLine}–${source.passage.location.endLine}|">Lines 1–2</span>
+              </p>
+              <pre class="search-excerpt" th:text="${source.passage.text}">Source excerpt</pre>
+            </th:block>
+            <p class="hint" th:unless="${source.isAvailable()}" th:text="|Source ${source.number}: no longer available (the document was deleted or reprocessed).|">Source unavailable</p>
+          </li>
+        </ol>
+      </details>
+    </section>
   </div>
 </li>
 </body>

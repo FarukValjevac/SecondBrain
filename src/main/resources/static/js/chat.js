@@ -23,6 +23,28 @@ function bubble(className, text) {
   return turn;
 }
 
+// The first saved answer starts a conversation: keep its id for follow-ups, show its address,
+// and list it at the top of the sidebar like any saved chat.
+function remember(id, question) {
+  if (!id || !/^[0-9a-f-]{36}$/.test(id)) return;
+  const field = form.querySelector('input[name="conversation"]');
+  if (!field || field.value === id) return;
+  field.value = id;
+  history.replaceState(null, '', `/chats/${id}`);
+  const list = document.querySelector('.sidebar .chat-list');
+  if (list && !list.querySelector(`[data-chat-id="${id}"]`)) {
+    const link = document.createElement('a');
+    link.className = 'nav-link nav-chat';
+    link.href = `/chats/${id}`;
+    link.dataset.chatId = id;
+    link.setAttribute('aria-current', 'page');
+    const label = document.createElement('span');
+    label.textContent = question.length > 80 ? `${question.slice(0, 79)}…` : question;
+    link.append(label);
+    list.prepend(link);
+  }
+}
+
 async function ask() {
   const text = input.value.trim();
   // One question at a time: forms.js marks the form while an answer is pending.
@@ -47,6 +69,7 @@ async function ask() {
     const turn = template.content.querySelector('.turn');
     if (!turn) throw new Error('Unexpected response');
     pending.replaceWith(turn);
+    remember(turn.dataset.conversation, text);
   } catch {
     const answer = pending.querySelector('.bubble-assistant');
     answer.removeAttribute('aria-busy');

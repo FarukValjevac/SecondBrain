@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'ask', ~{::main}, ~{})}">
+<head>
+  <title>Chats | SecondBrain</title>
+</head>
+<body>
+  <main id="content">
+    <div class="library-heading">
+      <div>
+        <h1>Chats</h1>
+        <p class="hint">Your saved conversations, newest first. They are stored only on this computer.</p>
+      </div>
+      <div class="heading-actions">
+        <a class="button-link" href="/" th:href="@{/}">New chat</a>
+        <a class="button-link secondary-link danger-link" th:unless="${chats.isEmpty()}" href="/chats/delete-all" th:href="@{/chats/delete-all}">Delete all</a>
+      </div>
+    </div>
+    <section class="notice notice-success" role="status" data-toast th:if="${chatMessage != null}">
+      <p th:text="${chatMessage}">Chat deleted.</p>
+    </section>
+    <p class="empty-state" th:if="${chats.isEmpty()}">No saved chats yet. Ask a question to start one.</p>
+    <ul class="chat-list-page" role="list" th:unless="${chats.isEmpty()}">
+      <li th:each="chat : ${chats}">
+        <a th:href="@{/chats/{id}(id=${chat.conversationId})}" th:text="${chat.title}">Chat title</a>
+        <time th:datetime="${chat.updatedAt}" th:text="${#temporals.format(chat.updatedAt, 'd MMM yyyy, HH:mm')}">22 Nov 2026</time>
+        <a class="danger-link chat-delete-link" th:href="@{/chats/{id}/delete(id=${chat.conversationId})}"
+           th:aria-label="|Delete ${chat.title}|">Delete</a>
+      </li>
+    </ul>
+  </main>
+</body>
+</html>

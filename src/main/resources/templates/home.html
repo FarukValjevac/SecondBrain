@@ -7,17 +7,38 @@
 </head>
 <body>
   <main id="content" class="chat">
-    <section class="chat-intro" th:if="${questionsEnabled}">
+    <header class="chat-header" th:if="${conversation != null}">
+      <h1 th:text="${conversation.title}">Chat title</h1>
+      <div class="chat-actions">
+        <details class="chat-rename">
+          <summary>Rename</summary>
+          <form method="post" th:action="@{/chats/{id}/rename(id=${conversation.conversationId})}">
+            <label for="chat-title" class="visually-hidden">Chat name</label>
+            <input type="text" id="chat-title" name="title" maxlength="80" required th:value="${conversation.title}">
+            <button type="submit">Save</button>
+          </form>
+        </details>
+        <a class="danger-link" th:href="@{/chats/{id}/delete(id=${conversation.conversationId})}">Delete</a>
+        <a class="button-link" href="/" th:href="@{/}">New chat</a>
+      </div>
+    </header>
+    <section class="chat-intro" th:if="${questionsEnabled and conversation == null}">
       <h1>What do you want to know?</h1>
       <p>Answers come only from your documents, with numbered sources you can check.</p>
     </section>
-    <!-- chat.js appends each question and its server-rendered answer here. It is never stored. -->
-    <ol class="thread" aria-label="Conversation" aria-live="polite"></ol>
-    <form class="composer" method="post" action="/questions" th:action="@{/questions}"
+    <!-- Saved turns render here; chat.js appends new ones. Chats are stored only in the local database. -->
+    <ol class="thread" aria-label="Conversation" aria-live="polite">
+      <th:block th:if="${savedTurns != null}" th:each="turn : ${savedTurns}">
+        <li th:replace="~{fragments/answer :: saved(${turn})}"></li>
+      </th:block>
+    </ol>
+    <form class="composer" method="post" action="/chats/ask" th:action="@{/chats/ask}"
           th:if="${questionsEnabled}" data-chat data-turn="/questions/turn" th:attr="data-turn=@{/questions/turn}">
       <label for="ask" class="visually-hidden">Ask your documents</label>
+      <input type="hidden" name="conversation" th:value="${conversation != null ? conversation.conversationId : ''}" value="">
       <textarea id="ask" name="q" rows="1" maxlength="1200" required
-                aria-describedby="ask-help" placeholder="Ask anything about your documents…"></textarea>
+                aria-describedby="ask-help" placeholder="Ask anything about your documents…"
+                th:placeholder="${conversation != null ? 'Ask a follow-up…' : 'Ask anything about your documents…'}"></textarea>
       <input type="hidden" name="scope" value="all" th:if="${folderTree == null or folderTree.isEmpty()}">
       <label class="scope-menu" th:if="${folderTree != null and !folderTree.isEmpty()}">
         <span class="visually-hidden">Ask in</span>
@@ -43,7 +64,7 @@
       <p>Questions are turned off. Enable embeddings and questions in your <code>.env</code> and restart to ask questions with cited answers.</p>
       <p><a href="/library" th:href="@{/library}">Open your library</a> to add and read documents in the meantime.</p>
     </section>
-    <nav class="quick-actions" aria-label="Quick actions">
+    <nav class="quick-actions" aria-label="Quick actions" th:if="${conversation == null}">
       <a href="/library#upload-title" th:href="@{/library} + '#upload-title'">Add a document</a>
       <a href="/library" th:href="@{/library}">Browse the library</a>
     </nav>
