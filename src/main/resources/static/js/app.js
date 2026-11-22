@@ -18,6 +18,9 @@ if (drawer && menu && links) {
   const copy = links.cloneNode(true);
   copy.setAttribute('aria-label', 'Main menu');
   drawer.querySelector('.drawer-links').append(copy);
+  // On phones the bar shows only the page; Add document moves into the drawer as well.
+  const add = document.querySelector('.sidebar .nav-add');
+  if (add) drawer.querySelector('.drawer-links').append(add.cloneNode(true));
   menu.hidden = false;
   menu.addEventListener('click', () => {
     drawer.showModal();
