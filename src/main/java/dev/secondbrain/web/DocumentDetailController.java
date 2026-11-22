@@ -3,6 +3,7 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.imports.WebPageImportService;
 import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
@@ -53,6 +54,7 @@ class DocumentDetailController {
     private final ObjectProvider<SummaryService> summaries;
     private final ObjectProvider<FlashcardService> flashcards;
     private final ObjectProvider<WebPageImportService> imports;
+    private final ObjectProvider<FolderService> folders;
 
     DocumentDetailController(
             DocumentInspectionService documents,
@@ -62,7 +64,8 @@ class DocumentDetailController {
             ObjectProvider<SearchService> search,
             ObjectProvider<SummaryService> summaries,
             ObjectProvider<FlashcardService> flashcards,
-            ObjectProvider<WebPageImportService> imports) {
+            ObjectProvider<WebPageImportService> imports,
+            ObjectProvider<FolderService> folders) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
@@ -71,6 +74,7 @@ class DocumentDetailController {
         this.summaries = summaries;
         this.flashcards = flashcards;
         this.imports = imports;
+        this.folders = folders;
     }
 
     @GetMapping("/documents/{id}")
@@ -85,6 +89,16 @@ class DocumentDetailController {
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         model.addAttribute("related", related(id));
         model.addAttribute("studyEnabled", flashcards.getIfAvailable() != null);
+        var folderService = folders.getIfAvailable();
+        if (folderService != null) {
+            try {
+                folderService
+                        .folderOf(id)
+                        .ifPresent(folder -> model.addAttribute("documentFolder", folder));
+            } catch (DataAccessException | TransactionException unavailable) {
+                // The folder line is optional.
+            }
+        }
         var pages = imports.getIfAvailable();
         if (pages != null) {
             try {

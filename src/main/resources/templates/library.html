@@ -13,6 +13,7 @@
         <h1>Document library</h1>
         <p class="hint">Everything you can ask about, search and study.</p>
       </div>
+      <a class="button-link secondary-link" href="/folders" th:href="@{/folders}">Manage folders</a>
     </div>
     <section class="notice notice-success" role="status" data-toast th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>
@@ -35,6 +36,13 @@
       <h2>Library updated</h2>
       <p th:text="${deletionMessage}">Document removed.</p>
     </section>
+    <section class="notice notice-success" role="status" data-toast th:if="${folderMessage != null}">
+      <p th:text="${folderMessage}">Folder created.</p>
+    </section>
+    <section class="notice notice-error" role="alert" th:if="${folderError != null}">
+      <h2>Folder not changed</h2>
+      <p th:text="${folderError}">That folder no longer exists.</p>
+    </section>
     <section class="notice notice-error" role="alert" th:if="${uploadError != null}">
       <h2>Upload could not be completed</h2>
       <p th:text="${uploadError}">Choose a supported file and try again.</p>
@@ -56,12 +64,20 @@
         </p>
         <input type="file" id="document-file" name="file" accept=".pdf,.docx,.html,.htm,.md,.markdown,.txt,.text,.log,.csv,.tsv,.json,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.sql,.java,.kt,.py,.js,.ts,.c,.h,.cpp,.hpp,.cs,.go,.rs,.rb,.php,.sh,.swift" aria-describedby="upload-help" multiple required>
         <p class="upload-selection" aria-live="polite"></p>
+        <th:block th:if="${folderTree != null and !folderTree.isEmpty()}">
+          <label for="upload-folder">Save to folder</label>
+          <select th:replace="~{fragments/folders :: chooser('upload-folder', ${currentFolder != null ? currentFolder.folderId : null})}"></select>
+        </th:block>
         <button type="submit">Upload document</button>
       </form>
       <form method="post" action="/documents/import" th:action="@{/documents/import}">
         <label for="page-url">Or import a web page</label>
         <p id="page-url-help" class="upload-help">Public http:// or https:// pages with HTML or plain text. The page is fetched once from this computer.</p>
         <input type="url" id="page-url" name="url" maxlength="2048" required aria-describedby="page-url-help" placeholder="https://example.com/article">
+        <th:block th:if="${folderTree != null and !folderTree.isEmpty()}">
+          <label for="import-folder">Save to folder</label>
+          <select th:replace="~{fragments/folders :: chooser('import-folder', ${currentFolder != null ? currentFolder.folderId : null})}"></select>
+        </th:block>
         <button type="submit">Import page</button>
       </form>
     </section>

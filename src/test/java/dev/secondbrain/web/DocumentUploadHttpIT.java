@@ -112,7 +112,7 @@ class DocumentUploadHttpIT {
 
     @Test
     void firstBrowserUploadRedirectsToTheLibraryWithoutASessionIdInTheUrl() throws Exception {
-        when(acceptanceService.accept(any(), anyLong(), any(), any()))
+        when(acceptanceService.accept(any(), anyLong(), any(), any(), any()))
                 .thenReturn(
                         new DocumentAcceptanceService.Receipt(
                                 UUID.randomUUID(), ExtractionState.QUEUED));
@@ -144,7 +144,7 @@ class DocumentUploadHttpIT {
             var refreshed = client.send(pageRequest, HttpResponse.BodyHandlers.ofString());
             assertThat(refreshed.statusCode()).isEqualTo(200);
             assertThat(refreshed.body()).doesNotContain("Saved and queued");
-            verify(acceptanceService).accept(any(), anyLong(), any(), any());
+            verify(acceptanceService).accept(any(), anyLong(), any(), any(), any());
         }
     }
 
@@ -193,7 +193,7 @@ class DocumentUploadHttpIT {
 
     @Test
     void acceptsEveryFileOfABrowserBatchWithinTheRequestLimit() throws Exception {
-        when(acceptanceService.accept(any(), anyLong(), any(), any()))
+        when(acceptanceService.accept(any(), anyLong(), any(), any(), any()))
                 .thenReturn(
                         new DocumentAcceptanceService.Receipt(
                                 UUID.randomUUID(), ExtractionState.QUEUED));
@@ -214,7 +214,7 @@ class DocumentUploadHttpIT {
         assertThat(response.statusCode()).isEqualTo(303);
         assertThat(response.headers().firstValue("Location"))
                 .hasValueSatisfying(location -> assertThat(location).endsWith("/library"));
-        verify(acceptanceService, times(2)).accept(any(), anyLong(), any(), any());
+        verify(acceptanceService, times(2)).accept(any(), anyLong(), any(), any(), any());
     }
 
     @Test

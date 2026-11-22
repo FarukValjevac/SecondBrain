@@ -153,6 +153,27 @@ final class JdbcDocumentRepository {
         return Map.copyOf(sources);
     }
 
+    /**
+     * Files a newly inserted document. The folder row is share-locked first, so a concurrent folder
+     * deletion either waits for this transaction or has already removed the folder, in which case
+     * the document simply stays unfiled.
+     */
+    void placeInFolder(UUID documentId, UUID folderId) {
+        var exists =
+                jdbc.sql("SELECT 1 FROM folders WHERE folder_id = :folder FOR KEY SHARE")
+                        .withQueryTimeout(5)
+                        .param("folder", folderId)
+                        .query(Integer.class)
+                        .optional()
+                        .isPresent();
+        if (!exists) return;
+        jdbc.sql("UPDATE documents SET folder_id = :folder WHERE document_id = :id")
+                .withQueryTimeout(5)
+                .param("folder", folderId)
+                .param("id", documentId)
+                .update();
+    }
+
     List<LibraryRow> list(int limit, long offset) {
         if (limit < 1 || limit > 51 || offset < 0) {
             throw new IllegalArgumentException("Invalid library page bounds");

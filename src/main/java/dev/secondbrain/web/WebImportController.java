@@ -19,6 +19,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Imports one web page from the library form; feedback reuses the upload notices. */
@@ -39,15 +40,20 @@ class WebImportController {
             RedirectAttributes flash) {
         var service = imports.getIfAvailable();
         if (service == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        var folders = fields.get("folder");
+        if (folders != null && folders.size() != 1)
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Choose a folder from the list.");
+        var folderId = FolderForm.choice(folders == null ? null : folders.getFirst());
         var urls = fields.get("url");
         if (urls == null || urls.size() != 1) {
             flash.addFlashAttribute(
                     "uploadError", PageImportException.Reason.INVALID_URL.message());
-            return library();
+            return library(folderId);
         }
         try {
             flash.addFlashAttribute(
-                    "uploadReceipt", service.importPage(urls.getFirst(), correlationId));
+                    "uploadReceipt", service.importPage(urls.getFirst(), correlationId, folderId));
         } catch (PageImportException failed) {
             flash.addFlashAttribute("uploadError", failed.reason().message());
         } catch (UploadRejectedException rejected) {
@@ -58,11 +64,11 @@ class WebImportController {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         }
-        return library();
+        return library(folderId);
     }
 
-    private static RedirectView library() {
-        var redirect = new RedirectView("/library", true);
+    private static RedirectView library(Optional<UUID> folderId) {
+        var redirect = new RedirectView(FolderForm.library(folderId), true);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);
         return redirect;
     }
