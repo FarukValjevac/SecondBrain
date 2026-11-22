@@ -8,8 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import dev.secondbrain.documents.DocumentInspectionService;
@@ -20,7 +18,6 @@ import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.search.SearchQuery;
 import dev.secondbrain.search.SearchScope;
-import dev.secondbrain.study.QuizService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +38,7 @@ import java.util.stream.IntStream;
 
 /** A folder scope becomes the folder's documents; empty, oversized or missing folders explain. */
 @WebMvcTest(
-        controllers = {QuestionController.class, QuizController.class, HomeController.class},
+        controllers = {QuestionController.class, HomeController.class},
         properties = "spring.config.import=")
 @Import(AnswerSignature.class)
 class FolderScopeTest {
@@ -49,7 +46,6 @@ class FolderScopeTest {
     @MockitoBean private QuestionAnswerService answers;
     @MockitoBean private DocumentInspectionService documents;
     @MockitoBean private FolderService folders;
-    @MockitoBean private QuizService quizzes;
 
     private final Folder psychology =
             new Folder(UUID.randomUUID(), Optional.empty(), "Psychology", FolderColor.VIOLET, 1);
@@ -141,36 +137,6 @@ class FolderScopeTest {
                                 .getContentAsString())
                 .containsPattern("value=\"folder:" + id + "\"\\s+selected=\"selected\"")
                 .contains("<option value=\"all\">Whole library</option>");
-    }
-
-    @Test
-    void aFolderQuizUsesUpToFiveOfItsDocuments() throws Exception {
-        var id = psychology.folderId();
-        var inside = IntStream.range(0, 8).mapToObj(i -> UUID.randomUUID()).toList();
-        var quiz = UUID.randomUUID();
-        when(folders.documentsWithin(id, 101)).thenReturn(inside);
-        when(quizzes.create(any())).thenReturn(Optional.of(quiz));
-        mvc.perform(
-                        post("/quizzes")
-                                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                                .param("folder", id.toString()))
-                .andExpect(status().isSeeOther())
-                .andExpect(redirectedUrl("/quizzes/" + quiz));
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<UUID>> chosen = ArgumentCaptor.forClass(List.class);
-        verify(quizzes).create(chosen.capture());
-        assertThat(chosen.getValue()).hasSize(5).doesNotHaveDuplicates().isSubsetOf(inside);
-
-        when(folders.documentsWithin(id, 101)).thenReturn(List.of());
-        mvc.perform(
-                        post("/quizzes")
-                                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                                .param("folder", id.toString()))
-                .andExpect(redirectedUrl("/library?folder=" + id))
-                .andExpect(
-                        flash().attribute(
-                                        "quizMessage",
-                                        "Add documents to this folder before starting a quiz."));
     }
 
     private org.springframework.test.web.servlet.ResultActions ask(String scope) throws Exception {

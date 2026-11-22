@@ -8,7 +8,6 @@ import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.imports.WebPageImportService;
 import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
-import dev.secondbrain.study.FlashcardService;
 import dev.secondbrain.summaries.SummaryService;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,7 +47,6 @@ class DocumentDetailController {
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<SummaryService> summaries;
-    private final ObjectProvider<FlashcardService> flashcards;
     private final ObjectProvider<WebPageImportService> imports;
     private final ObjectProvider<FolderService> folders;
     private final ObjectProvider<OriginalDocumentService> originals;
@@ -59,7 +57,6 @@ class DocumentDetailController {
             ObjectProvider<DocumentProcessingService> processing,
             ObjectProvider<QuestionAnswerService> answers,
             ObjectProvider<SummaryService> summaries,
-            ObjectProvider<FlashcardService> flashcards,
             ObjectProvider<WebPageImportService> imports,
             ObjectProvider<FolderService> folders,
             ObjectProvider<OriginalDocumentService> originals) {
@@ -68,7 +65,6 @@ class DocumentDetailController {
         this.processing = processing;
         this.answers = answers;
         this.summaries = summaries;
-        this.flashcards = flashcards;
         this.imports = imports;
         this.folders = folders;
         this.originals = originals;
@@ -111,7 +107,6 @@ class DocumentDetailController {
         var service = processing.getIfAvailable();
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
-        model.addAttribute("studyEnabled", flashcards.getIfAvailable() != null);
         var folderService = folders.getIfAvailable();
         if (folderService != null) {
             try {
