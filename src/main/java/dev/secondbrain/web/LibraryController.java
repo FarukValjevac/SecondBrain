@@ -3,6 +3,8 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
 import dev.secondbrain.documents.FolderSync;
+import dev.secondbrain.folders.Folder;
+import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.questions.QuestionAnswerService;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -18,8 +20,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Controller
@@ -50,8 +54,28 @@ class LibraryController {
     }
 
     @GetMapping("/library")
-    String library(@RequestParam(defaultValue = "0") int page, Model model) {
+    String library(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(name = "folder", required = false) String folderParameter,
+            Model model) {
         if (page < 0) throw new IllegalArgumentException("Page must not be negative");
+        var folder = FolderForm.choice(folderParameter);
+        // Set by ShellModel; absent when folders are off or unreadable.
+        var folderTree =
+                model.getAttribute("folderTree") instanceof FolderService.FolderTree tree
+                        ? tree
+                        : null;
+        if (folder.isPresent()) {
+            // An unknown folder (deleted, or folders unavailable) is a missing page, not the root.
+            var current =
+                    (folderTree == null ? Optional.<Folder>empty() : folderTree.find(folder.get()))
+                            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+            model.addAttribute("currentFolder", current);
+            model.addAttribute("folderPath", folderTree.path(current.folderId()));
+            model.addAttribute("subfolders", folderTree.childrenOf(current));
+        } else if (folderTree != null) {
+            model.addAttribute("subfolders", folderTree.topLevel());
+        }
         model.addAttribute("uploadsEnabled", uploadsEnabled);
         model.addAttribute("maximumUploadSize", maximumUploadSize);
         model.addAttribute("maximumFilesPerUpload", maximumFilesPerUpload);
@@ -62,7 +86,7 @@ class LibraryController {
         if (uploadsEnabled) {
             var service = documents.getIfAvailable();
             if (service == null) throw new IllegalStateException("Document service unavailable");
-            var library = service.list(page);
+            var library = service.listFolder(page, folder);
             model.addAttribute("library", library);
             var stages = processing.getIfAvailable();
             model.addAttribute(

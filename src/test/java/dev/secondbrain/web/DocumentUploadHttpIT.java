@@ -287,7 +287,7 @@ class DocumentUploadHttpIT {
         @Bean
         DocumentInspectionService inspectionService() {
             var service = mock(DocumentInspectionService.class);
-            when(service.list(0))
+            when(service.listFolder(0, java.util.Optional.empty()))
                     .thenReturn(new DocumentInspectionService.LibraryPage(List.of(), 0, false));
             return service;
         }

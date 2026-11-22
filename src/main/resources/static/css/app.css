@@ -1724,3 +1724,193 @@
     padding: var(--space-2) var(--space-3);
   }
 }
+
+/* ---------- Folder browsing ---------- */
+@layer components {
+  .breadcrumbs ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--text-sm);
+  }
+  .breadcrumbs li + li::before {
+    content: "›";
+    margin-inline-end: var(--space-1);
+    color: var(--text-muted);
+  }
+  .breadcrumbs a {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+  }
+  .breadcrumbs a:hover {
+    background: var(--surface-sunken);
+  }
+  .breadcrumbs [aria-current="page"] {
+    padding-inline: var(--space-2);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .library-title {
+    min-inline-size: 0;
+  }
+  .folder-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    overflow-wrap: anywhere;
+  }
+  .folder-title .folder-icon {
+    inline-size: 3rem;
+    block-size: 3rem;
+    filter: drop-shadow(0 4px 10px color-mix(in oklch, var(--folder) 35%, transparent));
+  }
+  .heading-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .folder-section {
+    display: grid;
+    gap: var(--space-3);
+    container-type: inline-size;
+  }
+  .folder-section h2 {
+    font-size: var(--text-lg);
+  }
+  .folder-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr));
+  }
+  .folder-card {
+    position: relative;
+    display: grid;
+    gap: var(--space-1);
+    align-content: start;
+    padding: var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background:
+      linear-gradient(150deg, color-mix(in oklch, var(--folder, var(--accent)) 16%, transparent), transparent 60%),
+      var(--surface);
+    box-shadow: var(--shadow);
+    overflow-wrap: anywhere;
+    transition:
+      border-color var(--duration),
+      box-shadow var(--duration),
+      translate var(--duration);
+  }
+  .folder-card .folder-icon {
+    inline-size: 2.5rem;
+    block-size: 2.5rem;
+    margin-block-end: var(--space-2);
+  }
+  .folder-card-name {
+    color: var(--text);
+    font-weight: 650;
+    text-decoration: none;
+  }
+  /* The whole card opens the folder. */
+  .folder-card-name::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .folder-card-meta {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+  .folder-card:hover,
+  .folder-card:focus-within {
+    border-color: var(--folder, var(--accent));
+    box-shadow: var(--shadow-raised);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .folder-card:hover {
+      translate: 0 -2px;
+    }
+  }
+  .folder-card-new {
+    place-content: center;
+    justify-items: center;
+    min-block-size: 8rem;
+    border-style: dashed;
+    background: transparent;
+    box-shadow: none;
+  }
+  .folder-card-new .folder-card-name {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-1);
+    color: var(--accent);
+  }
+  .folder-card-plus {
+    font-size: 1.75rem;
+    line-height: 1;
+  }
+
+  /* Drag to move: targets light up while a document is dragged. */
+  body[data-dragging-document] [data-drop-folder] {
+    outline: 2px dashed color-mix(in oklch, var(--folder, var(--accent)) 60%, transparent);
+    outline-offset: 2px;
+  }
+  [data-drop-folder][data-drop-active] {
+    outline: 3px solid var(--folder, var(--accent));
+    background: color-mix(in oklch, var(--folder, var(--accent)) 20%, var(--surface));
+  }
+  .document-card[data-dragging] {
+    opacity: 0.5;
+  }
+  .document-card[draggable="true"] {
+    cursor: grab;
+  }
+
+  /* Sidebar folder list. */
+  .sidebar .nav {
+    min-block-size: 0;
+    overflow-y: auto;
+  }
+  .nav-section {
+    margin-block: var(--space-3) var(--space-1);
+    padding-inline: var(--space-3);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .nav-folder .folder-icon {
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+  }
+  .nav-folder span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @media (width < 48rem) {
+    .nav-section {
+      display: none;
+    }
+  }
+}
+
+@layer components {
+  .danger-link {
+    color: var(--danger);
+  }
+  .danger-link:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+}

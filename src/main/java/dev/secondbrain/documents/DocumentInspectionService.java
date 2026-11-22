@@ -37,14 +37,33 @@ public final class DocumentInspectionService {
         sourceReads.setTimeout(5);
     }
 
+    /** Every visible document, newest first; used by document pickers. */
     public LibraryPage list(int page) {
+        return page(page, Optional.empty(), false);
+    }
+
+    /**
+     * Documents filed directly in one folder (not its subfolders), or unfiled documents when the
+     * folder is empty; used by the library's folder view.
+     */
+    public LibraryPage listFolder(int page, Optional<UUID> folder) {
+        Objects.requireNonNull(folder, "folder");
+        return page(page, folder, true);
+    }
+
+    private LibraryPage page(int page, Optional<UUID> folder, boolean byFolder) {
         if (page < 0) throw new IllegalArgumentException("Page must not be negative");
         return Objects.requireNonNull(
                 transactions.execute(
                         status -> {
                             // One extra row establishes whether another page exists without
                             // counting all documents.
-                            var rows = documents.list(PAGE_SIZE + 1, (long) page * PAGE_SIZE);
+                            var rows =
+                                    byFolder
+                                            ? documents.listFolder(
+                                                    PAGE_SIZE + 1, (long) page * PAGE_SIZE, folder)
+                                            : documents.list(
+                                                    PAGE_SIZE + 1, (long) page * PAGE_SIZE);
                             var summaries = new ArrayList<DocumentSummary>();
                             for (var row : rows.subList(0, Math.min(PAGE_SIZE, rows.size()))) {
                                 var state = row.state().displayedWith(row.deliveryState());

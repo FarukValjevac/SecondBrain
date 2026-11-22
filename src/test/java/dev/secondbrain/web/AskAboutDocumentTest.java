@@ -63,7 +63,7 @@ class AskAboutDocumentTest {
     @Test
     void libraryRowsOfferAnAccessibleAskLinkOnlyForReadyDocuments() throws Exception {
         var waiting = UUID.randomUUID();
-        when(documents.list(0))
+        when(documents.listFolder(0, java.util.Optional.empty()))
                 .thenReturn(
                         new DocumentInspectionService.LibraryPage(
                                 List.of(
