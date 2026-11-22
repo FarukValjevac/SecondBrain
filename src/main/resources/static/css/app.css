@@ -2067,3 +2067,22 @@
     }
   }
 }
+
+/* ---------- Content never wider than the screen ---------- */
+@layer layout {
+  /* Grid items default to their min-content width, so one long unbroken word, link or dotted
+     line could widen the whole page; minmax(0, 1fr) lets content shrink to the viewport. */
+  .content > main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .content > main > * {
+    min-inline-size: 0;
+  }
+}
+@layer components {
+  .reading,
+  .reading :is(p, h3, h4),
+  .document-title h1 {
+    overflow-wrap: anywhere;
+  }
+}
