@@ -103,7 +103,7 @@ class DocumentDetailControllerTest {
                                                         3, "Last page", OptionalInt.of(3))))));
 
         var html =
-                mvc.perform(get("/documents/" + id))
+                mvc.perform(get("/documents/" + id).param("view", "lines"))
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -122,11 +122,32 @@ class DocumentDetailControllerTest {
                         "aria-label=\"Page 1, line 1\"",
                         "aria-label=\"Page 2, line 2\"",
                         "aria-label=\"Page 3, line 3\"",
-                        ">Page 1</a>",
-                        ">Page 2</a>",
-                        ">Page 3</a>",
+                        // Lines view: line numbers, with a page label where a page starts.
+                        ">Page 1</span>",
+                        ">Page 2</span>",
+                        ">Page 3</span>",
+                        ">1</a>",
                         "Delete document")
                 .doesNotContain("<script>", "http-equiv=\"refresh\"", "Retry extraction");
+
+        // The reading view (default without a stored PDF) keeps every line anchor and marks
+        // page breaks instead of labelling each line.
+        var reading =
+                mvc.perform(get("/documents/" + id))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(reading)
+                .contains(
+                        "class=\"reading\"",
+                        "aria-current=\"page\">Reading view</a>",
+                        "id=\"line-1\"",
+                        "id=\"line-2\"",
+                        "id=\"line-3\"",
+                        "class=\"reading-page\">Page 3</p>",
+                        "Café &lt;script&gt;")
+                .doesNotContain("<script>alert", "class=\"source-lines\"");
     }
 
     @Test

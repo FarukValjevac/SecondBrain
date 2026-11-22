@@ -230,6 +230,12 @@ class DocumentConfiguration {
     }
 
     @Bean
+    OriginalDocumentService originalDocumentService(
+            JdbcDocumentRepository documents, OriginalFileStore originalFileStore) {
+        return new OriginalDocumentService(documents, originalFileStore);
+    }
+
+    @Bean
     DocumentInspectionService documentInspectionService(
             JdbcDocumentRepository documents,
             JdbcExtractedTextRepository texts,

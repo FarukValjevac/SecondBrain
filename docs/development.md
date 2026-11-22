@@ -122,7 +122,7 @@ Enter sends unless an input method is composing (`isComposing` or key code 229);
 
 The library at `/library` shows each document as a card: a type label taken from the name's extension (display only, via `FileTypeLabel`; names without a short extension show **Document**), the text-extraction state, processing progress, and **Ask**/**Delete** actions. The whole card opens the document through its title link, and the actions stay separately focusable. Cards form one column in a narrow container and a grid once their container is at least 34rem wide (a container query, so the layout follows the space the cards get rather than the window). `static/js/library.js` reveals a **Filter this page** box that hides non-matching cards as you type and announces only the match count. Without JavaScript the box stays hidden and every card is shown. The upload area is a dashed drop zone that highlights while files are dragged over it or a control inside it has focus.
 
-The document page opens with a header: type label and name, extraction state and web source, then one labelled action group (**Ask about this document**, **Make flashcards**, **Practice quiz**, **Delete document**). Deletion still goes through its confirmation page. Processing progress, summary, related documents and the extracted text follow as separate cards.
+The document page opens with a header: type label and name, extraction state and web source, then one labelled action group (**Ask about this document**, **Make flashcards**, **Practice quiz**, **Delete document**). Deletion still goes through its confirmation page. Processing progress, the document itself (see [Reading a document](#reading-a-document)) and the summary follow as separate cards.
 
 ### Command palette, shortcuts and toasts
 
@@ -156,6 +156,16 @@ The library is browsed like a file explorer. Its top shows coloured folder cards
 A folder is also a scope. Its page offers **Ask this folder** (opens the conversation with the folder preselected), **Search this folder** and **Quiz me on this folder** (when those features are on). The home ask box gets a menu (**Whole library** or any folder; it submits `scope=folder:<id>`), and the question and search pages get **A folder and its subfolders** with a folder menu (`scope=folder` plus `folder=<id>`). The server resolves the folder to the visible documents in it and all its subfolders and hands them to the existing selected-documents scope, so retrieval, visibility, citation checks and signing are unchanged; answers show "Scope: Psychology › Biases (including subfolders)". An empty folder answers "No documents in this folder" instead of searching everything; a folder with more than 100 documents (the selection limit) asks you to pick a subfolder; a deleted folder returns 404. A folder quiz uses up to five of its documents, chosen at random so repeated quizzes vary.
 
 Once a folder exists, the upload and **Import a web page** forms show **Save to folder**; the document is filed in the same database transaction that saves it. The document page shows its folder as a coloured chip and offers **Folder → Move**. Documents uploaded before folders existed are unfiled; nothing is re-uploaded or re-indexed. Folder names are never logged.
+
+### Reading a document
+
+The document page has a **Document** card with three views, switched by links (`?view=original|reading|lines`) that work without JavaScript:
+
+- **Original** (PDFs, and their default): the stored original in the browser's own PDF viewer, in a tall frame fitted to the page width (`#view=FitH`), embedded from `GET /documents/{id}/original`. That endpoint streams only visible documents. PDFs go inline as `application/pdf`; everything else, and any `?download=1` request, goes as an `application/octet-stream` attachment, so an imported HTML page never runs in the app. Responses are `no-store`, `nosniff`, `no-referrer` and `frame-ancestors 'self'`. **Download original** is offered for every type.
+- **Reading view** (default for other types): a book-like column rebuilt from the extracted lines. Wrapped lines join into paragraphs; a word split by a hyphen at a line break is rejoined; Markdown `#` headings and `-`/`1.` list items are recognised; the first short line becomes the title and short standalone lines that introduce text become headings; PDF page breaks are marked. Every source line keeps its `line-N` anchor (blank lines as empty anchors), so source links still land on the right place and highlight it.
+- **Lines**: the exact extracted lines with line numbers and a page label where a page starts, as used for search and citations.
+
+Word documents have no browser viewer, so they use the reading view and download.
 
 ### Page appearance and form behavior
 
@@ -1060,12 +1070,6 @@ Source access makes no inference request and writes no jobs. Saved eligible link
 To check manually, open a search match and verify its excerpt and locations. Copy that source URL, delete a disposable test document through the library UI, and reopen the URL: expect HTTP 404 and no old filename/text. Refreshing the source page performs a new visibility read without using the provider. Automated tests additionally cover replaced generations and changes during an existing database transaction.
 
 Run `./mvnw -Dtest=DocumentSourceControllerTest,DocumentInspectionServiceTest,SearchControllerTest,DocumentDetailControllerTest,TelemetryPrivacyTest,SecondBrainApplicationTest,HealthEndpointsTest test` for MVC/source-value/privacy checks without live credentials. With Docker available, run `./mvnw -Dit.test=DocumentRepositoryIT,SearchWorkflowIT verify` for real eligibility filtering, snapshot isolation and normal processing/restart/deletion composition, then the full `./mvnw verify`. The application/health smoke tests explicitly ignore local `.env` imports and disable embeddings so real provider setup cannot affect them. No live model is used by these checks.
-
-## Related documents
-
-With embeddings enabled, each document page lists up to five other documents most similar to it, each with its closest passage and a link to that passage. The document is represented by the mean of its stored passage vectors, compared in PostgreSQL against other documents' stored vectors. This makes **no provider call and uses no allowance**. Both sides use the same eligibility as search: only visible documents with an active complete index, never the document itself, and only matches at or above the minimum score (default 0.3). A document that is not yet ready has no related list, and a document deleted after the similarity read is dropped. If the database read fails, the page shows the document without the section.
-
-Check with `./mvnw -Dtest=SearchServiceTest,RelatedDocumentsTest test` and `./mvnw -Dit.test=JdbcPassageSearchIT verify`.
 
 ## Document summaries
 

@@ -2000,3 +2000,151 @@
     }
   }
 }
+
+/* ---------- Reading ---------- */
+@layer components {
+  .reader {
+    gap: var(--space-4);
+  }
+  .reader-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .reader-head h2 {
+    margin-inline-end: auto;
+  }
+  .view-tabs {
+    display: inline-flex;
+    padding: var(--space-1);
+    border-radius: var(--radius-pill);
+    background: var(--surface-sunken);
+  }
+  .view-tabs a {
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-pill);
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .view-tabs a:hover {
+    color: var(--text);
+  }
+  .view-tabs a[aria-current="page"] {
+    background: var(--surface);
+    color: var(--accent-strong);
+    box-shadow: var(--shadow);
+  }
+  .download-link {
+    font-size: var(--text-sm);
+  }
+
+  .original-frame {
+    inline-size: 100%;
+    block-size: min(85dvh, 70rem);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+  }
+
+  /* A calm, book-like column: comfortable measure, generous leading, serif body text. */
+  .reading {
+    max-inline-size: 68ch;
+    margin-inline: auto;
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    font-size: 1.125rem;
+    line-height: 1.75;
+    color: var(--text);
+    hyphens: auto;
+    overflow-wrap: break-word;
+  }
+  .reading p {
+    margin-block: 0 1em;
+    text-wrap: pretty;
+  }
+  .reading :is(h3, h4) {
+    margin-block: 1.6em 0.5em;
+    font-family: var(--font-sans);
+    line-height: 1.3;
+  }
+  .reading h3 {
+    font-size: 1.35rem;
+  }
+  .reading h4 {
+    font-size: 1.1rem;
+  }
+  .reading .reading-item {
+    position: relative;
+    margin-block-end: 0.4em;
+    padding-inline-start: 1.4em;
+  }
+  .reading .reading-item::before {
+    content: "•";
+    position: absolute;
+    inset-inline-start: 0.3em;
+    color: var(--accent);
+  }
+  .reading .reading-page {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-block: 2em 1.2em;
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .reading .reading-page::before,
+  .reading .reading-page::after {
+    content: "";
+    flex: 1;
+    border-block-start: 1px solid var(--line);
+  }
+  /* A source link highlights the line it points to. */
+  .reading span:target {
+    background: color-mix(in oklch, var(--accent) 22%, transparent);
+    border-radius: 0.2em;
+    scroll-margin-block: 30vh;
+  }
+
+  .source-lines .line-page {
+    display: block;
+    margin-block: var(--space-3) var(--space-1);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .source-lines a {
+    display: inline-block;
+    min-inline-size: 2.5em;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* The document page shows its own line numbers; the list marker would repeat them. */
+  .reader .source-lines {
+    list-style: none;
+    padding-inline-start: 0;
+  }
+}
+
+@layer components {
+  /* Larger reading surfaces: a tall PDF viewer and bigger reading type. */
+  .original-frame {
+    block-size: max(88dvh, 40rem);
+  }
+  .reading {
+    max-inline-size: 72ch;
+    font-size: clamp(1.15rem, 1.05rem + 0.35vw, 1.3rem);
+    line-height: 1.8;
+  }
+}
