@@ -35,6 +35,8 @@ class HomeControllerTest {
                         // The plain form posts to the normal answer page.
                         "action=\"/questions\"",
                         "data-chat",
+                        // chat.js posts here; form.action is shadowed by the button named action.
+                        "data-turn=\"/questions/turn\"",
                         "name=\"q\"",
                         "name=\"scope\" value=\"all\"",
                         "<label for=\"ask\" class=\"visually-hidden\">",

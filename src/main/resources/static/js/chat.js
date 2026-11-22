@@ -35,7 +35,8 @@ async function ask() {
   input.value = '';
   pending.scrollIntoView({ block: 'end', behavior: motion.matches ? 'smooth' : 'instant' });
   try {
-    const response = await fetch(form.action.replace(/\/questions$/, '/questions/turn'), {
+    // Read the URL from an attribute: form.action would return the button named "action".
+    const response = await fetch(form.dataset.turn, {
       method: 'POST',
       body,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -79,7 +80,7 @@ if (form && thread && input) {
     const status = document.createElement('p');
     status.setAttribute('role', 'status');
     try {
-      const response = await fetch(feedback.action, {
+      const response = await fetch(feedback.getAttribute('action'), {
         method: 'POST',
         body: data,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
