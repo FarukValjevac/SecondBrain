@@ -2,7 +2,6 @@ package dev.secondbrain.web;
 
 import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.questions.QuestionAnswerService;
-import dev.secondbrain.study.FlashcardService;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataAccessException;
@@ -14,15 +13,11 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 @ControllerAdvice
 class ShellModel {
     private final ObjectProvider<QuestionAnswerService> answers;
-    private final ObjectProvider<FlashcardService> flashcards;
     private final ObjectProvider<FolderService> folders;
 
     ShellModel(
-            ObjectProvider<QuestionAnswerService> answers,
-            ObjectProvider<FlashcardService> flashcards,
-            ObjectProvider<FolderService> folders) {
+            ObjectProvider<QuestionAnswerService> answers, ObjectProvider<FolderService> folders) {
         this.answers = answers;
-        this.flashcards = flashcards;
         this.folders = folders;
     }
 
@@ -42,12 +37,11 @@ class ShellModel {
     }
 
     /** Which navigation entries are available in this configuration. */
-    record Navigation(boolean ask, boolean study) {}
+    record Navigation(boolean ask) {}
 
     @ModelAttribute("nav")
     Navigation navigation() {
-        return new Navigation(
-                answers.getIfAvailable() != null, flashcards.getIfAvailable() != null);
+        return new Navigation(answers.getIfAvailable() != null);
     }
 
     private static final FileTypeLabel FILE_TYPE = new FileTypeLabel();

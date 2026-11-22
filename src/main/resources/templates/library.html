@@ -21,7 +21,7 @@
     <div class="library-heading">
       <div class="library-title" th:if="${currentFolder == null}">
         <h1>Document library</h1>
-        <p class="hint">Everything you can ask about, search and study.</p>
+        <p class="hint">Everything you can ask about and search.</p>
       </div>
       <div class="library-title folder-title" th:if="${currentFolder != null}"
            th:classappend="${'folder-' + currentFolder.color.token()}">
@@ -43,11 +43,6 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v10H9l-4 4z"/></svg>Ask this folder</a>
       <a class="action-chip" th:href="@{/search(folder=${currentFolder.folderId})}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Search this folder</a>
-      <form method="post" th:if="${nav != null and nav.study}" th:action="@{/quizzes}" class="inline-form">
-        <input type="hidden" name="folder" th:value="${currentFolder.folderId}">
-        <button type="submit" class="action-chip">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9a3 3 0 1 1 4 2.8c-.6.3-1 .9-1 1.6V15M12 18h.01"/></svg>Quiz me on this folder</button>
-      </form>
     </nav>
     </div>
     <section class="notice notice-success" role="status" data-toast th:if="${uploadReceipt != null}">
@@ -71,7 +66,6 @@
       <h2>Library updated</h2>
       <p th:text="${deletionMessage}">Document removed.</p>
     </section>
-    <section class="notice notice-info" role="status" th:if="${quizMessage != null}"><p th:text="${quizMessage}">Quiz message.</p></section>
     <section class="notice notice-success" role="status" data-toast th:if="${folderMessage != null}">
       <p th:text="${folderMessage}">Folder created.</p>
     </section>

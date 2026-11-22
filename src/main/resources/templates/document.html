@@ -27,17 +27,8 @@
       <div class="action-bar" role="group" aria-label="Document actions">
         <a class="button-link" th:if="${questionsEnabled and ready}"
            th:href="@{/questions(documentId=${document.documentId})}">Ask about this document</a>
-        <form method="post" th:if="${studyEnabled and ready}"
-              th:action="@{/documents/{id}/flashcards(id=${document.documentId})}">
-          <button type="submit" class="secondary-button">Make flashcards</button>
-        </form>
-        <form method="post" th:if="${studyEnabled and ready}" th:action="@{/quizzes}">
-          <input type="hidden" name="documentId" th:value="${document.documentId}">
-          <button type="submit" class="secondary-button">Practice quiz</button>
-        </form>
         <a class="delete-link" th:href="@{/documents/{id}/delete(id=${document.documentId})}">Delete document</a>
       </div>
-      <p class="hint" th:if="${studyEnabled and ready}">Flashcards use one AI request from your allowance; a quiz uses up to six (one for questions, one per answer).</p>
       <p class="hint" th:if="${questionsEnabled and !ready}">
         You can ask about this document once it is ready for search.</p>
       <p class="hint" th:unless="${questionsEnabled}">
@@ -52,7 +43,6 @@
       <button type="submit" class="secondary-button">Move</button>
       <a th:href="@{/folders}" class="hint">Manage folders</a>
     </form>
-    <section class="notice notice-info" role="status" th:if="${quizMessage != null}"><p th:text="${quizMessage}">Quiz message.</p></section>
     <section class="notice notice-success" role="status" data-toast th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
     <section class="notice notice-success" role="status" data-toast th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>
     <section class="library-card" aria-label="Processing" th:if="${progress != null or !document.message.isEmpty()}">

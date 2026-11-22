@@ -108,7 +108,7 @@ Allow cookies for the local application to receive this feedback. Sessions use c
 
 ### Interface shell and design system
 
-Every page renders inside one shared shell (`templates/fragments/shell.html`): a skip link, a sidebar with **Ask**, **Library**, **Search** and **Study** (Ask and Study appear only when those features are enabled, via `ShellModel`), an **Add document** button, and the page content. The current page is marked with `aria-current="page"`. On screens narrower than 48rem the current page gets the full screen under a compact top bar (app name, **Jump to…** and the menu button). With JavaScript, all navigation, the folder list and **Add document** live in a native modal `<dialog>` drawer opened by the menu button, which handles focus, Escape and making the page inert. Without JavaScript, the links stay a scrollable row under the bar.
+Every page renders inside one shared shell (`templates/fragments/shell.html`): a skip link, a sidebar with **Ask**, **Library** and **Search** (Ask appears only when questions are enabled, via `ShellModel`), an **Add document** button, and the page content. The current page is marked with `aria-current="page"`. On screens narrower than 48rem the current page gets the full screen under a compact top bar (app name, **Jump to…** and the menu button). With JavaScript, all navigation, the folder list and **Add document** live in a native modal `<dialog>` drawer opened by the menu button, which handles focus, Escape and making the page inert. Without JavaScript, the links stay a scrollable row under the bar.
 
 `static/css/app.css` is organised in cascade layers (`reset, tokens, base, layout, components, utilities`) so priority never depends on selector specificity. Colours, type, spacing, radius, shadows and motion are tokens on `:root`. The dark theme changes only role tokens, so components never branch on the theme. Page navigations cross-fade with view transitions only when the user has not asked for reduced motion, and the sidebar stays still during them. The app adds no build step and no runtime dependency.
 
@@ -122,7 +122,7 @@ Enter sends unless an input method is composing (`isComposing` or key code 229);
 
 The library at `/library` shows each document as a card: a type label taken from the name's extension (display only, via `FileTypeLabel`; names without a short extension show **Document**), the text-extraction state, processing progress, and **Ask**/**Delete** actions. The whole card opens the document through its title link, and the actions stay separately focusable. Cards form one column in a narrow container and a grid once their container is at least 34rem wide (a container query, so the layout follows the space the cards get rather than the window). `static/js/library.js` reveals a **Filter this page** box that hides non-matching cards as you type and announces only the match count. Without JavaScript the box stays hidden and every card is shown. The upload area is a dashed drop zone that highlights while files are dragged over it or a control inside it has focus.
 
-The document page opens with a header: type label and name, extraction state and web source, then one labelled action group (**Ask about this document**, **Make flashcards**, **Practice quiz**, **Delete document**). Deletion still goes through its confirmation page. Processing progress, the document itself (see [Reading a document](#reading-a-document)) and the summary follow as separate cards.
+The document page opens with a header: type label and name, extraction state and web source, then one labelled action group (**Ask about this document**, **Delete document**). Deletion still goes through its confirmation page. Processing progress, the document itself (see [Reading a document](#reading-a-document)) and the summary follow as separate cards.
 
 ### Command palette, shortcuts and toasts
 
@@ -139,11 +139,7 @@ Every page carries a command palette, a shortcut help dialog and a notification 
 
 One-time success messages (upload receipt, deletion, retry, summary request, answer feedback) are marked `data-toast`. `toasts.js` moves them into one `popover="manual"` stack in the top layer. Each toast stays until it is dismissed, is announced politely (through `ariaNotify()` where available, otherwise a hidden live region) and has a keyboard-reachable dismiss button. Errors stay inline in the page. Without JavaScript or the Popover API, the same messages remain ordinary notices in the page.
 
-### Study and search views
-
-Flashcards show one focused card. **Show answer** is a native `<details>` toggle, so revealing works without JavaScript. When the answer opens it flips into view, unless reduced motion is requested. `static/js/study.js` adds keys: Space reveals the answer (when focus is not on a control or in a field), and 1–4 choose Again, Hard, Good or Easy once it is revealed. The keys appear on the buttons and are declared with `aria-keyshortcuts`. Grading still posts the same form, so the review rules are unchanged.
-
-Quizzes show one question at a time with **Previous**/**Next question**, a "Question 2 of 5" count (announced politely) and a progress bar. **Check my answers** appears on the last step. Hidden steps still submit their answers. Without JavaScript all questions show in one form. Results show a score ("3 of 5 correct") and one card per question. Each card gives its verdict as a word and a symbol (✓, ◐, ✗, ?), so colour only reinforces it.
+### Search results
 
 Search results are passage cards: the document's type label and name, page and line location, the escaped excerpt, **Open source passage** and, when questions are enabled, **Ask about this document**.
 
@@ -153,7 +149,7 @@ Search results are passage cards: the document's type label and name, page and l
 
 The library is browsed like a file explorer. Its top shows coloured folder cards (with document and subfolder counts, including subfolders) and the **Unfiled documents**; opening a folder (`/library?folder=<id>`) shows a clickable path such as **Library › Psychology › Cognitive biases**, its subfolders and its own documents, with **New subfolder** and **Delete folder** in the header. Documents come first and the upload area follows, preset to the open folder. Top-level folders are listed in the sidebar (and drawer), and every folder can be reached by typing its name in **Jump to…** (Ctrl/⌘K). With JavaScript, a document card can be dragged onto a folder card or a breadcrumb (Library means Unfiled) to move it; the move is announced and the card leaves the view. The document page's **Move** form does the same without JavaScript or a pointer. An unknown folder address returns 404.
 
-A folder is also a scope. Its page offers **Ask this folder** (opens the conversation with the folder preselected), **Search this folder** and **Quiz me on this folder** (when those features are on). The home ask box gets a menu (**Whole library** or any folder; it submits `scope=folder:<id>`), and the question and search pages get **A folder and its subfolders** with a folder menu (`scope=folder` plus `folder=<id>`). The server resolves the folder to the visible documents in it and all its subfolders and hands them to the existing selected-documents scope, so retrieval, visibility, citation checks and signing are unchanged; answers show "Scope: Psychology › Biases (including subfolders)". An empty folder answers "No documents in this folder" instead of searching everything; a folder with more than 100 documents (the selection limit) asks you to pick a subfolder; a deleted folder returns 404. A folder quiz uses up to five of its documents, chosen at random so repeated quizzes vary.
+A folder is also a scope. Its page offers **Ask this folder** (opens the conversation with the folder preselected), and **Search this folder**. The home ask box gets a menu (**Whole library** or any folder; it submits `scope=folder:<id>`), and the question and search pages get **A folder and its subfolders** with a folder menu (`scope=folder` plus `folder=<id>`). The server resolves the folder to the visible documents in it and all its subfolders and hands them to the existing selected-documents scope, so retrieval, visibility, citation checks and signing are unchanged; answers show "Scope: Psychology › Biases (including subfolders)". An empty folder answers "No documents in this folder" instead of searching everything; a folder with more than 100 documents (the selection limit) asks you to pick a subfolder; a deleted folder returns 404.
 
 Once a folder exists, the upload and **Import a web page** forms show **Save to folder**; the document is filed in the same database transaction that saves it. The document page shows its folder as a coloured chip and offers **Folder → Move**. Documents uploaded before folders existed are unfiled; nothing is re-uploaded or re-indexed. Folder names are never logged.
 
@@ -1080,24 +1076,6 @@ After an index is published, a background stage (`IndexPublished` → `summaries
 The document page shows the summary with numbered, linked source passages, and a **Summarize now** / **Regenerate summary** button for ready documents. The button only queues a `SummaryRequested` event; the background worker makes the request. Quota exhaustion or a provider outage retries this stage with backoff and never affects indexing or search. Documents indexed before summaries were enabled get a summary only when you press the button. `secondbrain.summaries.generated{outcome=stored|insufficient|skipped|failed}` counts results without any text.
 
 Check with `./mvnw -Dtest=SummaryGeneratorTest,SummaryPageTest test` and `./mvnw -Dit.test=SummaryWorkflowIT verify`.
-
-## Flashcards
-
-With questions enabled, a ready document's page offers **Make flashcards**. It sends **one** chat request with the document's most typical passages (the same selection as summaries) and asks for up to eight cards in the line format `Q: question || A: answer [n]`. A card is kept only if it matches that format, stays within 300/600 characters, does not repeat a question, and cites a passage that was supplied, using the same citation rule as answers. Cards are stored (`flashcards`, migration V17) only if the document is still visible with the same active index generation.
-
-**Review flashcards** (`/flashcards`, also linked from the library) shows the next due card. Select **Show answer** to see the answer and a link to its source passage, then grade your recall: **Again** (back in 10 minutes), **Hard**, **Good** or **Easy**. A small SM-2 style scheduler sets the next date: new cards go 1 day then 6 days, then the interval grows by the card's ease, capped at about ten years. Reviewing makes no provider call. A review only applies to the state you saw, so submitting the same card twice from two tabs counts once. Deleting a document hides its cards at once and removes them during cleanup. Metrics: `secondbrain.study.flashcards{outcome=created|none}` and `secondbrain.study.reviews{grade}`.
-
-Check with `./mvnw -Dtest=ReviewSchedulerTest,FlashcardParserTest,FlashcardServiceTest,FlashcardControllerTest test` and `./mvnw -Dit.test=FlashcardIT verify`.
-
-## Practice quizzes
-
-**Practice quiz** on a ready document's page (or `POST /quizzes` with one to five `documentId` values) sends one chat request with the documents' most typical passages and keeps up to five questions in the form `Q: question [n]`, each tied to the passage it cites. Answer them in your own words and select **Check my answers**.
-
-Each non-empty answer is graded by **one** chat request whose only evidence is the passage that question came from, so a quiz uses at most six requests. Your answer is placed between `<<<ANSWER` and `ANSWER>>>` markers and treated as untrusted text. Only the reply's first line counts, and it must be `VERDICT: CORRECT`, `PARTLY_CORRECT` or `INCORRECT` citing that same passage. Anything else, an insufficient-information reply, or a source passage that is no longer available gives **Cannot be graded from the sources**, which is never counted as correct. Empty answers are marked incorrect without a request. Answers are capped at 400 characters and graded once.
-
-Quizzes are stored locally (`quizzes`, `quiz_questions`, migration V18). A quiz is hidden as soon as any of its documents is marked deleted, and removed by a database trigger when cleanup deletes that document. Metrics: `secondbrain.study.quizzes{outcome}` and `secondbrain.study.quiz.answers{verdict}`.
-
-Check with `./mvnw -Dtest=QuizParserTest,QuizServiceTest,QuizControllerTest test` and `./mvnw -Dit.test=QuizIT verify`.
 
 ## Folder sync
 
