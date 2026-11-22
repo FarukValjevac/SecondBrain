@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{})}">
+<head>
+  <title>Delete folder | SecondBrain</title>
+</head>
+<body>
+  <main id="content">
+    <h1>Delete folder?</h1>
+    <p>Delete the folder <strong th:text="${folder.name}">Psychology</strong>?</p>
+    <p>Its documents and subfolders are kept: they move one level up
+      (<span th:text="${folder.parentId.isPresent() ? 'to the parent folder' : 'to Unfiled and the top level'}">to Unfiled</span>).
+      No document is deleted.</p>
+    <form method="post" th:action="@{/folders/{id}/delete(id=${folder.folderId})}" class="deletion-actions">
+      <button type="submit" class="danger-button">Delete folder</button>
+      <a th:href="@{/library(folder=${folder.folderId})}">Cancel</a>
+    </form>
+  </main>
+</body>
+</html>

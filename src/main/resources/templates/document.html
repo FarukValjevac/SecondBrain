@@ -12,7 +12,14 @@
         <span class="type-badge" th:text="${fileType.of(document.name)}">PDF</span>
         <h1 th:text="${document.name}">Document</h1>
       </div>
-      <p class="document-meta">Text extraction: <strong th:text="${document.state}">QUEUED</strong>
+      <p class="document-meta">
+        <th:block th:if="${documentFolder != null and folderTree != null and folderTree.find(documentFolder).isPresent()}"
+                  th:with="folder=${folderTree.find(documentFolder).get()}">
+          <a class="folder-chip" th:classappend="${'folder-' + folder.color.token()}" th:href="@{/library(folder=${folder.folderId})}">
+            <svg th:replace="~{fragments/folders :: icon(${folder.color})}"></svg>
+            <span th:text="${folderTree.label(folder)}">Psychology</span></a> ·
+        </th:block>
+        Text extraction: <strong th:text="${document.state}">QUEUED</strong>
         <th:block th:if="${webSource != null}"> · Imported from
           <a th:href="${webSource.url}" th:text="${webSource.url}" rel="noopener noreferrer" target="_blank">https://example.com</a>
           on <time th:datetime="${webSource.fetchedAt}" th:text="${webSource.fetchedAt}">time</time></th:block>
@@ -36,6 +43,15 @@
       <p class="hint" th:unless="${questionsEnabled}">
         Questions are turned off. Enable embeddings and questions to ask about this document.</p>
     </header>
+    <section class="notice notice-success" role="status" data-toast th:if="${folderMessage != null}"><p th:text="${folderMessage}">Moved.</p></section>
+    <section class="notice notice-error" role="alert" th:if="${folderError != null}"><p th:text="${folderError}">That folder no longer exists.</p></section>
+    <form method="post" class="move-folder" th:if="${folderTree != null and !folderTree.isEmpty()}"
+          th:action="@{/documents/{id}/folder(id=${document.documentId})}">
+      <label for="move-folder">Folder</label>
+      <select th:replace="~{fragments/folders :: chooser('move-folder', ${documentFolder})}"></select>
+      <button type="submit" class="secondary-button">Move</button>
+      <a th:href="@{/folders}" class="hint">Manage folders</a>
+    </form>
     <section class="notice notice-info" role="status" th:if="${quizMessage != null}"><p th:text="${quizMessage}">Quiz message.</p></section>
     <section class="notice notice-success" role="status" data-toast th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
     <section class="notice notice-success" role="status" data-toast th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- A folder glyph tinted with the folder's colour. -->
+<svg th:fragment="icon(color)" class="folder-icon" th:classappend="${'folder-' + color.token()}"
+     viewBox="0 0 24 24" aria-hidden="true">
+  <path class="folder-back" d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2h7.4A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>
+  <path class="folder-front" d="M3 10.5A1.5 1.5 0 0 1 4.5 9h15A1.5 1.5 0 0 1 21 10.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/>
+</svg>
+
+<!-- Folder chooser used by uploads, imports and moves. Blank means unfiled. -->
+<select th:fragment="chooser(id, selected)" th:id="${id}" name="folder" class="folder-select">
+  <option value="">Unfiled</option>
+  <option th:each="folder : ${folderTree.ordered()}" th:value="${folder.folderId}"
+          th:selected="${selected != null and selected == folder.folderId}"
+          th:text="${folderTree.label(folder)}">Psychology › Biases</option>
+</select>
+
+<!-- Colour swatches; each has a text name for assistive technology. -->
+<fieldset th:fragment="colors(selected, prefix)" class="color-picker">
+  <legend>Colour</legend>
+  <label th:each="color : ${colors}" class="swatch" th:classappend="${'folder-' + color.token()}"
+         th:title="${color.label()}">
+    <input type="radio" name="color" th:value="${color.token()}" th:id="${prefix + color.token()}"
+           th:checked="${selected == color}">
+    <span class="visually-hidden" th:text="${color.label()}">Violet</span>
+  </label>
+</fieldset>
+
+<!-- One folder and, recursively, its subfolders on the manage page. -->
+<li th:fragment="node(folder)" class="folder-node">
+  <div class="folder-row">
+    <a class="folder-name" th:href="@{/library(folder=${folder.folderId})}">
+      <svg th:replace="~{fragments/folders :: icon(${folder.color})}"></svg>
+      <span th:text="${folder.name}">Psychology</span>
+    </a>
+    <span class="folder-count" th:text="${folderTree.documentsIncludingSubfolders(folder) == 1 ? '1 document' : folderTree.documentsIncludingSubfolders(folder) + ' documents'}">3 documents</span>
+    <div class="folder-row-actions">
+      <a th:if="${folder.canHaveChildren()}" th:href="@{/folders(parent=${folder.folderId})} + '#new-folder'"
+         th:aria-label="|New folder inside ${folder.name}|">Add subfolder</a>
+      <details class="folder-edit">
+        <summary th:aria-label="|Edit ${folder.name}|">Edit</summary>
+        <form method="post" th:action="@{/folders/{id}(id=${folder.folderId})}">
+          <label th:for="|name-${folder.folderId}|">Name</label>
+          <input type="text" th:id="|name-${folder.folderId}|" name="name" maxlength="80" required th:value="${folder.name}">
+          <fieldset th:replace="~{fragments/folders :: colors(${folder.color}, ${'color-' + folder.folderId + '-'})}"></fieldset>
+          <button type="submit">Save</button>
+        </form>
+      </details>
+      <a class="delete-link" th:href="@{/folders/{id}/delete(id=${folder.folderId})}"
+         th:aria-label="|Delete ${folder.name}|">Delete</a>
+    </div>
+  </div>
+  <ul class="folder-tree" role="list" th:unless="${folderTree.childrenOf(folder).isEmpty()}">
+    <th:block th:each="child : ${folderTree.childrenOf(folder)}"><li th:replace="~{fragments/folders :: node(${child})}"></li></th:block>
+  </ul>
+</li>
+</body>
+</html>

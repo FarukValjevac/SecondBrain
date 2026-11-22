@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{})}">
+<head>
+  <title>Folders | SecondBrain</title>
+</head>
+<body>
+  <main id="content">
+    <div class="library-heading">
+      <div>
+        <h1>Folders</h1>
+        <p class="hint">Group documents by subject. Folders can hold subfolders up to three levels deep.</p>
+      </div>
+    </div>
+    <section class="notice notice-success" role="status" data-toast th:if="${folderMessage != null}">
+      <p th:text="${folderMessage}">Folder created.</p>
+    </section>
+    <section class="notice notice-error" role="alert" th:if="${folderError != null}">
+      <h2>Folder not changed</h2>
+      <p th:text="${folderError}">A folder with that name already exists here.</p>
+    </section>
+    <section class="library-card new-folder" aria-labelledby="new-folder" th:if="${folderTree != null}">
+      <h2 id="new-folder">New folder</h2>
+      <form method="post" th:action="@{/folders}">
+        <div class="field-row">
+          <div class="field">
+            <label for="folder-name">Name</label>
+            <input type="text" id="folder-name" name="name" maxlength="80" required placeholder="Psychology" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="folder-parent">Inside</label>
+            <select id="folder-parent" name="parent" class="folder-select">
+              <option value="">Top level</option>
+              <option th:each="folder : ${folderTree.ordered()}" th:if="${folder.canHaveChildren()}"
+                      th:value="${folder.folderId}" th:selected="${newParent != null and newParent == folder.folderId}"
+                      th:text="${folderTree.label(folder)}">Psychology</option>
+            </select>
+          </div>
+        </div>
+        <fieldset th:replace="~{fragments/folders :: colors(${colors[0]}, 'new-color-')}"></fieldset>
+        <button type="submit">Create folder</button>
+      </form>
+    </section>
+    <section class="library-card" aria-labelledby="all-folders" th:if="${folderTree != null}">
+      <h2 id="all-folders">Your folders</h2>
+      <p th:if="${folderTree.isEmpty()}" class="empty-state">No folders yet. Create one above, for example <strong>Sport</strong> or <strong>Psychology</strong>.</p>
+      <ul class="folder-tree" role="list" th:unless="${folderTree.isEmpty()}">
+        <th:block th:each="top : ${folderTree.topLevel()}"><li th:replace="~{fragments/folders :: node(${top})}"></li></th:block>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

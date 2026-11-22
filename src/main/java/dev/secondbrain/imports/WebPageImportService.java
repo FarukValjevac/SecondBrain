@@ -38,13 +38,21 @@ public final class WebPageImportService {
      */
     public DocumentAcceptanceService.Receipt importPage(String address, UUID correlationId)
             throws IOException, InterruptedException {
+        return importPage(address, correlationId, Optional.empty());
+    }
+
+    /** Imports the page into a folder; an empty folder means unfiled. */
+    public DocumentAcceptanceService.Receipt importPage(
+            String address, UUID correlationId, Optional<UUID> folderId)
+            throws IOException, InterruptedException {
         var page = fetcher.fetch(address);
         var receipt =
                 acceptance.accept(
                         fileName(page),
                         page.utf8().length,
                         new ByteArrayInputStream(page.utf8()),
-                        correlationId);
+                        correlationId,
+                        folderId);
         jdbc.sql(
                         """
                 INSERT INTO document_sources(document_id, source_url, fetched_at) VALUES (:id, :url, :at)

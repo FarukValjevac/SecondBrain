@@ -316,7 +316,8 @@ class LibraryControllerTest {
                         eq(filename),
                         eq((long) bytes.length),
                         any(InputStream.class),
-                        eq(correlationId)))
+                        eq(correlationId),
+                        eq(java.util.Optional.empty())))
                 .thenAnswer(
                         invocation -> {
                             Assertions.assertThat(
@@ -364,7 +365,8 @@ class LibraryControllerTest {
                         eq(filename),
                         eq((long) bytes.length),
                         any(InputStream.class),
-                        eq(correlationId));
+                        eq(correlationId),
+                        eq(java.util.Optional.empty()));
         Assertions.assertThat(output.getOut()).doesNotContain("sentinel-private");
     }
 
@@ -373,7 +375,7 @@ class LibraryControllerTest {
         for (var reason : UploadRejectedException.Reason.values()) {
             doThrow(new UploadRejectedException(reason))
                     .when(acceptanceService)
-                    .accept(any(), anyLong(), any(), any());
+                    .accept(any(), anyLong(), any(), any(), any());
             var result =
                     mvc.perform(multipart("/documents/upload").file(file()))
                             .andExpect(status().isSeeOther())
@@ -416,13 +418,13 @@ class LibraryControllerTest {
     void acceptsEachFileOfABatchOnItsOwnAndReportsEveryOutcome(CapturedOutput output)
             throws Exception {
         var saved = UUID.randomUUID();
-        when(acceptanceService.accept(eq("good.md"), anyLong(), any(), any()))
+        when(acceptanceService.accept(eq("good.md"), anyLong(), any(), any(), any()))
                 .thenReturn(new DocumentAcceptanceService.Receipt(saved, ExtractionState.QUEUED));
-        when(acceptanceService.accept(eq("<b>bad</b>.exe"), anyLong(), any(), any()))
+        when(acceptanceService.accept(eq("<b>bad</b>.exe"), anyLong(), any(), any(), any()))
                 .thenThrow(
                         new UploadRejectedException(
                                 UploadRejectedException.Reason.UNSUPPORTED_TYPE));
-        when(acceptanceService.accept(eq("broken.txt"), anyLong(), any(), any()))
+        when(acceptanceService.accept(eq("broken.txt"), anyLong(), any(), any(), any()))
                 .thenThrow(new IOException("sentinel-private-storage"));
         var result =
                 mvc.perform(
@@ -434,7 +436,7 @@ class LibraryControllerTest {
                         .andExpect(redirectedUrl("/library"))
                         .andExpect(flash().attributeExists("uploadResults"))
                         .andReturn();
-        verify(acceptanceService, times(3)).accept(any(), anyLong(), any(), any());
+        verify(acceptanceService, times(3)).accept(any(), anyLong(), any(), any(), any());
         var page =
                 mvc.perform(MockMvcRequestBuilders.get("/library").flashAttrs(result.getFlashMap()))
                         .andExpect(status().isOk())
@@ -465,7 +467,7 @@ class LibraryControllerTest {
                     new IOException("sentinel-private-storage"),
                     new DataAccessResourceFailureException("sentinel-private-database")
                 }) {
-            doThrow(failure).when(acceptanceService).accept(any(), anyLong(), any(), any());
+            doThrow(failure).when(acceptanceService).accept(any(), anyLong(), any(), any(), any());
             var result =
                     mvc.perform(multipart("/documents/upload").file(file()))
                             .andExpect(status().isSeeOther())

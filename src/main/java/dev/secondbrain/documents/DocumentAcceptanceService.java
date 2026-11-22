@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.time.Clock;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Coordinates durable original storage with atomic metadata and event persistence. */
@@ -43,11 +44,27 @@ public final class DocumentAcceptanceService {
     public Receipt accept(
             String originalName, long declaredSize, InputStream input, UUID correlationId)
             throws IOException {
+        return accept(originalName, declaredSize, input, correlationId, Optional.empty());
+    }
+
+    /**
+     * Same as {@link #accept(String, long, InputStream, UUID)}, placing the document in a folder in
+     * the same transaction. A folder deleted meanwhile leaves the document unfiled.
+     */
+    public Receipt accept(
+            String originalName,
+            long declaredSize,
+            InputStream input,
+            UUID correlationId,
+            Optional<UUID> folderId)
+            throws IOException {
         Objects.requireNonNull(input, "input");
+        Objects.requireNonNull(folderId, "folderId");
         Objects.requireNonNull(correlationId, "correlationId");
         try (var operation = telemetry.upload(correlationId)) {
             try {
-                var receipt = acceptOriginal(originalName, declaredSize, input, correlationId);
+                var receipt =
+                        acceptOriginal(originalName, declaredSize, input, correlationId, folderId);
                 operation.outcome(DocumentTelemetry.Outcome.ACCEPTED);
                 return receipt;
             } catch (UploadRejectedException rejected) {
@@ -58,7 +75,11 @@ public final class DocumentAcceptanceService {
     }
 
     private Receipt acceptOriginal(
-            String originalName, long declaredSize, InputStream input, UUID correlationId)
+            String originalName,
+            long declaredSize,
+            InputStream input,
+            UUID correlationId,
+            Optional<UUID> folderId)
             throws IOException {
         var documentType = uploadPolicy.validate(originalName, declaredSize);
         try (var staged = originalFileStore.stage(input)) {
@@ -83,6 +104,10 @@ public final class DocumentAcceptanceService {
                 transactions.executeWithoutResult(
                         status -> {
                             documentRepository.insert(document);
+                            folderId.ifPresent(
+                                    folder ->
+                                            documentRepository.placeInFolder(
+                                                    document.documentId(), folder));
                             eventPublisher.publish(
                                     new EventEnvelope(
                                             UUID.randomUUID(),

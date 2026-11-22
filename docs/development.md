@@ -147,6 +147,12 @@ Quizzes show one question at a time with **Previous**/**Next question**, a "Ques
 
 Search results are passage cards: the document's type label and name, page and line location, the escaped excerpt, **Open source passage** and, when questions are enabled, **Ask about this document**.
 
+### Folders
+
+**Manage folders** on the library opens `/folders`. Create a folder with a name, an optional parent ("Inside") and a colour; folders nest up to three levels and at most 200 exist. Names are unique among siblings regardless of case. Each folder can be renamed, recoloured, given a subfolder or deleted. Deleting asks first and never deletes documents: they and any subfolders move one level up (top-level folders release their documents to **Unfiled**).
+
+Once a folder exists, the upload and **Import a web page** forms show **Save to folder**; the document is filed in the same database transaction that saves it. The document page shows its folder as a coloured chip and offers **Folder → Move**. Documents uploaded before folders existed are unfiled; nothing is re-uploaded or re-indexed. Folder names are never logged.
+
 ### Page appearance and form behavior
 
 Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/app.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.

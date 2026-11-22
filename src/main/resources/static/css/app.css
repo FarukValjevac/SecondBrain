@@ -1518,3 +1518,209 @@
     gap: var(--space-4);
   }
 }
+
+/* ---------- Folders ---------- */
+@layer tokens {
+  :root {
+    --folder-violet: oklch(58% 0.2 290);
+    --folder-blue: oklch(58% 0.17 255);
+    --folder-teal: oklch(60% 0.11 195);
+    --folder-green: oklch(60% 0.15 150);
+    --folder-amber: oklch(72% 0.15 80);
+    --folder-orange: oklch(66% 0.17 50);
+    --folder-rose: oklch(60% 0.2 10);
+    --folder-slate: oklch(56% 0.03 260);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --folder-violet: oklch(72% 0.16 290);
+      --folder-blue: oklch(72% 0.13 255);
+      --folder-teal: oklch(75% 0.1 195);
+      --folder-green: oklch(75% 0.13 150);
+      --folder-amber: oklch(80% 0.13 80);
+      --folder-orange: oklch(76% 0.14 50);
+      --folder-rose: oklch(74% 0.15 10);
+      --folder-slate: oklch(72% 0.03 260);
+    }
+  }
+}
+
+@layer components {
+  .folder-violet { --folder: var(--folder-violet); }
+  .folder-blue { --folder: var(--folder-blue); }
+  .folder-teal { --folder: var(--folder-teal); }
+  .folder-green { --folder: var(--folder-green); }
+  .folder-amber { --folder: var(--folder-amber); }
+  .folder-orange { --folder: var(--folder-orange); }
+  .folder-rose { --folder: var(--folder-rose); }
+  .folder-slate { --folder: var(--folder-slate); }
+
+  .folder-icon {
+    inline-size: 1.4rem;
+    block-size: 1.4rem;
+    flex: none;
+  }
+  .folder-icon .folder-back {
+    fill: color-mix(in oklch, var(--folder, var(--accent)) 70%, black);
+  }
+  .folder-icon .folder-front {
+    fill: var(--folder, var(--accent));
+  }
+
+  .secondary-link {
+    background: var(--surface);
+    color: var(--accent);
+    border: 1px solid var(--control-border);
+  }
+  .secondary-link:hover {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+  }
+
+  .field-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .field-row .field {
+    flex: 1 1 14rem;
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  /* Colour swatches: native radios, drawn as round chips with a visible checked ring. */
+  .color-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    border: 0;
+    padding: 0;
+  }
+  .color-picker legend {
+    padding: 0;
+    margin-block-end: var(--space-2);
+  }
+  .swatch {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+    border-radius: 50%;
+    background: var(--folder);
+    cursor: pointer;
+    transition: scale var(--duration);
+  }
+  .swatch input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .swatch:has(input:checked) {
+    box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--folder);
+  }
+  .swatch:has(input:checked)::after {
+    content: "✓";
+    color: white;
+    font-weight: 700;
+  }
+  .swatch:has(input:focus-visible) {
+    outline: 3px solid var(--focus);
+    outline-offset: 5px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .swatch:hover {
+      scale: 1.08;
+    }
+  }
+
+  /* Manage page tree. */
+  .folder-tree {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .folder-tree .folder-tree {
+    margin-inline-start: var(--space-5);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 2px solid var(--line);
+  }
+  .folder-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+  }
+  .folder-row:hover,
+  .folder-row:focus-within {
+    background: var(--surface-sunken);
+  }
+  .folder-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .folder-count {
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+  }
+  .folder-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-inline-start: auto;
+    font-size: var(--text-sm);
+  }
+  .folder-edit summary {
+    cursor: pointer;
+    color: var(--accent);
+  }
+  .folder-edit[open] {
+    flex-basis: 100%;
+    order: 5;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .empty-state {
+    color: var(--text-muted);
+  }
+
+  .folder-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-pill);
+    background: color-mix(in oklch, var(--folder, var(--accent)) 14%, transparent);
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .folder-chip .folder-icon {
+    inline-size: 1.1rem;
+    block-size: 1.1rem;
+  }
+  .move-folder {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .move-folder select {
+    inline-size: auto;
+    min-inline-size: 12rem;
+    padding: var(--space-2) var(--space-3);
+  }
+}
