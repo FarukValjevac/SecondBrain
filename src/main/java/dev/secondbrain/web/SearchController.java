@@ -2,6 +2,7 @@ package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentInspectionService.LibraryPage;
+import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.search.SearchFailure;
 import dev.secondbrain.search.SearchQuery;
 import dev.secondbrain.search.SearchResult;
@@ -32,13 +33,16 @@ import java.util.stream.Collectors;
 @Controller
 class SearchController {
     private final ObjectProvider<SearchService> search;
+    private final ObjectProvider<FolderService> folders;
     private final ObjectProvider<DocumentInspectionService> documents;
 
     SearchController(
             ObjectProvider<SearchService> search,
-            ObjectProvider<DocumentInspectionService> documents) {
+            ObjectProvider<DocumentInspectionService> documents,
+            ObjectProvider<FolderService> folders) {
         this.search = search;
         this.documents = documents;
+        this.folders = folders;
     }
 
     @ModelAttribute
@@ -64,19 +68,27 @@ class SearchController {
             @RequestParam MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response) {
-        final int page;
+        final DocumentQueryForm form;
         try {
             var pages = fields.getOrDefault("page", List.of("0"));
             if (pages.size() != 1) throw new IllegalArgumentException("Invalid document page");
-            page = DocumentQueryForm.page(pages.getFirst());
+            var page = DocumentQueryForm.page(pages.getFirst());
+            // A folder page links here with its ID to search that folder.
+            var folder = fields.get("folder");
+            if (folder != null && (folder.size() != 1 || page != 0))
+                throw new IllegalArgumentException("Invalid folder selection");
+            form =
+                    folder == null
+                            ? DocumentQueryForm.blank(page)
+                            : DocumentQueryForm.folder(
+                                    DocumentQueryForm.documentId(folder.getFirst()));
         } catch (IllegalArgumentException invalid) {
             return invalid(model, response);
         }
         if (Boolean.TRUE.equals(model.getAttribute("searchEnabled"))) {
-            DocumentQueryView.restore(DocumentQueryForm.blank(page), model);
+            DocumentQueryView.restore(form, model);
             try {
-                DocumentQueryView.populate(
-                        DocumentQueryForm.blank(page), documents.getObject(), model);
+                DocumentQueryView.populate(form, documents.getObject(), model);
             } catch (DataAccessException | TransactionException unavailable) {
                 return feedback(model, response, SearchFeedback.DATABASE, Optional.empty());
             }
@@ -112,7 +124,13 @@ class SearchController {
         try {
             DocumentQueryView.populate(form, documents.getObject(), model);
             if (form.action() == DocumentQueryForm.Action.BROWSE) return "search";
-            var request = query.orElseThrow();
+            final SearchQuery request;
+            try {
+                request = FolderScope.resolve(form, query.orElseThrow(), folders);
+            } catch (FolderScope.Problem problem) {
+                return feedback(
+                        model, response, SearchFeedback.from(problem.reason()), Optional.empty());
+            }
             model.addAttribute("queryText", request.text());
             var result = service.search(request);
             var ids =

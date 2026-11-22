@@ -1,5 +1,6 @@
 package dev.secondbrain.web;
 
+import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.questions.ChatFailure;
 import dev.secondbrain.study.QuizService;
 
@@ -33,15 +34,18 @@ import java.util.UUID;
 @Controller
 class QuizController {
     private final ObjectProvider<QuizService> quizzes;
+    private final ObjectProvider<FolderService> folders;
 
-    QuizController(ObjectProvider<QuizService> quizzes) {
+    QuizController(ObjectProvider<QuizService> quizzes, ObjectProvider<FolderService> folders) {
         this.quizzes = quizzes;
+        this.folders = folders;
     }
 
     @PostMapping(value = "/quizzes", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     RedirectView start(
             @RequestParam MultiValueMap<String, String> fields, RedirectAttributes flash) {
         var service = available();
+        if (fields.containsKey("folder")) return startFolder(service, fields, flash);
         var ids = new ArrayList<UUID>();
         try {
             var values = fields.getOrDefault("documentId", List.of());
@@ -63,6 +67,48 @@ class QuizController {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         }
         return redirect("/documents/" + ids.getFirst());
+    }
+
+    /**
+     * A quiz over a folder and its subfolders: up to five of its documents, chosen at random so
+     * repeated quizzes cover different material.
+     */
+    private RedirectView startFolder(
+            QuizService service, MultiValueMap<String, String> fields, RedirectAttributes flash) {
+        var values = fields.get("folder");
+        if (values.size() != 1 || fields.containsKey("documentId"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        final UUID folder;
+        try {
+            folder = DocumentQueryForm.documentId(values.getFirst());
+        } catch (IllegalArgumentException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        var back = redirect(FolderForm.library(java.util.Optional.of(folder)));
+        final List<UUID> documents;
+        try {
+            documents = new ArrayList<>(FolderScope.documents(folder, folders));
+        } catch (FolderScope.Problem problem) {
+            if (problem.reason() == FolderScope.Problem.Reason.MISSING)
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+            flash.addFlashAttribute(
+                    "quizMessage", "Add documents to this folder before starting a quiz.");
+            return back;
+        }
+        java.util.Collections.shuffle(documents);
+        try {
+            var quiz = service.create(documents.subList(0, Math.min(5, documents.size())));
+            if (quiz.isPresent()) return redirect("/quizzes/" + quiz.orElseThrow());
+            flash.addFlashAttribute(
+                    "quizMessage",
+                    "No quiz could be made from this folder yet. Documents need to finish preparing for search.");
+        } catch (ChatFailure failure) {
+            flash.addFlashAttribute("quizMessage", unavailableMessage(failure));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        return back;
     }
 
     @GetMapping("/quizzes/{id}")

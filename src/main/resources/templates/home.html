@@ -18,14 +18,24 @@
       <label for="ask" class="visually-hidden">Ask your documents</label>
       <textarea id="ask" name="q" rows="1" maxlength="1200" required
                 aria-describedby="ask-help" placeholder="Ask anything about your documents…"></textarea>
-      <input type="hidden" name="scope" value="all">
+      <input type="hidden" name="scope" value="all" th:if="${folderTree == null or folderTree.isEmpty()}">
+      <label class="scope-menu" th:if="${folderTree != null and !folderTree.isEmpty()}">
+        <span class="visually-hidden">Ask in</span>
+        <select name="scope" aria-describedby="ask-help">
+          <option value="all">Whole library</option>
+          <option th:each="folder : ${folderTree.ordered()}" th:value="|folder:${folder.folderId}|"
+                  th:selected="${homeFolder != null and homeFolder == folder.folderId}"
+                  th:text="${folderTree.label(folder)}">Psychology</option>
+        </select>
+      </label>
       <button type="submit" name="action" value="ask" class="send-button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
         <span>Send</span>
       </button>
     </form>
     <p id="ask-help" class="hint composer-help" th:if="${questionsEnabled}">
-      Searches your whole library. Enter to send, Shift+Enter for a new line.
+      <th:block th:text="${folderTree != null and !folderTree.isEmpty() ? 'Ask your whole library or one folder.' : 'Searches your whole library.'}">Searches your whole library.</th:block>
+      Enter to send, Shift+Enter for a new line.
       <a href="/questions" th:href="@{/questions}">Choose specific documents</a>
     </p>
     <section class="library-card" th:unless="${questionsEnabled}">

@@ -21,6 +21,8 @@
       <h2>Find relevant passages</h2>
       <p th:if="${scope == 'all'}">Search across the whole library.</p>
       <p th:if="${scope == 'selected'}" th:text="|Selected documents: ${documentIds.size()}|">Selected documents: 0</p>
+      <p th:if="${scope == 'folder' and scopeFolder != null and folderTree != null and folderTree.find(scopeFolder).isPresent()}"
+         th:text="|Folder: ${folderTree.label(folderTree.find(scopeFolder).get())} (including subfolders)|">Folder: Psychology</p>
       <search>
       <form method="post" action="/search" th:action="@{/search}">
         <label for="search-query">What are you looking for?</label>

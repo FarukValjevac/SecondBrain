@@ -17,7 +17,13 @@ final class DocumentQueryView {
     static void restore(DocumentQueryForm form, Model model) {
         model.addAttribute("queryText", form.text());
         model.addAttribute(
-                "scope", form.scope() == DocumentQueryForm.Scope.ALL ? "all" : "selected");
+                "scope",
+                switch (form.scope()) {
+                    case ALL -> "all";
+                    case SELECTED -> "selected";
+                    case FOLDER -> "folder";
+                });
+        model.addAttribute("scopeFolder", form.folder().orElse(null));
         model.addAttribute("documentIds", form.documentIds().stream().sorted().toList());
         model.addAttribute("documentPage", new LibraryPage(List.of(), form.page(), false));
         model.addAttribute(
