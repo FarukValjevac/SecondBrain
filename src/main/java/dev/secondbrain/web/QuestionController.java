@@ -1,6 +1,7 @@
 package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentInspectionService;
+import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.questions.QuestionFailure;
@@ -32,14 +33,17 @@ import java.util.UUID;
 class QuestionController {
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<DocumentInspectionService> documents;
+    private final ObjectProvider<FolderService> folders;
     private final AnswerSignature signature;
 
     QuestionController(
             ObjectProvider<QuestionAnswerService> answers,
             ObjectProvider<DocumentInspectionService> documents,
+            ObjectProvider<FolderService> folders,
             AnswerSignature signature) {
         this.answers = answers;
         this.documents = documents;
+        this.folders = folders;
         this.signature = signature;
     }
 
@@ -70,11 +74,18 @@ class QuestionController {
             var selected = fields.get("documentId");
             if (selected != null && (selected.size() != 1 || page != 0))
                 throw new IllegalArgumentException("Invalid document selection");
+            // A folder page links here with its ID to ask about that folder.
+            var folder = fields.get("folder");
+            if (folder != null && (folder.size() != 1 || page != 0 || selected != null))
+                throw new IllegalArgumentException("Invalid folder selection");
             form =
-                    selected == null
-                            ? DocumentQueryForm.blank(page)
-                            : DocumentQueryForm.selected(
-                                    DocumentQueryForm.documentId(selected.getFirst()));
+                    folder != null
+                            ? DocumentQueryForm.folder(
+                                    DocumentQueryForm.documentId(folder.getFirst()))
+                            : selected == null
+                                    ? DocumentQueryForm.blank(page)
+                                    : DocumentQueryForm.selected(
+                                            DocumentQueryForm.documentId(selected.getFirst()));
         } catch (IllegalArgumentException invalid) {
             return invalid(model, response);
         }
@@ -138,7 +149,13 @@ class QuestionController {
             // check.
             DocumentQueryView.populate(form, documents.getObject(), model);
             if (form.action() == DocumentQueryForm.Action.BROWSE) return "questions";
-            var request = question.orElseThrow();
+            final SearchQuery request;
+            try {
+                request = FolderScope.resolve(form, question.orElseThrow(), folders);
+            } catch (FolderScope.Problem problem) {
+                return feedback(
+                        model, response, QuestionFeedback.from(problem.reason()), Optional.empty());
+            }
             model.addAttribute("queryText", request.text());
             var result = service.answer(request);
             if (result.outcome() == QuestionAnswerService.Outcome.INSUFFICIENT_INFORMATION)

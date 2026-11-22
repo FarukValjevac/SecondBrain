@@ -5,6 +5,16 @@
           <legend>Where to search</legend>
           <label><input type="radio" name="scope" value="all" th:checked="${scope == 'all'}"> Whole library</label>
           <label><input type="radio" name="scope" value="selected" th:checked="${scope == 'selected'}"> Selected documents only</label>
+          <th:block th:if="${folderTree != null and !folderTree.isEmpty()}">
+            <label><input type="radio" name="scope" value="folder" th:checked="${scope == 'folder'}"> A folder and its subfolders</label>
+            <label class="scope-folder"><span class="visually-hidden">Folder</span>
+              <select name="folder" class="folder-select">
+                <option th:each="folder : ${folderTree.ordered()}" th:value="${folder.folderId}"
+                        th:selected="${scopeFolder != null and scopeFolder == folder.folderId}"
+                        th:text="${folderTree.label(folder)}">Psychology</option>
+              </select>
+            </label>
+          </th:block>
           <p>Choose up to 100 documents. Checked documents only restrict results when selected-document scope is chosen. Only documents with a completed search index can return passages.</p>
           <div th:if="${pickerAvailable}">
           <div class="search-choices">

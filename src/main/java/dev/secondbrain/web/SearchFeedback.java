@@ -7,6 +7,18 @@ import org.springframework.http.HttpStatus;
 /** Closed presentation policy: no provider messages or private request data enter feedback. */
 enum SearchFeedback {
     SUCCESS(HttpStatus.OK, "Search completed", "Open a passage to inspect its source."),
+    FOLDER_EMPTY(
+            HttpStatus.OK,
+            "No documents in this folder",
+            "Add documents to this folder or its subfolders, or choose Whole library."),
+    FOLDER_TOO_LARGE(
+            HttpStatus.OK,
+            "Folder too large to search at once",
+            "This folder and its subfolders hold more than 100 documents. Choose a subfolder or Whole library."),
+    FOLDER_MISSING(
+            HttpStatus.NOT_FOUND,
+            "Folder unavailable",
+            "That folder no longer exists. Choose another scope."),
     EMPTY_SELECTION(
             HttpStatus.OK,
             "No documents selected",
@@ -89,6 +101,14 @@ enum SearchFeedback {
             case QUOTA_EXHAUSTED -> QUOTA;
             case TIMED_OUT -> TIMEOUT;
             case INTERRUPTED -> INTERRUPTED;
+        };
+    }
+
+    static SearchFeedback from(FolderScope.Problem.Reason reason) {
+        return switch (reason) {
+            case MISSING -> FOLDER_MISSING;
+            case EMPTY -> FOLDER_EMPTY;
+            case TOO_LARGE -> FOLDER_TOO_LARGE;
         };
     }
 

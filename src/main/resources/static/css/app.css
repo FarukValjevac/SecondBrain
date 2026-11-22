@@ -1914,3 +1914,89 @@
     color: var(--danger);
   }
 }
+
+/* ---------- Folder scope ---------- */
+@layer components {
+  .folder-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .inline-form {
+    display: contents;
+  }
+  .action-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 2.5rem;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 600;
+    font-size: var(--text-sm);
+    text-decoration: none;
+    box-shadow: var(--shadow);
+    transition: border-color var(--duration), background-color var(--duration);
+  }
+  .action-chip:hover:not(:disabled) {
+    border-color: var(--folder, var(--accent));
+    background: color-mix(in oklch, var(--folder, var(--accent)) 12%, var(--surface));
+    color: var(--text);
+  }
+  .action-chip svg {
+    inline-size: 1.1rem;
+    block-size: 1.1rem;
+    fill: none;
+    stroke: var(--folder, var(--accent));
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* The folder page tints its actions with the folder colour. */
+  main:has(.folder-title.folder-violet) { --folder: var(--folder-violet); }
+  main:has(.folder-title.folder-blue) { --folder: var(--folder-blue); }
+  main:has(.folder-title.folder-teal) { --folder: var(--folder-teal); }
+  main:has(.folder-title.folder-green) { --folder: var(--folder-green); }
+  main:has(.folder-title.folder-amber) { --folder: var(--folder-amber); }
+  main:has(.folder-title.folder-orange) { --folder: var(--folder-orange); }
+  main:has(.folder-title.folder-rose) { --folder: var(--folder-rose); }
+  main:has(.folder-title.folder-slate) { --folder: var(--folder-slate); }
+
+  .scope-menu select {
+    inline-size: auto;
+    max-inline-size: 14rem;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--surface-sunken);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+  .scope-folder select {
+    inline-size: auto;
+    margin-inline-start: var(--space-5);
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+@layer components {
+  /* Phones: the question gets the full width; folder menu and send button share the next row. */
+  @media (width < 40rem) {
+    .composer {
+      flex-wrap: wrap;
+    }
+    .composer textarea {
+      flex-basis: 100%;
+    }
+    .composer .scope-menu {
+      flex: 1;
+    }
+    .composer .scope-menu select {
+      max-inline-size: 100%;
+      inline-size: 100%;
+    }
+  }
+}

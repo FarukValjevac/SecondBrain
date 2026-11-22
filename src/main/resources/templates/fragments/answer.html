@@ -20,6 +20,8 @@
       <p class="answer-text" th:text="${queryText}">Submitted question</p>
       <p th:if="${scope == 'all'}">Scope: Whole library</p>
       <p th:if="${scope == 'selected'}" th:text="|Scope: Selected documents (${documentIds.size()})|">Scope: Selected documents</p>
+      <p th:if="${scope == 'folder' and scopeFolder != null and folderTree != null and folderTree.find(scopeFolder).isPresent()}"
+         th:text="|Scope: ${folderTree.label(folderTree.find(scopeFolder).get())} (including subfolders)|">Scope: Psychology</p>
       <h2 th:id="${prefix} + 'answer-title'" id="answer-title">Answer</h2>
       <p class="answer-text"><th:block th:each="segment : ${answerSegments}"><a th:if="${segment.marker.isPresent()}" class="citation-marker" th:href="|#${prefix}source-${segment.marker.get()}|"><span th:text="${segment.text}">[1]</span><span class="visually-hidden" th:text="| source ${segment.marker.get()}|"> source 1</span></a><span th:unless="${segment.marker.isPresent()}" th:text="${segment.text}">Answer text</span></th:block></p>
       <h2 th:id="${prefix} + 'answer-sources-title'" id="answer-sources-title">Sources</h2>

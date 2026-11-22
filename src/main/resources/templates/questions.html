@@ -16,6 +16,8 @@
       <h2 th:text="${questionAnswer != null ? 'Ask another question' : 'Ask a question'}">Ask a question</h2>
       <p th:if="${scope == 'all'}">Answer using the whole library.</p>
       <p th:if="${scope == 'selected'}" th:text="|Selected documents: ${documentIds.size()}|">Selected documents: 0</p>
+      <p th:if="${scope == 'folder' and scopeFolder != null and folderTree != null and folderTree.find(scopeFolder).isPresent()}"
+         th:text="|Folder: ${folderTree.label(folderTree.find(scopeFolder).get())} (including subfolders)|">Folder: Psychology</p>
       <form method="post" action="/questions" th:action="@{/questions}">
         <label for="question-text">What would you like to know?</label>
         <p id="question-help">Use up to 1,200 characters. Your question and relevant passages are sent to the configured provider. Search and answers share its allowance.</p>
