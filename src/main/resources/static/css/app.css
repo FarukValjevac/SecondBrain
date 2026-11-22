@@ -1899,7 +1899,7 @@
     text-overflow: ellipsis;
   }
   @media (width < 48rem) {
-    .nav-section {
+    .sidebar .nav-section {
       display: none;
     }
   }
@@ -2146,5 +2146,61 @@
     max-inline-size: 72ch;
     font-size: clamp(1.15rem, 1.05rem + 0.35vw, 1.3rem);
     line-height: 1.8;
+  }
+}
+
+/* ---------- Phones: the current page gets the screen ---------- */
+@layer components {
+  @media (width < 48rem) {
+    /* A compact bar: name, Jump to and the menu button. Everything else lives in the drawer. */
+    :root[data-js] .sidebar {
+      flex-wrap: nowrap;
+      gap: var(--space-2);
+      padding-block: var(--space-2);
+    }
+    :root[data-js] .sidebar :is(.nav, .nav-add) {
+      display: none;
+    }
+    .sidebar .palette-button {
+      margin-inline-start: auto;
+    }
+    /* Without JavaScript the links stay reachable as one scrollable row under the bar. */
+    :root:not([data-js]) .sidebar .nav {
+      flex-direction: row;
+      overflow-x: auto;
+      flex-basis: 100%;
+      order: 3;
+    }
+    .drawer .nav-add {
+      margin-block-start: var(--space-4);
+    }
+  }
+  .drawer .nav {
+    overflow-y: visible;
+  }
+  .drawer-sheet {
+    max-block-size: 100dvh;
+    overflow-y: auto;
+  }
+}
+
+@layer components {
+  :is(.menu-button, .drawer-close) svg {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+  }
+  @media (width < 48rem) {
+    /* Two compact folder cards per row on phones. */
+    .folder-grid {
+      grid-template-columns: repeat(auto-fill, minmax(min(9rem, 100%), 1fr));
+    }
+    .folder-card {
+      padding: var(--space-3);
+    }
+    .folder-card .folder-icon {
+      inline-size: 2rem;
+      block-size: 2rem;
+      margin-block-end: var(--space-1);
+    }
   }
 }
