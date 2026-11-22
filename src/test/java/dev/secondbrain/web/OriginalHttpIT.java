@@ -77,6 +77,9 @@ class OriginalHttpIT {
                             "src=\"/documents/" + pdf + "/original#view=FitH\"",
                             "aria-current=\"page\">Original</a>",
                             "Reading view",
+                            // Phones cannot embed PDFs: they get Open PDF and the reading view.
+                            "class=\"original-mobile\"",
+                            "Open PDF",
                             "Download original");
 
             assertThat(

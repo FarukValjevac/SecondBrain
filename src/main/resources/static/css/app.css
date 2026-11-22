@@ -2000,3 +2000,70 @@
     }
   }
 }
+
+/* ---------- Consistent phone layout ---------- */
+@layer components {
+  .original-mobile {
+    display: none;
+  }
+  /* Phones and tablets: no in-page PDF viewer (their browsers cannot show one); desktops keep it. */
+  @media (width < 48rem), (pointer: coarse) {
+    .original-frame,
+    .original-hint {
+      display: none;
+    }
+    .original-mobile {
+      display: grid;
+      justify-items: center;
+      gap: var(--space-3);
+      padding: var(--space-6) var(--space-4);
+      border: 1px dashed var(--control-border);
+      border-radius: var(--radius-lg);
+      text-align: center;
+    }
+  }
+
+  @media (width < 48rem) {
+    /* The bar keeps its own height; the page below takes the remaining space on every page. */
+    .app {
+      grid-template-rows: auto 1fr;
+      align-content: start;
+    }
+    .sidebar {
+      align-self: start;
+    }
+    /* Menu on the left, like the sidebar it opens; Jump to on the right. */
+    .sidebar .menu-button {
+      order: -1;
+    }
+    .sidebar .brand {
+      margin-inline-end: auto;
+    }
+    .sidebar .palette-button {
+      margin-inline-start: 0;
+    }
+    /* Same rhythm on every page. */
+    .content {
+      padding: var(--space-4);
+    }
+    .content > main {
+      gap: var(--space-4);
+    }
+    h1 {
+      font-size: 1.6rem;
+    }
+    .library-heading {
+      align-items: start;
+    }
+    .heading-actions,
+    .action-bar {
+      inline-size: 100%;
+    }
+    .action-bar .delete-link {
+      margin-inline-start: 0;
+    }
+    .chat {
+      min-block-size: calc(100dvh - 7rem);
+    }
+  }
+}
