@@ -74,8 +74,15 @@
       <iframe class="original-frame" th:if="${view == 'original'}"
               th:src="@{/documents/{id}/original(id=${document.documentId})} + '#view=FitH'"
               th:title="|Original PDF: ${document.name}|"></iframe>
-      <p class="hint" th:if="${view == 'original'}">
+      <p class="hint original-hint" th:if="${view == 'original'}">
         Not showing? <a th:href="@{/documents/{id}/original(id=${document.documentId})}" target="_blank" rel="noopener">Open the PDF in a new tab</a>.</p>
+      <!-- Phone browsers cannot show a PDF inside a page; there the original opens in their own viewer. -->
+      <div class="original-mobile" th:if="${view == 'original'}">
+        <svg class="document-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M14 6h14l8 8v28H14z"/><path d="M28 6v10h8M20 24h10M20 31h10"/></svg>
+        <p>Phones show PDFs in their own viewer.</p>
+        <a class="button-link" th:href="@{/documents/{id}/original(id=${document.documentId})}" target="_blank" rel="noopener">Open PDF</a>
+        <a th:href="@{/documents/{id}(id=${document.documentId},view='reading')}">Read it here instead</a>
+      </div>
 
       <p class="hint" th:if="${view != 'original' and document.state.name() != 'EXTRACTED'}">The text appears here once extraction finishes.</p>
 
