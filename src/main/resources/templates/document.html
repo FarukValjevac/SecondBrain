@@ -63,6 +63,56 @@
       <p><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
     </section>
     <p th:if="${progress == null and document.message.isEmpty()}"><a th:href="@{/documents/{id}(id=${document.documentId})}">Refresh status</a></p>
+    <section class="library-card reader" aria-labelledby="text-title"
+             th:if="${document.state.name() == 'EXTRACTED' or (original != null and view == 'original')}">
+      <div class="reader-head">
+        <h2 id="text-title">Document</h2>
+        <nav class="view-tabs" aria-label="Document view">
+          <a th:if="${original != null and original.kind().name() == 'PDF'}"
+             th:href="@{/documents/{id}(id=${document.documentId},view='original')}"
+             th:aria-current="${view == 'original' ? 'page' : null}">Original</a>
+          <a th:href="@{/documents/{id}(id=${document.documentId},view='reading')}"
+             th:aria-current="${view == 'reading' ? 'page' : null}">Reading view</a>
+          <a th:href="@{/documents/{id}(id=${document.documentId},view='lines')}"
+             th:aria-current="${view == 'lines' ? 'page' : null}">Lines</a>
+        </nav>
+        <a class="download-link" th:if="${original != null}"
+           th:href="@{/documents/{id}/original(id=${document.documentId},download='1')}">Download original</a>
+      </div>
+
+      <!-- The browser's own PDF viewer shows the stored original exactly as it looks. -->
+      <iframe class="original-frame" th:if="${view == 'original'}"
+              th:src="@{/documents/{id}/original(id=${document.documentId})} + '#view=FitH'"
+              th:title="|Original PDF: ${document.name}|"></iframe>
+      <p class="hint" th:if="${view == 'original'}">
+        Not showing? <a th:href="@{/documents/{id}/original(id=${document.documentId})}" target="_blank" rel="noopener">Open the PDF in a new tab</a>.</p>
+
+      <p class="hint" th:if="${view != 'original' and document.state.name() != 'EXTRACTED'}">The text appears here once extraction finishes.</p>
+
+      <article class="reading" th:if="${view == 'reading' and readingBlocks != null}">
+        <th:block th:each="block : ${readingBlocks}">
+          <span th:each="anchor : ${block.anchors}" th:id="${'line-' + anchor}" class="line-anchor"></span>
+          <p th:if="${block.isPage()}" class="reading-page" th:text="|Page ${block.pageNumber}|">Page 2</p>
+          <h3 th:if="${block.isHeading() and block.level <= 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:text="${segment.text}">Heading</span></h3>
+          <h4 th:if="${block.isHeading() and block.level > 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:text="${segment.text}">Heading</span></h4>
+          <p th:if="${block.isParagraph() and !block.segments.isEmpty()}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:text="${segment.text}">Text</span></p>
+          <p th:if="${block.isItem()}" class="reading-item"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:text="${segment.text}">Item</span></p>
+        </th:block>
+      </article>
+
+      <th:block th:if="${view == 'lines' and document.state.name() == 'EXTRACTED'}">
+        <p class="hint">Exact extracted lines, as used for search and source links.</p>
+        <ol class="source-lines">
+          <li th:each="line, position : ${document.lines}" th:id="${'line-' + line.number}">
+            <span class="line-page" th:if="${line.pageNumber.isPresent() and (position.first or !document.lines[position.index - 1].pageNumber.equals(line.pageNumber))}"
+                  th:text="|Page ${line.pageNumber.getAsInt()}|">Page 1</span>
+            <a th:href="${'#line-' + line.number}"
+               th:aria-label="${line.pageNumber.isPresent() ? 'Page ' + line.pageNumber.getAsInt() + ', line ' + line.number : 'Line ' + line.number}"
+               th:text="${line.number}">1</a><pre th:text="${line.text}">Text</pre>
+          </li>
+        </ol>
+      </th:block>
+    </section>
     <section class="library-card" th:if="${summariesEnabled}" aria-labelledby="summary-title">
       <h2 id="summary-title">Summary</h2>
       <th:block th:if="${summary != null}">
@@ -81,27 +131,6 @@
             th:action="@{/documents/{id}/summary(id=${document.documentId})}">
         <button type="submit" class="secondary-button" th:text="${summary == null ? 'Summarize now' : 'Regenerate summary'}">Summarize now</button>
       </form>
-    </section>
-    <section class="library-card" th:if="${!related.isEmpty()}" aria-labelledby="related-title">
-      <h2 id="related-title">Related documents</h2>
-      <ul class="related-list">
-        <li th:each="item : ${related}">
-          <a th:href="@{/documents/{id}(id=${item.documentId})}" th:text="${item.name}">Related document</a>
-          <p class="search-excerpt" th:text="${#strings.abbreviate(item.match.text, 240)}">Closest passage</p>
-          <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${item.documentId},passageId=${item.match.passageId})}">Open passage<span class="visually-hidden" th:text="| from ${item.name}|"> from document</span></a>
-        </li>
-      </ul>
-    </section>
-    <section class="library-card" th:if="${document.state.name() == 'EXTRACTED'}" aria-labelledby="text-title">
-      <h2 id="text-title">Extracted text</h2>
-      <p class="hint">Text is extracted. Search uses completed indexes when embeddings are enabled.</p>
-      <ol class="source-lines">
-        <li th:each="line : ${document.lines}" th:id="${'line-' + line.number}">
-          <a th:href="${'#line-' + line.number}"
-             th:aria-label="${line.pageNumber.isPresent() ? 'Page ' + line.pageNumber.getAsInt() + ', line ' + line.number : 'Line ' + line.number}"
-             th:text="${line.pageNumber.isPresent() ? 'Page ' + line.pageNumber.getAsInt() : '#'}">#</a><pre th:text="${line.text}">Text</pre>
-        </li>
-      </ol>
     </section>
   </main>
 </body>

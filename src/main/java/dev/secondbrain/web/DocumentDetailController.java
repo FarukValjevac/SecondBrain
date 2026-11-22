@@ -3,13 +3,11 @@ package dev.secondbrain.web;
 import dev.secondbrain.documents.DocumentDeletionService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.DocumentProcessingService;
+import dev.secondbrain.documents.OriginalDocumentService;
 import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.imports.WebPageImportService;
 import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
-import dev.secondbrain.search.SearchFailure;
-import dev.secondbrain.search.SearchResult;
-import dev.secondbrain.search.SearchService;
 import dev.secondbrain.study.FlashcardService;
 import dev.secondbrain.summaries.SummaryService;
 
@@ -35,10 +33,9 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Controller
 @ConditionalOnProperty(
@@ -50,44 +47,70 @@ class DocumentDetailController {
     private final DocumentDeletionService deletion;
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
-    private final ObjectProvider<SearchService> search;
     private final ObjectProvider<SummaryService> summaries;
     private final ObjectProvider<FlashcardService> flashcards;
     private final ObjectProvider<WebPageImportService> imports;
     private final ObjectProvider<FolderService> folders;
+    private final ObjectProvider<OriginalDocumentService> originals;
 
     DocumentDetailController(
             DocumentInspectionService documents,
             DocumentDeletionService deletion,
             ObjectProvider<DocumentProcessingService> processing,
             ObjectProvider<QuestionAnswerService> answers,
-            ObjectProvider<SearchService> search,
             ObjectProvider<SummaryService> summaries,
             ObjectProvider<FlashcardService> flashcards,
             ObjectProvider<WebPageImportService> imports,
-            ObjectProvider<FolderService> folders) {
+            ObjectProvider<FolderService> folders,
+            ObjectProvider<OriginalDocumentService> originals) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
         this.answers = answers;
-        this.search = search;
         this.summaries = summaries;
         this.flashcards = flashcards;
         this.imports = imports;
         this.folders = folders;
+        this.originals = originals;
     }
 
     @GetMapping("/documents/{id}")
-    String detail(@PathVariable UUID id, Model model) {
-        model.addAttribute(
-                "document",
+    String detail(
+            @PathVariable UUID id,
+            @org.springframework.web.bind.annotation.RequestParam(name = "view", required = false)
+                    String view,
+            Model model) {
+        var document =
                 documents
                         .find(id)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND)));
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        model.addAttribute("document", document);
+        // PDFs open on the original; everything else on the reading view. Unknown views fall back.
+        var original = Optional.<OriginalDocumentService.Original>empty();
+        var originalService = originals.getIfAvailable();
+        if (originalService != null) {
+            try {
+                original = originalService.find(id);
+            } catch (DataAccessException | TransactionException unavailable) {
+                // The original view is optional; the text views still work.
+            }
+        }
+        original.ifPresent(found -> model.addAttribute("original", found));
+        boolean pdf =
+                original.map(found -> found.kind() == OriginalDocumentService.Kind.PDF)
+                        .orElse(false);
+        var selected =
+                "original".equals(view) && pdf
+                        ? "original"
+                        : "lines".equals(view)
+                                ? "lines"
+                                : "reading".equals(view) || !pdf ? "reading" : "original";
+        model.addAttribute("view", selected);
+        if (selected.equals("reading"))
+            model.addAttribute("readingBlocks", ReadingView.blocks(document.lines()));
         var service = processing.getIfAvailable();
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
-        model.addAttribute("related", related(id));
         model.addAttribute("studyEnabled", flashcards.getIfAvailable() != null);
         var folderService = folders.getIfAvailable();
         if (folderService != null) {
@@ -126,32 +149,6 @@ class DocumentDetailController {
             }
         }
         return "document";
-    }
-
-    /** Related documents are optional: without search or on a read failure the page omits them. */
-    private List<RelatedDocument> related(UUID id) {
-        var service = search.getIfAvailable();
-        if (service == null) return List.of();
-        try {
-            var matches = service.related(id).matches();
-            var names =
-                    documents.names(
-                            matches.stream()
-                                    .map(SearchResult.Match::documentId)
-                                    .collect(Collectors.toSet()));
-            // A document deleted since the similarity read has no name and is dropped.
-            return matches.stream()
-                    .filter(match -> names.containsKey(match.documentId()))
-                    .map(
-                            match ->
-                                    new RelatedDocument(
-                                            match.documentId(),
-                                            names.get(match.documentId()),
-                                            match))
-                    .toList();
-        } catch (SearchFailure | DataAccessException | TransactionException unavailable) {
-            return List.of();
-        }
     }
 
     @PostMapping("/documents/{id}/summary")

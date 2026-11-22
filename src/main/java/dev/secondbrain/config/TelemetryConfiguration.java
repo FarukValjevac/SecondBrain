@@ -93,6 +93,7 @@ class TelemetryConfiguration {
                                                                 "/documents/{id}/summary",
                                                                 "/documents/{id}/flashcards",
                                                                 "/documents/{id}/folder",
+                                                                "/documents/{id}/original",
                                                                 "/folders",
                                                                 "/folders/{id}",
                                                                 "/folders/{id}/delete",
