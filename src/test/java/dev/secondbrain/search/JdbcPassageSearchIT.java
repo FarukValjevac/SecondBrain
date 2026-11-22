@@ -359,6 +359,14 @@ class JdbcPassageSearchIT {
     }
 
     private static void fixture(UUID id, long generation, boolean active, float[][] directions) {
+        var texts = new String[directions.length];
+        for (int index = 0; index < texts.length; index++)
+            texts[index] = "Synthetic café passage " + (index + 1);
+        fixture(id, generation, active, directions, texts);
+    }
+
+    private static void fixture(
+            UUID id, long generation, boolean active, float[][] directions, String[] texts) {
         jdbc.sql(
                         """
                 INSERT INTO documents(document_id, original_name, document_type, storage_key, content_sha256,
@@ -391,7 +399,7 @@ class JdbcPassageSearchIT {
         for (int index = 0; index < directions.length; index++) {
             int sequence = index + 1;
             var passage = passage(id, generation, sequence);
-            var text = "Synthetic café passage " + sequence;
+            var text = texts[index];
             jdbc.sql(
                             """
                     INSERT INTO document_passages(passage_id, document_id, indexing_version, sequence_number,
@@ -424,6 +432,59 @@ class JdbcPassageSearchIT {
                     .update();
         }
         if (active) update(id, "active_indexing_version = " + generation);
+    }
+
+    @Test
+    void exactRareWordsJoinMeaningResultsWithoutLettingCommonWordsReorderThem() {
+        var a = UUID.fromString("30000000-0000-0000-0000-000000000001");
+        var b = UUID.fromString("30000000-0000-0000-0000-000000000002");
+        fixture(
+                a,
+                1,
+                true,
+                new float[][] {{1, 0}, {0.9f, 0.43f}, {0.8f, 0.6f}, {0.7f, 0.71f}},
+                new String[] {
+                    "Beratung und Beziehung",
+                    "Beratung im Alltag",
+                    "Beratung und Ziele",
+                    "Beratung heute"
+                });
+        // Meaning search alone would never return this passage: its cosine score is 0.
+        fixture(
+                b,
+                1,
+                true,
+                new float[][] {{0, 1}},
+                new String[] {"Hitschmann beschreibt Psychosoziale Interventionsformen"});
+        var rare = new SearchQuery("Was sagt Hitschmann über Beratung?", SearchScope.all(), 5);
+        assertThat(search.retrieve(rare, vector(1, 0), 0.3).matches())
+                .extracting(SearchResult.Match::passageId)
+                .contains(passage(b, 1, 1))
+                .startsWith(passage(a, 1, 1));
+        // Prefix matching: a shorter query word finds longer German word forms.
+        var prefix = new SearchQuery("Intervention", SearchScope.all(), 5);
+        assertThat(search.retrieve(prefix, vector(1, 0), 0.3).matches())
+                .extracting(SearchResult.Match::passageId)
+                .contains(passage(b, 1, 1));
+        // "Beratung" is in most passages, so it is not evidence: meaning order stays as it was.
+        var common = new SearchQuery("Beratung", SearchScope.all(), 5);
+        var meaningOnly = new SearchQuery("Was ist das?", SearchScope.all(), 5);
+        assertThat(search.retrieve(common, vector(1, 0), 0.3).matches())
+                .extracting(SearchResult.Match::passageId)
+                .containsExactlyElementsOf(
+                        search.retrieve(meaningOnly, vector(1, 0), 0.3).matches().stream()
+                                .map(SearchResult.Match::passageId)
+                                .toList())
+                .doesNotContain(passage(b, 1, 1));
+        // Scope and visibility still apply to exact-word matches.
+        var outside = new SearchQuery("Hitschmann", SearchScope.selected(java.util.Set.of(a)), 5);
+        assertThat(search.retrieve(outside, vector(1, 0), 0.3).matches())
+                .extracting(SearchResult.Match::passageId)
+                .doesNotContain(passage(b, 1, 1));
+        update(b, "deleted_at = now()");
+        assertThat(search.retrieve(rare, vector(1, 0), 0.3).matches())
+                .extracting(SearchResult.Match::passageId)
+                .doesNotContain(passage(b, 1, 1));
     }
 
     private static UUID passage(UUID id, long generation, int sequence) {
