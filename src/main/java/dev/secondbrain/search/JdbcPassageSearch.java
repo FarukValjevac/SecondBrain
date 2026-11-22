@@ -43,6 +43,88 @@ final class JdbcPassageSearch {
                   AND i.passage_configuration_version = 1 AND i.passage_count > 0
                   AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
             """;
+    private static final String SCORED =
+            """
+            , scored AS (
+                SELECT p.passage_id, p.document_id, p.indexing_version, p.sequence_number,
+                       p.passage_text, p.start_line, p.start_column, p.end_line, p.end_column, p.page_number,
+                       p.search_terms,
+                       1.0 - (v.embedding <=> CAST(:vector AS vector(1024))) AS score
+                FROM eligible_indexes i JOIN document_passages p
+                  ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
+                JOIN document_embeddings v ON v.passage_id = p.passage_id
+                  AND v.document_id = p.document_id AND v.indexing_version = p.indexing_version
+            ), valid AS MATERIALIZED (
+                SELECT * FROM scored WHERE score BETWEEN -1.0 AND 1.0
+            )
+            """;
+
+    /** Meaning search alone, for queries without usable exact words. */
+    private static final String MEANING_ONLY =
+            SCORED
+                    + """
+                    SELECT * FROM valid WHERE score >= :minimum
+                    ORDER BY score DESC, document_id, sequence_number, passage_id LIMIT :limit
+                    """;
+
+    /**
+     * Meaning and exact-word search merged by reciprocal rank fusion (k = 60). Meaning candidates
+     * must reach the minimum cosine score; exact-word candidates must contain words that are rare
+     * among the searched passages (inverse document frequency), so common words never pull in
+     * unrelated passages. Both lists come from the same eligible, in-scope passages.
+     */
+    private static final String HYBRID =
+            SCORED
+                    + """
+                    , terms AS (SELECT DISTINCT unnest(string_to_array(:terms, ' ')) AS term)
+                    , hits AS (
+                        SELECT v.passage_id, t.term FROM valid v JOIN terms t
+                          ON v.search_terms @@ to_tsquery('simple', t.term || ':*')
+                    ), rarity AS (
+                        -- A word missing from every searched passage weighs most: its absence shows
+                        -- that the topic is not covered here.
+                        SELECT t.term, ln(GREATEST((SELECT count(*) FROM valid), 1)::float8
+                            / GREATEST(count(h.passage_id), 1)) AS weight
+                        FROM terms t LEFT JOIN hits h USING (term) GROUP BY t.term
+                    ), query_weight AS (
+                        SELECT sum(weight) AS total FROM rarity
+                    ), words AS (
+                        SELECT h.passage_id, sum(r.weight) AS weight FROM hits h JOIN rarity r USING (term)
+                        GROUP BY h.passage_id
+                        HAVING sum(r.weight) >= :minimumWeight
+                           AND sum(r.weight) >= :coverage * (SELECT total FROM query_weight)
+                    ), meaning_ranked AS (
+                        SELECT passage_id, row_number() OVER (
+                            ORDER BY score DESC, document_id, sequence_number, passage_id) AS position
+                        FROM valid WHERE score >= :minimum
+                    ), words_ranked AS (
+                        SELECT w.passage_id, row_number() OVER (
+                            ORDER BY w.weight DESC, v.score DESC, v.passage_id) AS position
+                        FROM words w JOIN valid v USING (passage_id)
+                    ), fused AS (
+                        SELECT passage_id, sum(1.0 / (60 + position)) AS fusion FROM (
+                            SELECT * FROM meaning_ranked WHERE position <= :candidates
+                            UNION ALL SELECT * FROM words_ranked WHERE position <= :candidates
+                        ) candidates GROUP BY passage_id
+                    )
+                    SELECT v.* FROM valid v JOIN fused f USING (passage_id)
+                    ORDER BY f.fusion DESC, v.score DESC, v.document_id, v.sequence_number, v.passage_id
+                    LIMIT :limit
+                    """;
+
+    /** Words must be rarer than in about one passage in three to count as exact-word evidence. */
+    static final double MINIMUM_WORD_WEIGHT = 1.0;
+
+    /**
+     * A passage found by words alone must cover more than half (60%) of the query's word weight, so
+     * a few scattered generic words never stand in for the topic of the question.
+     */
+    static final double MINIMUM_COVERAGE = 0.6;
+
+    private static int candidates(int limit) {
+        return Math.max(20, limit * 4);
+    }
+
     private final JdbcClient jdbc;
     private final TransactionTemplate reads;
 
@@ -100,23 +182,25 @@ final class JdbcPassageSearch {
         return Objects.requireNonNull(
                 reads.execute(
                         status -> {
+                            var terms = QueryTerms.of(query.text());
                             var matches =
-                                    eligible(
-                                                    query.scope(),
-                                                    vector.model(),
-                                                    """
-                    , ranked AS (
-                        SELECT p.passage_id, p.document_id, p.indexing_version, p.sequence_number,
-                               p.passage_text, p.start_line, p.start_column, p.end_line, p.end_column, p.page_number,
-                               1.0 - (v.embedding <=> CAST(:vector AS vector(1024))) AS score
-                        FROM eligible_indexes i JOIN document_passages p
-                          ON p.document_id = i.document_id AND p.indexing_version = i.indexing_version
-                        JOIN document_embeddings v ON v.passage_id = p.passage_id
-                          AND v.document_id = p.document_id AND v.indexing_version = p.indexing_version
-                    )
-                    SELECT * FROM ranked WHERE score BETWEEN -1.0 AND 1.0 AND score >= :minimum
-                    ORDER BY score DESC, document_id, sequence_number, passage_id LIMIT :limit
-                    """)
+                                    (terms.isEmpty()
+                                                    ? eligible(
+                                                            query.scope(),
+                                                            vector.model(),
+                                                            MEANING_ONLY)
+                                                    : eligible(
+                                                                    query.scope(),
+                                                                    vector.model(),
+                                                                    HYBRID)
+                                                            .param("terms", String.join(" ", terms))
+                                                            .param(
+                                                                    "candidates",
+                                                                    candidates(query.limit()))
+                                                            .param(
+                                                                    "minimumWeight",
+                                                                    MINIMUM_WORD_WEIGHT)
+                                                            .param("coverage", MINIMUM_COVERAGE))
                                             .param("vector", literal(vector))
                                             .param("minimum", minimumScore)
                                             .param("limit", query.limit())
