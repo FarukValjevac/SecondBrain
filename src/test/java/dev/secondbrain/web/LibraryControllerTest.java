@@ -69,6 +69,8 @@ class LibraryControllerTest {
     @BeforeEach
     void emptyLibrary() {
         when(inspection.list(anyInt())).thenReturn(new LibraryPage(List.of(), 0, false));
+        when(inspection.listFolder(anyInt(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new LibraryPage(List.of(), 0, false));
     }
 
     @Autowired
@@ -81,7 +83,7 @@ class LibraryControllerTest {
             throws Exception {
         var id = UUID.randomUUID();
         var delivery = UUID.randomUUID();
-        when(inspection.list(0))
+        when(inspection.listFolder(0, java.util.Optional.empty()))
                 .thenReturn(
                         new LibraryPage(
                                 List.of(
@@ -145,14 +147,14 @@ class LibraryControllerTest {
         Assertions.assertThat(html)
                 .contains("Your documents", "No documents on this page.")
                 .doesNotContain("href=\"/documents/", "aria-label=\"Document pages\"");
-        verify(inspection).list(0);
+        verify(inspection).listFolder(0, java.util.Optional.empty());
     }
 
     @Test
     void rendersEscapedNamesStatesAndDetailLinksWithoutLoggingNames(CapturedOutput output)
             throws Exception {
         var id = UUID.randomUUID();
-        when(inspection.list(0))
+        when(inspection.listFolder(0, java.util.Optional.empty()))
                 .thenReturn(
                         new LibraryPage(
                                 List.of(
@@ -183,7 +185,8 @@ class LibraryControllerTest {
 
     @Test
     void linksAdjacentPagesAndStopsAtTheLastPage() throws Exception {
-        when(inspection.list(1)).thenReturn(new LibraryPage(List.of(), 1, true));
+        when(inspection.listFolder(1, java.util.Optional.empty()))
+                .thenReturn(new LibraryPage(List.of(), 1, true));
         var middle =
                 mvc.perform(MockMvcRequestBuilders.get("/library").param("page", "1"))
                         .andExpect(status().isOk())
@@ -197,7 +200,8 @@ class LibraryControllerTest {
                         "rel=\"next\"",
                         "href=\"/library?page=2\"",
                         "Page 2");
-        when(inspection.list(2)).thenReturn(new LibraryPage(List.of(), 2, false));
+        when(inspection.listFolder(2, java.util.Optional.empty()))
+                .thenReturn(new LibraryPage(List.of(), 2, false));
         var last =
                 mvc.perform(MockMvcRequestBuilders.get("/library").param("page", "2"))
                         .andExpect(status().isOk())
@@ -207,8 +211,8 @@ class LibraryControllerTest {
         Assertions.assertThat(last)
                 .contains("href=\"/library?page=1\"")
                 .doesNotContain("rel=\"next\"");
-        verify(inspection).list(1);
-        verify(inspection).list(2);
+        verify(inspection).listFolder(1, java.util.Optional.empty());
+        verify(inspection).listFolder(2, java.util.Optional.empty());
     }
 
     @Test
@@ -227,7 +231,7 @@ class LibraryControllerTest {
 
     @Test
     void reportsUnavailableStorageWithoutExposingItsCause(CapturedOutput output) throws Exception {
-        when(inspection.list(0))
+        when(inspection.listFolder(0, java.util.Optional.empty()))
                 .thenThrow(new DataAccessResourceFailureException("sentinel-private-path"));
         var body =
                 mvc.perform(MockMvcRequestBuilders.get("/library"))

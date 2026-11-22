@@ -143,6 +143,59 @@ class FolderHttpIT {
         assertThat(output).doesNotContain("Sport-private-name");
     }
 
+    @Test
+    void browsesTheLibraryFolderByFolderWithPathsSidebarAndPalette() throws Exception {
+        try (var postgres = TestDatabase.create();
+                var context = start(postgres);
+                var client = client()) {
+            var origin = origin(context);
+            var loose =
+                    upload(client, origin, "loose.md", "Loose".getBytes(StandardCharsets.UTF_8));
+            var psychology = create(client, origin, "Psychology", "", "violet");
+            var biases = create(client, origin, "Biases", psychology.toString(), "rose");
+            browserUpload(client, origin, "anchoring.md", "Anchoring", biases);
+
+            // The top of the library shows folder cards and only unfiled documents.
+            var root = get(client, origin, "/library").body();
+            assertThat(root)
+                    .contains(
+                            "class=\"folder-card folder-violet\"",
+                            "href=\"/library?folder=" + psychology + "\"",
+                            "1 document · 1 folder",
+                            "Unfiled documents",
+                            "loose.md",
+                            "data-document-id=\"" + loose + "\"",
+                            // Sidebar and palette lead to folders.
+                            "class=\"nav-section\">Folders</span>",
+                            "id=\"palette-folder-" + biases + "\"",
+                            "Psychology › Biases")
+                    .doesNotContain("anchoring.md", "aria-label=\"Folder path\"");
+
+            // A nested folder shows its path, its own documents and an upload defaulting to it.
+            var nested = get(client, origin, "/library?folder=" + biases);
+            assertThat(nested.statusCode()).isEqualTo(200);
+            assertThat(nested.body())
+                    .contains(
+                            "aria-label=\"Folder path\"",
+                            "href=\"/library?folder=" + psychology + "\"",
+                            "aria-current=\"page\">Biases</span>",
+                            "Documents in Biases",
+                            "anchoring.md")
+                    .doesNotContain("loose.md");
+            // The upload form defaults to the open folder.
+            assertThat(nested.body())
+                    .containsPattern("value=\"" + biases + "\"\\s+selected=\"selected\"");
+            assertThat(get(client, origin, "/library?folder=" + psychology).body())
+                    .contains("Subfolders", "Biases", "No documents in this folder yet.")
+                    .contains("aria-current=\"page\"");
+
+            assertThat(get(client, origin, "/library?folder=" + UUID.randomUUID()).statusCode())
+                    .isEqualTo(404);
+            assertThat(get(client, origin, "/library?folder=not-a-folder").statusCode())
+                    .isEqualTo(400);
+        }
+    }
+
     private static UUID create(
             HttpClient client, URI origin, String name, String parent, String color)
             throws Exception {

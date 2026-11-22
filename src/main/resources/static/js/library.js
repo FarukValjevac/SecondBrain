@@ -25,3 +25,74 @@ if (filter && input && cards.length) {
       : '';
   });
 }
+
+// Drag a document card onto a folder card or a breadcrumb to move it. Optional: the document
+// page's Move form does the same without JavaScript or a pointer.
+const DOCUMENT = 'application/x-secondbrain-document';
+const targets = [...document.querySelectorAll('[data-drop-folder]')];
+const moveStatus = document.querySelector('[data-move-status]');
+const motion = matchMedia('(prefers-reduced-motion: no-preference)');
+
+async function move(card, folder, label) {
+  const id = card.dataset.documentId;
+  const name = card.querySelector('[data-filter-name]')?.textContent.trim() ?? 'Document';
+  try {
+    const response = await fetch(`/documents/${encodeURIComponent(id)}/folder`, {
+      method: 'POST',
+      body: new URLSearchParams({ folder, return: 'library' }),
+      redirect: 'manual',
+    });
+    if (!(response.ok || response.type === 'opaqueredirect')) throw new Error('Move failed');
+    const done = () => card.remove();
+    if (motion.matches) {
+      card.animate([{ opacity: 1, scale: 1 }, { opacity: 0, scale: 0.9 }], {
+        duration: 200,
+        easing: 'ease-in',
+      }).finished.then(done, done);
+    } else {
+      done();
+    }
+    moveStatus.textContent = `Moved ${name} to ${label}.`;
+  } catch {
+    moveStatus.textContent = `${name} could not be moved. Use Move on the document page.`;
+  }
+}
+
+if (targets.length && cards.length && moveStatus) {
+  document.querySelector('.drag-hint')?.removeAttribute('hidden');
+  for (const card of cards) {
+    card.draggable = true;
+    card.addEventListener('dragstart', (event) => {
+      event.dataTransfer.setData(DOCUMENT, card.dataset.documentId);
+      event.dataTransfer.effectAllowed = 'move';
+      card.dataset.dragging = '';
+      document.body.dataset.draggingDocument = '';
+    });
+    card.addEventListener('dragend', () => {
+      delete card.dataset.dragging;
+      delete document.body.dataset.draggingDocument;
+    });
+  }
+  for (const target of targets) {
+    target.addEventListener('dragover', (event) => {
+      if (!event.dataTransfer.types.includes(DOCUMENT)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      target.dataset.dropActive = '';
+    });
+    target.addEventListener('dragleave', (event) => {
+      if (!target.contains(event.relatedTarget)) delete target.dataset.dropActive;
+    });
+    target.addEventListener('drop', (event) => {
+      if (!event.dataTransfer.types.includes(DOCUMENT)) return;
+      event.preventDefault();
+      delete target.dataset.dropActive;
+      const card = cards.find((item) => item.dataset.documentId === event.dataTransfer.getData(DOCUMENT));
+      const label =
+        target.querySelector('.folder-card-name')?.textContent.trim() ||
+        target.textContent.trim() ||
+        'Unfiled';
+      if (card) move(card, target.dataset.dropFolder, target.dataset.dropFolder ? label : 'Unfiled');
+    });
+  }
+}

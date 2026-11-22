@@ -175,6 +175,20 @@ final class JdbcDocumentRepository {
     }
 
     List<LibraryRow> list(int limit, long offset) {
+        return libraryRows(limit, offset, "", Optional.empty());
+    }
+
+    /** One folder's own documents, or unfiled documents for an empty folder. */
+    List<LibraryRow> listFolder(int limit, long offset, Optional<UUID> folder) {
+        return libraryRows(
+                limit,
+                offset,
+                folder.isPresent() ? " AND d.folder_id = :folder" : " AND d.folder_id IS NULL",
+                folder);
+    }
+
+    private List<LibraryRow> libraryRows(
+            int limit, long offset, String folderCondition, Optional<UUID> folder) {
         if (limit < 1 || limit > 51 || offset < 0) {
             throw new IllegalArgumentException("Invalid library page bounds");
         }
@@ -188,11 +202,15 @@ final class JdbcDocumentRepository {
                             AND k.event_type = 'DocumentAccepted'
                         LEFT JOIN event_deliveries delivery ON delivery.event_id = k.event_id
                             AND delivery.handler_id = :handler
-                        WHERE d.deleted_at IS NULL
+                        WHERE d.deleted_at IS NULL"""
+                                + folderCondition
+                                + """
+
                         ORDER BY d.created_at DESC, d.document_id DESC
                         LIMIT :limit OFFSET :offset
                         """)
                 .withQueryTimeout(5)
+                .param("folder", folder.orElse(null))
                 .param("handler", DocumentExtractionHandler.ID)
                 .param("limit", limit)
                 .param("offset", offset)

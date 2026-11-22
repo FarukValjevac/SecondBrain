@@ -167,7 +167,7 @@ class DocumentDetailControllerTest {
             throws Exception {
         var correlation = UUID.randomUUID();
         when(deletion.request(id, correlation)).thenReturn(requested);
-        when(documents.list(0))
+        when(documents.listFolder(0, java.util.Optional.empty()))
                 .thenReturn(new DocumentInspectionService.LibraryPage(List.of(), 0, false));
         var result =
                 mvc.perform(
