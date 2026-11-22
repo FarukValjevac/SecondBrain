@@ -32,5 +32,10 @@ jobs:
             pom.xml
             .mvn/wrapper/maven-wrapper.properties
 
+      - name: Install Tesseract for the text recognition check
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng
+
       - name: Verify build and tests
-        run: ./mvnw --batch-mode --no-transfer-progress verify
+        run: ./mvnw --batch-mode --no-transfer-progress verify -Docr.tesseract=true

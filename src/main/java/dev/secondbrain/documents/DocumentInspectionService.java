@@ -78,6 +78,19 @@ public final class DocumentInspectionService {
                         }));
     }
 
+    /** How far text recognition of a scanned PDF has come; empty when none is running. */
+    public Optional<OcrProgress> ocrProgress(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return Objects.requireNonNull(
+                transactions.execute(
+                        status ->
+                                documents
+                                        .ocrProgress(id)
+                                        .map(counts -> new OcrProgress(counts[0], counts[1]))));
+    }
+
+    public record OcrProgress(int recognised, int total) {}
+
     /** Lightweight visible metadata for confirmation screens; never loads document text. */
     public Optional<DocumentSummary> summary(UUID id) {
         Objects.requireNonNull(id, "id");

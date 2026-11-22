@@ -2086,3 +2086,11 @@
     overflow-wrap: anywhere;
   }
 }
+
+@layer components {
+  .ocr-progress progress {
+    inline-size: 100%;
+    block-size: 0.5rem;
+    accent-color: var(--accent);
+  }
+}

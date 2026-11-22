@@ -34,6 +34,45 @@ public final class PdfFixtures {
         }
     }
 
+    /** A "scanned" PDF: each page is only an image of large printed text, with no text layer. */
+    public static byte[] scanned(String... pages) throws IOException {
+        try (var document = new PDDocument()) {
+            for (var text : pages) {
+                var page = new PDPage();
+                document.addPage(page);
+                var image =
+                        new java.awt.image.BufferedImage(
+                                1275, 1650, java.awt.image.BufferedImage.TYPE_BYTE_GRAY);
+                var graphics = image.createGraphics();
+                try {
+                    graphics.setColor(java.awt.Color.WHITE);
+                    graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                    graphics.setColor(java.awt.Color.BLACK);
+                    graphics.setRenderingHint(
+                            java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    graphics.setFont(
+                            new java.awt.Font(java.awt.Font.SERIF, java.awt.Font.PLAIN, 48));
+                    int y = 200;
+                    for (var line : text.split("\n")) {
+                        graphics.drawString(line, 120, y);
+                        y += 80;
+                    }
+                } finally {
+                    graphics.dispose();
+                }
+                var picture =
+                        org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory.createFromImage(
+                                document, image);
+                try (var content = new PDPageContentStream(document, page)) {
+                    var box = page.getMediaBox();
+                    content.drawImage(picture, 0, 0, box.getWidth(), box.getHeight());
+                }
+            }
+            return save(document);
+        }
+    }
+
     static byte[] save(PDDocument document) throws IOException {
         var bytes = new ByteArrayOutputStream();
         document.save(bytes);

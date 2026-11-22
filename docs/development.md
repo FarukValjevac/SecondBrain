@@ -1077,6 +1077,31 @@ The document page shows the summary with numbered, linked source passages, and a
 
 Check with `./mvnw -Dtest=SummaryGeneratorTest,SummaryPageTest test` and `./mvnw -Dit.test=SummaryWorkflowIT verify`.
 
+## Scanned PDFs (text recognition)
+
+A PDF without selectable text, such as a scanned book, is read with **Tesseract**, a free text-recognition program that runs on this computer; page images and recognised text never leave it. Install it once, including the language data:
+
+```sh
+brew install tesseract tesseract-lang
+```
+
+Then upload the scan as usual. When normal PDF extraction finds no text, the extraction stage renders each page as a greyscale image (300 dpi, capped at 6,000 px per side), runs `tesseract <page.png> stdout -l deu+eng` in a private temporary directory (no shell, fixed arguments) and saves the text of each page in `document_ocr_pages` (migration V22) before moving to the next page. Each saved page counts as durable progress for the event delivery, so a long book continues where it stopped after a 2-minute attempt limit, a retry or a restart, and a deleted or reprocessed document stops at the next page. While pages are being read, the document page shows **Reading the scan: Recognising text: page N of M**. When all pages are done the text is stored with its page numbers like any PDF, and search, questions, folders and the reading view work as usual; the saved page rows are then removed. The **Original** view still shows the scan.
+
+Expect roughly 1–3 seconds per page. Recognition quality depends on the scan: around 300 dpi, straight pages and clear print work best; pictures and handwriting are not recognised.
+
+| Setting | Environment variable | Default |
+|---|---|---|
+| `secondbrain.ocr.enabled` | `SECONDBRAIN_OCR_ENABLED` | `true` |
+| `secondbrain.ocr.command` | `SECONDBRAIN_OCR_COMMAND` | `tesseract` (or a full path) |
+| `secondbrain.ocr.languages` | `SECONDBRAIN_OCR_LANGUAGES` | `deu+eng` (Tesseract language codes joined with `+`) |
+| `secondbrain.ocr.dpi` | | `300` (100–600) |
+| `secondbrain.ocr.page-timeout` | | `90s` per page (5s–10m) |
+| `secondbrain.ocr.maximum-pages` | | `1000` |
+
+If Tesseract or a language is missing, the document fails with "This PDF is a scan and needs text recognition. Install Tesseract …, then select Retry processing." After installing, use **Retry processing** on the document. A page that times out is retried with backoff; pages already read are not read again. With text recognition turned off, a scan fails with "no selectable text". The PDF page limit for text extraction is 1,000 pages.
+
+Check with `./mvnw -Dtest=TesseractOcrEngineTest test` and `./mvnw -Dit.test=ScannedPdfIT verify` (fake engine). The real program is checked by `TesseractLiveIT`, which runs with `-Docr.tesseract=true` (CI installs Tesseract and sets it); locally run `./mvnw -Dit.test=TesseractLiveIT -Docr.tesseract=true verify` after installing it.
+
 ## Folder sync
 
 Set `SECONDBRAIN_FOLDER_SYNC_DIRECTORY` to one local folder, for example a notes vault, and restart. Every `secondbrain.folder-sync.scan-interval` (default 60 seconds), SecondBrain scans it and imports supported files through the normal upload path, so every file gets the same validation and size limit.

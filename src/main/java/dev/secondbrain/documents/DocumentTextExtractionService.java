@@ -56,8 +56,13 @@ final class DocumentTextExtractionService {
     }
 
     private List<ExtractedText.Line> extractPdfLines(InputStream input) {
+        return linesFromPages(pdfExtractor.extract(input));
+    }
+
+    /** Numbers lines across pages and keeps each line's page; shared by text and OCR PDFs. */
+    static List<ExtractedText.Line> linesFromPages(List<PdfTextExtractor.Page> pages) {
         var lines = new ArrayList<ExtractedText.Line>();
-        for (var page : pdfExtractor.extract(input)) {
+        for (var page : pages) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new TextExtractionException(Reason.CANCELLED);
             }
