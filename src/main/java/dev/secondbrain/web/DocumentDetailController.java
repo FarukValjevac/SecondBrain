@@ -102,6 +102,11 @@ class DocumentDetailController {
                                 ? "lines"
                                 : "reading".equals(view) || !pdf ? "reading" : "original";
         model.addAttribute("view", selected);
+        try {
+            documents.ocrProgress(id).ifPresent(found -> model.addAttribute("ocrProgress", found));
+        } catch (DataAccessException | TransactionException unavailable) {
+            // Progress is optional.
+        }
         if (selected.equals("reading"))
             model.addAttribute("readingBlocks", ReadingView.blocks(document.lines()));
         var service = processing.getIfAvailable();

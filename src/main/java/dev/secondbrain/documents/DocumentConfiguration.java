@@ -22,10 +22,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
+import java.util.Optional;
 
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
-@EnableConfigurationProperties(OriginalCleanupProperties.class)
+@EnableConfigurationProperties({OriginalCleanupProperties.class, OcrProperties.class})
 @ConditionalOnProperty(
         name = "secondbrain.events.enabled",
         havingValue = "true",
@@ -172,8 +173,40 @@ class DocumentConfiguration {
     DocumentExtractionHandler documentExtractionHandler(
             JdbcDocumentRepository documents,
             DocumentTextExtractionService extraction,
-            DocumentExtractionCompletion completion) {
-        return new DocumentExtractionHandler(documents, extraction, completion);
+            DocumentExtractionCompletion completion,
+            ObjectProvider<PdfOcr> ocr,
+            Clock clock) {
+        return new DocumentExtractionHandler(
+                documents,
+                extraction,
+                completion,
+                Optional.ofNullable(ocr.getIfAvailable()),
+                clock);
+    }
+
+    /** Local Tesseract; a test or another engine can replace it with its own bean. */
+    @Bean
+    @ConditionalOnMissingBean(OcrEngine.class)
+    @ConditionalOnProperty(
+            name = "secondbrain.ocr.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    OcrEngine tesseractOcrEngine(OcrProperties settings) {
+        return new TesseractOcrEngine(
+                settings.command(), settings.languages(), settings.pageTimeout());
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = "secondbrain.ocr.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    PdfOcr pdfOcr(
+            OriginalFileStore originals,
+            OcrEngine engine,
+            org.springframework.jdbc.core.simple.JdbcClient jdbc,
+            OcrProperties settings) {
+        return new PdfOcr(originals, engine, new JdbcOcrPageRepository(jdbc), settings);
     }
 
     @Bean
@@ -307,10 +340,16 @@ class DocumentConfiguration {
         return new DocumentTextExtractionService(
                 originals,
                 text,
+                // Up to 1,000 pages, so a long scanned book reaches text recognition.
                 new PdfTextExtractor(
-                        Math.min(
-                                uploadPolicy.maximumUploadBytes(),
-                                PdfTextExtractor.MAXIMUM_INPUT_BYTES),
+                        new PdfTextExtractor.Limits(
+                                Math.min(
+                                        uploadPolicy.maximumUploadBytes(),
+                                        PdfTextExtractor.MAXIMUM_INPUT_BYTES),
+                                1_000,
+                                1_000_000,
+                                1_000_000,
+                                java.time.Duration.ofSeconds(15)),
                         clock),
                 new HtmlTextExtractor(text),
                 // Word compresses its XML well; allow a decompressed body larger than the upload.

@@ -559,6 +559,9 @@ class DocumentExtractionIT {
                         POSTGRES.arguments(
                                 "--secondbrain.documents.cleanup.enabled=false",
                                 "--secondbrain.documents.indexing.enabled=false",
+                                // Text recognition is covered by ScannedPdfIT; here "no text" stays
+                                // final.
+                                "--secondbrain.ocr.enabled=false",
                                 "--secondbrain.documents.extraction.enabled=" + enabled,
                                 "--secondbrain.documents.extraction.reconcile-enabled=" + reconcile,
                                 "--secondbrain.events.polling-enabled=" + polling,

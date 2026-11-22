@@ -30,7 +30,7 @@ final class TextExtractionException extends RuntimeException {
         TOO_MANY_LINES("The document exceeds the extraction line limit."),
         PDF_UNREADABLE("The PDF is corrupt or unsupported."),
         PDF_ENCRYPTED("Encrypted PDFs are not supported."),
-        PDF_NO_TEXT("The PDF contains no selectable text. OCR is not supported."),
+        PDF_NO_TEXT("The PDF contains no selectable text, and text recognition is turned off."),
         PDF_PAGE_LIMIT("The PDF exceeds the page limit."),
         PDF_TEXT_LIMIT("The PDF exceeds the extracted text limit."),
         PDF_WORK_LIMIT("The PDF exceeds the processing work limit."),
@@ -38,6 +38,10 @@ final class TextExtractionException extends RuntimeException {
         DOCX_UNREADABLE(
                 "The Word document is corrupt, encrypted or not a .docx file. Save it as .docx and"
                         + " upload it again."),
+        OCR_UNAVAILABLE(
+                "This PDF is a scan and needs text recognition. Install Tesseract with"
+                        + " \"brew install tesseract tesseract-lang\", then select Retry processing."),
+        OCR_NO_TEXT("Text recognition found no readable text in this scan."),
         SOURCE_UNAVAILABLE("The original document could not be read."),
         CANCELLED("Text extraction was interrupted.");
 

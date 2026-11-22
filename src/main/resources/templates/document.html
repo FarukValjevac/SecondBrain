@@ -45,6 +45,11 @@
     </form>
     <section class="notice notice-success" role="status" data-toast th:if="${retryMessage != null}"><p th:text="${retryMessage}">Processing queued.</p></section>
     <section class="notice notice-success" role="status" data-toast th:if="${summaryMessage != null}"><p th:text="${summaryMessage}">Summary queued.</p></section>
+    <section class="notice notice-info ocr-progress" role="status" th:if="${ocrProgress != null}">
+      <h2>Reading the scan</h2>
+      <p th:text="|Recognising text: page ${ocrProgress.recognised} of ${ocrProgress.total}. This runs in the background on this computer; refresh to follow it.|">Recognising text: page 4 of 300.</p>
+      <progress th:max="${ocrProgress.total}" th:value="${ocrProgress.recognised}" aria-hidden="true"></progress>
+    </section>
     <section class="library-card" aria-label="Processing" th:if="${progress != null or !document.message.isEmpty()}">
       <th:block th:if="${progress != null}" th:insert="~{fragments/processing :: status(${progress}, ${document.documentId})}"></th:block>
       <section class="notice notice-error" role="alert" th:if="${progress == null and !document.message.isEmpty()}">

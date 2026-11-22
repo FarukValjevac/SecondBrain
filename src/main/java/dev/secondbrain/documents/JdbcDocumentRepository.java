@@ -174,6 +174,23 @@ final class JdbcDocumentRepository {
                 .update();
     }
 
+    /** Pages recognised so far and the page total, for a scan still being read. */
+    Optional<int[]> ocrProgress(UUID documentId) {
+        return jdbc.sql(
+                        """
+                        SELECT count(*) AS done, max(o.page_count) AS total
+                        FROM document_ocr_pages o JOIN documents d ON d.document_id = o.document_id
+                            AND d.processing_version = o.processing_version
+                        WHERE o.document_id = :id AND d.deleted_at IS NULL
+                            AND d.extraction_state <> 'EXTRACTED'
+                        HAVING count(*) > 0
+                        """)
+                .withQueryTimeout(5)
+                .param("id", documentId)
+                .query((row, index) -> new int[] {row.getInt("done"), row.getInt("total")})
+                .optional();
+    }
+
     List<LibraryRow> list(int limit, long offset) {
         return libraryRows(limit, offset, "", Optional.empty());
     }
