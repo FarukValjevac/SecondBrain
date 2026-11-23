@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org"
-      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{})}">
+      th:replace="~{fragments/shell :: page(~{::title}, 'library', ~{::main}, ~{::script})}">
 <head>
   <title>Document | SecondBrain</title>
+  <script type="module" src="/js/reading.js" th:src="@{/js/reading.js}"></script>
 </head>
 <body>
   <main id="content" th:with="ready=${progress != null and progress.state.name() == 'READY'}">
@@ -99,17 +100,17 @@
         <th:block th:each="block : ${readingBlocks}">
           <span th:each="anchor : ${block.anchors}" th:id="${'line-' + anchor}" class="line-anchor"></span>
           <p th:if="${block.isPage()}" class="reading-page" th:text="|Page ${block.pageNumber}|">Page 2</p>
-          <h3 th:if="${block.isHeading() and block.level <= 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited' : ''}" th:text="${segment.text}">Heading</span></h3>
-          <h4 th:if="${block.isHeading() and block.level > 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited' : ''}" th:text="${segment.text}">Heading</span></h4>
-          <p th:if="${block.isParagraph() and !block.segments.isEmpty()}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited' : ''}" th:text="${segment.text}">Text</span></p>
-          <p th:if="${block.isItem()}" class="reading-item"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited' : ''}" th:text="${segment.text}">Item</span></p>
+          <h3 th:if="${block.isHeading() and block.level <= 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Heading</span></h3>
+          <h4 th:if="${block.isHeading() and block.level > 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Heading</span></h4>
+          <p th:if="${block.isParagraph() and !block.segments.isEmpty()}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Text</span></p>
+          <p th:if="${block.isItem()}" class="reading-item"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Item</span></p>
         </th:block>
       </article>
 
       <th:block th:if="${view == 'lines' and document.state.name() == 'EXTRACTED'}">
         <p class="hint">Exact extracted lines, as used for search and source links.</p>
         <ol class="source-lines">
-          <li th:each="line, position : ${document.lines}" th:id="${'line-' + line.number}" th:classappend="${citedFrom != null and line.number >= citedFrom and line.number <= citedTo ? 'cited' : ''}">
+          <li th:each="line, position : ${document.lines}" th:id="${'line-' + line.number}" th:classappend="${#strings.trim((citedFrom != null and line.number >= citedFrom and line.number <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(line.number) ? 'hl hl-' + highlightedLines.get(line.number) : ''))}">
             <span class="line-page" th:if="${line.pageNumber.isPresent() and (position.first or !document.lines[position.index - 1].pageNumber.equals(line.pageNumber))}"
                   th:text="|Page ${line.pageNumber.getAsInt()}|">Page 1</span>
             <a th:href="${'#line-' + line.number}"
@@ -118,6 +119,48 @@
           </li>
         </ol>
       </th:block>
+    </section>
+    <section class="notice notice-success" role="status" data-toast th:if="${highlightMessage != null}"><p th:text="${highlightMessage}">Highlight saved.</p></section>
+    <section class="notice notice-error" role="alert" th:if="${highlightError != null}"><p th:text="${highlightError}">Select some text.</p></section>
+
+    <!-- Shown by reading.js next to a text selection in the reading or lines view. -->
+    <div class="highlight-toolbar" id="highlight-toolbar" hidden th:if="${highlights != null and document.state.name() == 'EXTRACTED'}">
+      <form method="post" th:action="@{/documents/{id}/highlights(id=${document.documentId})}">
+        <input type="hidden" name="from" value="">
+        <input type="hidden" name="to" value="">
+        <div class="toolbar-colors" role="group" aria-label="Highlight colour">
+          <button type="submit" name="color" th:each="color : ${colors}" th:value="${color.token()}"
+                  class="swatch-button" th:classappend="${'hl-' + color.token()}"
+                  th:title="|Highlight ${color.label()}|"><span class="visually-hidden" th:text="|Highlight ${color.label()}|">Highlight</span></button>
+        </div>
+        <details class="toolbar-note">
+          <summary>Add note</summary>
+          <label for="toolbar-note-text" class="visually-hidden">Note</label>
+          <textarea id="toolbar-note-text" name="note" rows="3" maxlength="4000" placeholder="Your note…"></textarea>
+          <button type="submit" name="color" value="yellow">Save note</button>
+        </details>
+      </form>
+    </div>
+
+    <section class="library-card notes-card" id="notes" aria-labelledby="notes-title"
+             th:if="${highlights != null and document.state.name() == 'EXTRACTED'}">
+      <div class="reader-head">
+        <h2 id="notes-title">Highlights &amp; notes</h2>
+        <a href="/notes" th:href="@{/notes}" class="hint">All notes</a>
+      </div>
+      <p class="empty-state" th:if="${highlights.isEmpty()}">Select text in the reading view to highlight it or add a note.</p>
+      <ol class="highlight-list" th:unless="${highlights.isEmpty()}">
+        <th:block th:each="highlight : ${highlights}"><li th:replace="~{fragments/notes :: item(${highlight}, 'document')}"></li></th:block>
+      </ol>
+      <details class="manual-highlight">
+        <summary>Highlight lines by number</summary>
+        <form method="post" th:action="@{/documents/{id}/highlights(id=${document.documentId})}" class="field-row">
+          <div class="field"><label for="hl-from">From line</label><input type="number" id="hl-from" name="from" min="1" required></div>
+          <div class="field"><label for="hl-to">To line</label><input type="number" id="hl-to" name="to" min="1" required></div>
+          <div class="field"><label for="hl-note">Note (optional)</label><input type="text" id="hl-note" name="note" maxlength="4000"></div>
+          <button type="submit" name="color" value="yellow">Highlight</button>
+        </form>
+      </details>
     </section>
     <section class="library-card" th:if="${summariesEnabled}" aria-labelledby="summary-title">
       <h2 id="summary-title">Summary</h2>

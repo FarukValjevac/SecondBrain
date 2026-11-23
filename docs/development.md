@@ -143,6 +143,10 @@ One-time success messages (upload receipt, deletion, retry, summary request, fol
 
 Search results are passage cards: the document's type label and name, page and line location, the escaped excerpt, **Open source passage** and, when questions are enabled, **Ask about this document**.
 
+### Highlights and notes
+
+In the reading view (or the lines view), select text: a small toolbar appears with four colours and **Add note**. Saving highlights the lines the selection covers (line-level, so highlights stay exact across both views and never depend on how the reading view joins lines); the quote is taken from the stored lines on the server, not from the browser. Each document page lists its **Highlights & notes** (jump to the lines, edit the note or colour, remove), and **Notes** in the sidebar (`/notes`) shows all highlights newest first with a filter over quotes, notes and document names. Without JavaScript, **Highlight lines by number** does the same. Highlights belong to one extraction of a document (`document_highlights`, migration V25): reprocessing hides them because line numbers may change, and deleting the document removes them. Notes are stored only locally, are never logged, and the Notes page is `no-store`.
+
 ### Duplicate uploads
 
 Every stored original has a SHA-256 content fingerprint. After a file upload or web import, the library looks for other visible documents with the same fingerprint and, if there are any, shows **Already in your library** with a link to the earlier copy (and its folder) and **Delete the new copy**, which opens the normal deletion confirmation. The upload itself is never blocked, so keeping both stays possible; deleted documents do not count. Batch uploads report each file separately.
