@@ -92,28 +92,4 @@ if (form && thread && input) {
     if (event.isComposing || event.keyCode === 229) return;
     form.requestSubmit();
   });
-
-  // Feedback inside the thread is sent in the background so the conversation stays.
-  thread.addEventListener('submit', async (event) => {
-    const feedback = event.target.closest('form.answer-feedback');
-    if (!feedback) return;
-    event.preventDefault();
-    const data = new URLSearchParams(new FormData(feedback));
-    if (event.submitter?.name) data.set(event.submitter.name, event.submitter.value);
-    const status = document.createElement('p');
-    status.setAttribute('role', 'status');
-    try {
-      const response = await fetch(feedback.getAttribute('action'), {
-        method: 'POST',
-        body: data,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      status.textContent = response.ok
-        ? 'Thanks, your feedback was saved on this computer.'
-        : 'Feedback could not be saved.';
-    } catch {
-      status.textContent = 'Feedback could not be saved.';
-    }
-    feedback.replaceWith(status);
-  });
 }

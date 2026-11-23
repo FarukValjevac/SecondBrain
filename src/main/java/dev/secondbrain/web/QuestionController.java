@@ -38,19 +38,16 @@ class QuestionController {
     private final ObjectProvider<DocumentInspectionService> documents;
     private final ObjectProvider<FolderService> folders;
     private final ObjectProvider<ConversationService> conversations;
-    private final AnswerSignature signature;
 
     QuestionController(
             ObjectProvider<QuestionAnswerService> answers,
             ObjectProvider<DocumentInspectionService> documents,
             ObjectProvider<FolderService> folders,
-            ObjectProvider<ConversationService> conversations,
-            AnswerSignature signature) {
+            ObjectProvider<ConversationService> conversations) {
         this.answers = answers;
         this.documents = documents;
         this.folders = folders;
         this.conversations = conversations;
-        this.signature = signature;
     }
 
     @ModelAttribute
@@ -296,12 +293,6 @@ class QuestionController {
             model.addAttribute(
                     "answerSegments",
                     CitationMarkers.segments(result.text(), result.citations().size()));
-            var sources =
-                    result.citations().stream()
-                            .map(source -> source.documentId() + ":" + source.passageId())
-                            .toList();
-            model.addAttribute("answerSources", sources);
-            model.addAttribute("answerSignature", signature.sign(asked, result.text(), sources));
             model.addAttribute("questionFeedback", QuestionFeedback.ANSWERED);
         } catch (QuestionFailure failure) {
             if (failure.reason() == QuestionFailure.Reason.SOURCE_UNAVAILABLE

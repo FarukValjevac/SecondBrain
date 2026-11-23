@@ -691,9 +691,6 @@
     font-size: var(--text-sm);
   }
 
-  .answer-feedback select {
-    inline-size: auto;
-  }
 }
 
 /* ---------- Utilities ---------- */
