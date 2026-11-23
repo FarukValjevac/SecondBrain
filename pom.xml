@@ -27,6 +27,9 @@
         <!-- Spotless 3.10.4 requires the Style enum API changed in formatter 1.37.0. -->
         <google-java-format.version>1.36.1</google-java-format.version>
         <pdfbox.version>3.0.8</pdfbox.version>
+        <!-- Parallel test JVMs; override with -Dtest.forkCount=1 / -Dit.forkCount=1 to run serially. -->
+        <test.forkCount>2</test.forkCount>
+        <it.forkCount>3</it.forkCount>
         <!-- Preserve late additions such as coverage agents while loading Mockito at JVM startup. -->
         <argLine/>
     </properties>
@@ -155,6 +158,11 @@
                             </includes>
                             <reportsDirectory>${project.build.directory}/retrieval-evaluation-reports</reportsDirectory>
                             <failIfNoTests>true</failIfNoTests>
+                    <!-- Integration classes run in parallel JVMs. Each JVM starts its own PostgreSQL
+                         test container and every class creates a fresh database in it, so classes
+                         never share state. -->
+                    <forkCount>${it.forkCount}</forkCount>
+                    <reuseForks>true</reuseForks>
                         </configuration>
                     </plugin>
                 </plugins>
@@ -249,6 +257,9 @@
                 <configuration>
                     <argLine>@{argLine} -javaagent:"${session.repositorySession.localRepository.basedir}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar"</argLine>
                     <excludedGroups>live-ai</excludedGroups>
+                    <!-- Test classes run in parallel JVMs; each class owns its Spring context. -->
+                    <forkCount>${test.forkCount}</forkCount>
+                    <reuseForks>true</reuseForks>
                 </configuration>
             </plugin>
             <plugin>
