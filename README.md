@@ -83,7 +83,7 @@ For automatic development restarts and HTML/CSS refreshes, start with `./mvnw -P
 ./mvnw verify
 ```
 
-`test` runs the fast suite without Docker. `verify` also runs PostgreSQL integration tests, including the example workflow from an empty database with deterministic providers, packages the application, and checks formatting; it requires a running Docker engine but no Cloudflare credentials. Test classes run in parallel JVMs (2 for unit tests, 3 for integration tests, each with its own PostgreSQL container); use `./mvnw verify -Dtest.forkCount=1 -Dit.forkCount=1` to run them one at a time, for example when debugging a single failure. On a Mac, Docker Desktop's small VM limits the gain; in CI it cuts the integration tests from about 2:40 to 1:40 minutes.
+`test` runs the fast suite without Docker. `verify` also runs PostgreSQL integration tests, including the example workflow from an empty database with deterministic providers, packages the application, and checks formatting; it requires a running Docker engine but no Cloudflare credentials. Locally, test classes run one at a time. CI runs them in parallel JVMs (`-Dtest.forkCount=2 -Dit.forkCount=3`, each JVM with its own PostgreSQL container), which cuts its integration tests from about 2:40 to 1:40 minutes; on a Mac, Docker Desktop's small VM gains little from this and a busy machine can make timing-sensitive tests unreliable, so use those flags locally only on an otherwise idle machine.
 
 ## Shutdown
 
