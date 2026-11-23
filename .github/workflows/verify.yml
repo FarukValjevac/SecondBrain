@@ -33,9 +33,11 @@ jobs:
             .mvn/wrapper/maven-wrapper.properties
 
       - name: Install Tesseract for the text recognition check
+        # A slow package mirror must not hold the whole job: retry downloads and stop early.
+        timeout-minutes: 4
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng
 
       - name: Verify build and tests
         run: ./mvnw --batch-mode --no-transfer-progress verify -Docr.tesseract=true
