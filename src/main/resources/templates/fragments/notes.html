@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- One highlight with its note, on the document page ('document') or the Notes page ('notes'). -->
+<li th:fragment="item(highlight, back)" class="highlight-item" th:classappend="${'hl-' + highlight.color.token()}">
+  <p class="highlight-meta">
+    <a th:if="${back == 'notes'}" class="highlight-document"
+       th:href="@{/documents/{id}(id=${highlight.documentId},view='reading',from=${highlight.startLine},to=${highlight.endLine})} + '#line-' + ${highlight.startLine}"
+       th:text="${highlight.documentName}">notes.pdf</a>
+    <a th:unless="${back == 'notes'}"
+       th:href="@{/documents/{id}(id=${highlight.documentId},view='reading')} + '#line-' + ${highlight.startLine}"
+       th:text="${highlight.startLine == highlight.endLine ? 'Line ' + highlight.startLine : 'Lines ' + highlight.startLine + '–' + highlight.endLine}">Lines 3–5</a>
+  </p>
+  <blockquote class="highlight-quote" th:text="${#strings.abbreviate(highlight.quote, 400)}">Quoted text</blockquote>
+  <p class="highlight-note" th:if="${highlight.hasNote()}" th:text="${highlight.note}">My note</p>
+  <div class="highlight-actions">
+    <details>
+      <summary th:text="${highlight.hasNote() ? 'Edit note' : 'Add note'}">Edit note</summary>
+      <form method="post" th:action="@{/highlights/{id}(id=${highlight.highlightId})}">
+        <input type="hidden" name="return" th:value="${back}">
+        <label th:for="|note-${highlight.highlightId}|" class="visually-hidden">Note</label>
+        <textarea th:id="|note-${highlight.highlightId}|" name="note" rows="3" maxlength="4000" th:text="${highlight.note}"></textarea>
+        <fieldset class="color-picker">
+          <legend class="visually-hidden">Colour</legend>
+          <label th:each="color : ${colors}" class="swatch" th:classappend="${'hl-' + color.token()}" th:title="${color.label()}">
+            <input type="radio" name="color" th:value="${color.token()}" th:checked="${highlight.color == color}">
+            <span class="visually-hidden" th:text="${color.label()}">Yellow</span>
+          </label>
+        </fieldset>
+        <button type="submit">Save</button>
+      </form>
+    </details>
+    <form method="post" th:action="@{/highlights/{id}/delete(id=${highlight.highlightId})}" class="inline-form">
+      <input type="hidden" name="return" th:value="${back}">
+      <button type="submit" class="link-button danger-link">Remove</button>
+    </form>
+  </div>
+</li>
+</body>
+</html>

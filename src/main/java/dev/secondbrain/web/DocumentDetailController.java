@@ -6,6 +6,8 @@ import dev.secondbrain.documents.DocumentProcessingService;
 import dev.secondbrain.documents.OriginalDocumentService;
 import dev.secondbrain.folders.FolderService;
 import dev.secondbrain.imports.WebPageImportService;
+import dev.secondbrain.notes.Highlight;
+import dev.secondbrain.notes.HighlightService;
 import dev.secondbrain.questions.CitationMarkers;
 import dev.secondbrain.questions.QuestionAnswerService;
 import dev.secondbrain.summaries.SummaryService;
@@ -50,6 +52,7 @@ class DocumentDetailController {
     private final ObjectProvider<WebPageImportService> imports;
     private final ObjectProvider<FolderService> folders;
     private final ObjectProvider<OriginalDocumentService> originals;
+    private final ObjectProvider<HighlightService> highlights;
 
     DocumentDetailController(
             DocumentInspectionService documents,
@@ -59,7 +62,8 @@ class DocumentDetailController {
             ObjectProvider<SummaryService> summaries,
             ObjectProvider<WebPageImportService> imports,
             ObjectProvider<FolderService> folders,
-            ObjectProvider<OriginalDocumentService> originals) {
+            ObjectProvider<OriginalDocumentService> originals,
+            ObjectProvider<HighlightService> highlights) {
         this.documents = documents;
         this.deletion = deletion;
         this.processing = processing;
@@ -68,6 +72,7 @@ class DocumentDetailController {
         this.imports = imports;
         this.folders = folders;
         this.originals = originals;
+        this.highlights = highlights;
     }
 
     @GetMapping("/documents/{id}")
@@ -106,6 +111,22 @@ class DocumentDetailController {
                                 ? "lines"
                                 : "reading".equals(view) || !pdf ? "reading" : "original";
         model.addAttribute("view", selected);
+        var notes = highlights.getIfAvailable();
+        if (notes != null) {
+            try {
+                var found = notes.forDocument(id);
+                model.addAttribute("highlights", found);
+                model.addAttribute("colors", java.util.List.of(Highlight.Color.values()));
+                // Each highlighted line gets the colour of its latest highlight.
+                var lines = new java.util.HashMap<Integer, String>();
+                for (var highlight : found)
+                    for (int line = highlight.startLine(); line <= highlight.endLine(); line++)
+                        lines.put(line, highlight.color().token());
+                model.addAttribute("highlightedLines", lines);
+            } catch (DataAccessException | TransactionException unavailable) {
+                // Highlights are optional; the document still reads.
+            }
+        }
         // A cited passage (from a source link) is highlighted; anything malformed is ignored.
         citedRange(from, to)
                 .ifPresent(

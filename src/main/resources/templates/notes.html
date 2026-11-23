@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'notes', ~{::main}, ~{})}">
+<head>
+  <title>Notes | SecondBrain</title>
+</head>
+<body>
+  <main id="content">
+    <div class="library-heading">
+      <div>
+        <h1>Notes</h1>
+        <p class="hint">Your highlights and notes from all documents, newest first.</p>
+      </div>
+    </div>
+    <section class="notice notice-success" role="status" data-toast th:if="${highlightMessage != null}"><p th:text="${highlightMessage}">Saved.</p></section>
+    <search>
+      <form method="get" action="/notes" th:action="@{/notes}" class="notes-filter">
+        <label for="notes-q" class="visually-hidden">Filter notes</label>
+        <input type="search" id="notes-q" name="q" maxlength="200" th:value="${filter}" placeholder="Filter by word, note or document…">
+        <button type="submit" class="secondary-button">Filter</button>
+      </form>
+    </search>
+    <p class="empty-state" th:if="${notes.isEmpty() and filter.isEmpty()}">No highlights yet. Open a document's reading view and select text to highlight it or add a note.</p>
+    <p class="empty-state" th:if="${notes.isEmpty() and !filter.isEmpty()}">No notes match this filter.</p>
+    <ol class="highlight-list" th:unless="${notes.isEmpty()}">
+      <th:block th:each="highlight : ${notes}"><li th:replace="~{fragments/notes :: item(${highlight}, 'notes')}"></li></th:block>
+    </ol>
+  </main>
+</body>
+</html>

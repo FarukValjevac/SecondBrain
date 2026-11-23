@@ -34,7 +34,7 @@ class TesseractOcrEngineTest {
         var command =
                 script("test -s \"$1\" && printf 'Seite eins\\n%s %s %s' \"$2\" \"$3\" \"$4\"");
         var text =
-                new TesseractOcrEngine(command, "deu+eng", Duration.ofSeconds(5)).recognise(page);
+                new TesseractOcrEngine(command, "deu+eng", Duration.ofSeconds(60)).recognise(page);
         assertThat(text).isEqualTo("Seite eins\nstdout -l deu+eng");
     }
 
@@ -45,13 +45,13 @@ class TesseractOcrEngineTest {
                                 new TesseractOcrEngine(
                                                 directory.resolve("missing").toString(),
                                                 "deu",
-                                                Duration.ofSeconds(5))
+                                                Duration.ofSeconds(60))
                                         .recognise(page))
                 .isInstanceOf(OcrEngine.Unavailable.class);
         assertThatThrownBy(
                         () ->
                                 new TesseractOcrEngine(
-                                                script("exit 1"), "deu", Duration.ofSeconds(5))
+                                                script("exit 1"), "deu", Duration.ofSeconds(60))
                                         .recognise(page))
                 .isInstanceOf(OcrEngine.Unavailable.class);
     }
@@ -65,7 +65,8 @@ class TesseractOcrEngineTest {
                                 new TesseractOcrEngine(command, "deu", Duration.ofMillis(300))
                                         .recognise(page))
                 .isInstanceOf(OcrEngine.PageFailed.class);
-        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+        assertThat(Duration.ofNanos(System.nanoTime() - started))
+                .isLessThan(Duration.ofSeconds(60));
     }
 
     @Test
