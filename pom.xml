@@ -158,11 +158,6 @@
                             </includes>
                             <reportsDirectory>${project.build.directory}/retrieval-evaluation-reports</reportsDirectory>
                             <failIfNoTests>true</failIfNoTests>
-                    <!-- Integration classes run in parallel JVMs. Each JVM starts its own PostgreSQL
-                         test container and every class creates a fresh database in it, so classes
-                         never share state. -->
-                    <forkCount>${it.forkCount}</forkCount>
-                    <reuseForks>true</reuseForks>
                         </configuration>
                     </plugin>
                 </plugins>
@@ -270,6 +265,11 @@
                     <argLine>@{argLine} -javaagent:"${session.repositorySession.localRepository.basedir}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar"</argLine>
                     <excludedGroups>live-ai</excludedGroups>
                     <failIfNoTests>true</failIfNoTests>
+                    <!-- Integration classes run in parallel JVMs. Each JVM starts its own PostgreSQL
+                         test container and every class creates a fresh database in it, so classes
+                         never share state. -->
+                    <forkCount>${it.forkCount}</forkCount>
+                    <reuseForks>true</reuseForks>
                 </configuration>
                 <executions>
                     <execution>
