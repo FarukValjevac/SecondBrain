@@ -97,7 +97,7 @@ class SummaryPageTest {
                         "Lists keep &lt;b&gt;order&lt;/b&gt; ",
                         "href=\"#summary-source-1\"",
                         "id=\"summary-source-1\"",
-                        "href=\"/documents/" + id + "/passages/" + passage + "\"",
+                        "href=\"/documents/" + id + "?view=reading&amp;from=2&amp;to=3#line-2\"",
                         "Lines 2–3",
                         "Regenerate summary")
                 .doesNotContain("<b>order");

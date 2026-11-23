@@ -361,7 +361,7 @@ class SearchControllerTest {
                         "Page 7",
                         "Lines 3–4",
                         "Lines 1–1",
-                        "href=\"/documents/" + first + "/passages/" + pdf.passageId() + "\"",
+                        "href=\"/documents/" + first + "?view=reading&amp;from=3&amp;to=4#line-3\"",
                         "&lt;img src=x onerror=bad&gt;",
                         // Each result link names its document for screen readers.
                         "Open source passage<span class=\"visually-hidden\"> from sentinel-private-&lt;b&gt;notes&lt;/b&gt;.pdf</span>",

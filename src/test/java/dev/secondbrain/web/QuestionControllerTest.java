@@ -264,7 +264,8 @@ class QuestionControllerTest {
                         "&lt;script&gt;source()&lt;/script&gt;",
                         "&lt;/textarea&gt;&lt;script&gt;question()&lt;/script&gt;",
                         "&lt;img src=x&gt;.pdf",
-                        "href=\"/documents/" + owner + "/passages/" + passage + "\"")
+                        // Sources open the reading view at the cited lines.
+                        "href=\"/documents/" + owner + "?view=reading&amp;from=3&amp;to=5#line-3\"")
                 .doesNotContain("<script>", "<img src=x>", "th:replace", ";jsessionid=");
         assertThat(html.indexOf("id=\"answer-title\""))
                 .isLessThan(html.indexOf("id=\"question-text\""));

@@ -68,7 +68,8 @@ class ExampleWorkflowIT {
     private static final String PROVIDER_BODY = "provider-body-sentinel";
     private static final String QUESTION = "Does ArrayList allow duplicates?";
     private static final Pattern SOURCE_LINK =
-            Pattern.compile("href=\"(/documents/[0-9a-f-]{36}/passages/[0-9a-f-]{36})\"");
+            Pattern.compile(
+                    "href=\"(/documents/[0-9a-f-]{36}\\?view=reading&amp;from=[0-9]+&amp;to=[0-9]+)#line-[0-9]+\"");
 
     @TempDir private Path storage;
 
@@ -362,7 +363,7 @@ class ExampleWorkflowIT {
         return SOURCE_LINK
                 .matcher(response.body())
                 .results()
-                .map(result -> result.group(1))
+                .map(result -> result.group(1).replace("&amp;", "&"))
                 .distinct()
                 .toList();
     }

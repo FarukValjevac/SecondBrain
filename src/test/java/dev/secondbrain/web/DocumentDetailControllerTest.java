@@ -130,6 +130,35 @@ class DocumentDetailControllerTest {
                         "Delete document")
                 .doesNotContain("<script>", "http-equiv=\"refresh\"", "Retry extraction");
 
+        // A source link highlights exactly the cited lines and offers to remove the highlight.
+        var cited =
+                mvc.perform(
+                                get("/documents/" + id)
+                                        .param("view", "reading")
+                                        .param("from", "3")
+                                        .param("to", "3"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(cited)
+                .contains(
+                        "id=\"line-3\" class=\"cited\"",
+                        "The cited passage is highlighted",
+                        "Remove highlight")
+                .doesNotContain("id=\"line-1\" class=\"cited\"");
+        for (var range : new String[][] {{"5", "2"}, {"0", "1"}, {"x", "2"}, {"1", "900"}})
+            assertThat(
+                            mvc.perform(
+                                            get("/documents/" + id)
+                                                    .param("view", "reading")
+                                                    .param("from", range[0])
+                                                    .param("to", range[1]))
+                                    .andExpect(status().isOk())
+                                    .andReturn()
+                                    .getResponse()
+                                    .getContentAsString())
+                    .doesNotContain("class=\"cited\"", "The cited passage");
+
         // The reading view (default without a stored PDF) keeps every line anchor and marks
         // page breaks instead of labelling each line.
         var reading =

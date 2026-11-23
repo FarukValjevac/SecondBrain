@@ -75,6 +75,10 @@ class DocumentDetailController {
             @PathVariable UUID id,
             @org.springframework.web.bind.annotation.RequestParam(name = "view", required = false)
                     String view,
+            @org.springframework.web.bind.annotation.RequestParam(name = "from", required = false)
+                    String from,
+            @org.springframework.web.bind.annotation.RequestParam(name = "to", required = false)
+                    String to,
             Model model) {
         var document =
                 documents
@@ -102,6 +106,13 @@ class DocumentDetailController {
                                 ? "lines"
                                 : "reading".equals(view) || !pdf ? "reading" : "original";
         model.addAttribute("view", selected);
+        // A cited passage (from a source link) is highlighted; anything malformed is ignored.
+        citedRange(from, to)
+                .ifPresent(
+                        range -> {
+                            model.addAttribute("citedFrom", range[0]);
+                            model.addAttribute("citedTo", range[1]);
+                        });
         try {
             documents.ocrProgress(id).ifPresent(found -> model.addAttribute("ocrProgress", found));
         } catch (DataAccessException | TransactionException unavailable) {
@@ -254,5 +265,15 @@ class DocumentDetailController {
     @ResponseBody
     String invalidId() {
         return "Use a valid document ID.";
+    }
+
+    /** Lines {@code from..to} of a cited passage: positive, ordered, at most 500 lines. */
+    static Optional<int[]> citedRange(String from, String to) {
+        if (from == null || to == null || !from.matches("[0-9]{1,6}") || !to.matches("[0-9]{1,6}"))
+            return Optional.empty();
+        int start = Integer.parseInt(from);
+        int end = Integer.parseInt(to);
+        if (start < 1 || end < start || end - start > 500) return Optional.empty();
+        return Optional.of(new int[] {start, end});
     }
 }
