@@ -45,6 +45,20 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>Search this folder</a>
     </nav>
     </div>
+    <section class="notice notice-warning" role="status" th:if="${uploadDuplicates != null}">
+      <h2>Already in your library</h2>
+      <ul class="duplicate-list">
+        <li th:each="entry : ${uploadDuplicates}">
+          <th:block th:each="copy, position : ${entry.value}">
+            <th:block th:if="${position.first}">The same file is already saved as</th:block><th:block th:unless="${position.first}">, </th:block>
+            <a th:href="@{/documents/{id}(id=${copy.documentId})}" th:text="${copy.name}">notes.pdf</a>
+            <th:block th:if="${copy.folderId != null and folderTree != null and folderTree.find(copy.folderId).isPresent()}"
+                      th:text="|(in ${folderTree.label(folderTree.find(copy.folderId).get())})|">(in Psychology)</th:block>
+          </th:block>.
+          <a class="danger-link" th:href="@{/documents/{id}/delete(id=${entry.key})}">Delete the new copy</a>
+        </li>
+      </ul>
+    </section>
     <section class="notice notice-success" role="status" data-toast th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>
       <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>

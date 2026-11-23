@@ -1,5 +1,6 @@
 package dev.secondbrain.web;
 
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.UploadRejectedException;
 import dev.secondbrain.imports.PageImportException;
 import dev.secondbrain.imports.WebPageImportService;
@@ -19,6 +20,7 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,9 +28,13 @@ import java.util.UUID;
 @Controller
 class WebImportController {
     private final ObjectProvider<WebPageImportService> imports;
+    private final ObjectProvider<DocumentInspectionService> documents;
 
-    WebImportController(ObjectProvider<WebPageImportService> imports) {
+    WebImportController(
+            ObjectProvider<WebPageImportService> imports,
+            ObjectProvider<DocumentInspectionService> documents) {
         this.imports = imports;
+        this.documents = documents;
     }
 
     @PostMapping(
@@ -52,8 +58,9 @@ class WebImportController {
             return library(folderId);
         }
         try {
-            flash.addFlashAttribute(
-                    "uploadReceipt", service.importPage(urls.getFirst(), correlationId, folderId));
+            var receipt = service.importPage(urls.getFirst(), correlationId, folderId);
+            flash.addFlashAttribute("uploadReceipt", receipt);
+            DuplicateWarnings.flash(List.of(receipt.documentId()), documents, flash);
         } catch (PageImportException failed) {
             flash.addFlashAttribute("uploadError", failed.reason().message());
         } catch (UploadRejectedException rejected) {

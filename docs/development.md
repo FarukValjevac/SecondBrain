@@ -143,6 +143,10 @@ One-time success messages (upload receipt, deletion, retry, summary request, fol
 
 Search results are passage cards: the document's type label and name, page and line location, the escaped excerpt, **Open source passage** and, when questions are enabled, **Ask about this document**.
 
+### Duplicate uploads
+
+Every stored original has a SHA-256 content fingerprint. After a file upload or web import, the library looks for other visible documents with the same fingerprint and, if there are any, shows **Already in your library** with a link to the earlier copy (and its folder) and **Delete the new copy**, which opens the normal deletion confirmation. The upload itself is never blocked, so keeping both stays possible; deleted documents do not count. Batch uploads report each file separately.
+
 ### Folders
 
 **Manage folders** on the library opens `/folders`. Create a folder with a name, an optional parent ("Inside") and a colour; folders nest up to three levels and at most 200 exist. Names are unique among siblings regardless of case. Each folder can be renamed, recoloured, given a subfolder or deleted. Deleting asks first and never deletes documents: they and any subfolders move one level up (top-level folders release their documents to **Unfiled**).
