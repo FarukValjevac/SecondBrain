@@ -2188,3 +2188,20 @@
     white-space: nowrap;
   }
 }
+
+@layer components {
+  .notice-warning {
+    border-inline-start-color: var(--warning);
+    background: var(--warning-soft);
+  }
+  .duplicate-list {
+    margin: 0;
+    padding-inline-start: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+  }
+  .duplicate-list .danger-link {
+    margin-inline-start: var(--space-2);
+    font-weight: 600;
+  }
+}

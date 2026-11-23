@@ -174,6 +174,29 @@ final class JdbcDocumentRepository {
                 .update();
     }
 
+    /** Other visible documents with exactly the same stored content as this one. */
+    List<DocumentInspectionService.Duplicate> duplicatesOf(UUID documentId) {
+        return jdbc.sql(
+                        """
+                        SELECT other.document_id, other.original_name, other.folder_id
+                        FROM documents this JOIN documents other
+                          ON other.content_sha256 = this.content_sha256
+                         AND other.document_id <> this.document_id
+                        WHERE this.document_id = :id AND other.deleted_at IS NULL
+                        ORDER BY other.created_at, other.document_id
+                        LIMIT 5
+                        """)
+                .withQueryTimeout(5)
+                .param("id", documentId)
+                .query(
+                        (row, index) ->
+                                new DocumentInspectionService.Duplicate(
+                                        row.getObject("document_id", UUID.class),
+                                        row.getString("original_name"),
+                                        row.getObject("folder_id", UUID.class)))
+                .list();
+    }
+
     /** Pages recognised so far and the page total, for a scan still being read. */
     Optional<int[]> ocrProgress(UUID documentId) {
         return jdbc.sql(

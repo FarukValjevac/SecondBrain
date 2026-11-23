@@ -1,8 +1,10 @@
 package dev.secondbrain.web;
 
 import dev.secondbrain.documents.DocumentAcceptanceService;
+import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.documents.UploadRejectedException;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
@@ -31,14 +33,17 @@ import java.util.UUID;
         matchIfMissing = true)
 final class DocumentUploadFormController {
     private final DocumentAcceptanceService acceptanceService;
+    private final ObjectProvider<DocumentInspectionService> documents;
     private final int maximumFiles;
 
     DocumentUploadFormController(
             DocumentAcceptanceService acceptanceService,
+            ObjectProvider<DocumentInspectionService> documents,
             @Value("${secondbrain.documents.max-files-per-upload:10}") int maximumFiles) {
         if (maximumFiles < 1 || maximumFiles > 100)
             throw new IllegalArgumentException("Files per upload must be between 1 and 100");
         this.acceptanceService = acceptanceService;
+        this.documents = documents;
         this.maximumFiles = maximumFiles;
     }
 
@@ -53,13 +58,18 @@ final class DocumentUploadFormController {
         if (files.isEmpty() || files.size() > maximumFiles)
             throw new UploadRejectedException(UploadRejectedException.Reason.TOO_MANY_FILES);
         if (files.size() == 1) {
-            redirectAttributes.addFlashAttribute(
-                    "uploadReceipt", accept(files.getFirst(), correlationId, folderId));
+            var receipt = accept(files.getFirst(), correlationId, folderId);
+            redirectAttributes.addFlashAttribute("uploadReceipt", receipt);
+            DuplicateWarnings.flash(List.of(receipt.documentId()), documents, redirectAttributes);
         } else {
             // Each file is accepted on its own; one rejected file never blocks the others.
             var results = new ArrayList<UploadResult>(files.size());
             for (var file : files) results.add(acceptOne(file, correlationId, folderId));
             redirectAttributes.addFlashAttribute("uploadResults", results);
+            DuplicateWarnings.flash(
+                    results.stream().flatMap(result -> result.documentId().stream()).toList(),
+                    documents,
+                    redirectAttributes);
         }
         var redirect = new RedirectView(FolderForm.library(folderId), true);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);

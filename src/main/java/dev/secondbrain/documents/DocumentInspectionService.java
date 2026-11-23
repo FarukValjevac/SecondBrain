@@ -91,6 +91,28 @@ public final class DocumentInspectionService {
 
     public record OcrProgress(int recognised, int total) {}
 
+    /**
+     * Earlier visible copies of exactly the same file, by content fingerprint (at most five). Used
+     * only to warn; uploads are never blocked.
+     */
+    public List<Duplicate> duplicates(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return Objects.requireNonNull(transactions.execute(status -> documents.duplicatesOf(id)));
+    }
+
+    /** {@code folderId} is null for an unfiled document. Names are private: never log them. */
+    public record Duplicate(UUID documentId, String name, UUID folderId) {
+        public Duplicate {
+            Objects.requireNonNull(documentId, "documentId");
+            Objects.requireNonNull(name, "name");
+        }
+
+        @Override
+        public String toString() {
+            return "Duplicate[documentId=" + documentId + "]";
+        }
+    }
+
     /** Lightweight visible metadata for confirmation screens; never loads document text. */
     public Optional<DocumentSummary> summary(UUID id) {
         Objects.requireNonNull(id, "id");
