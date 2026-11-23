@@ -65,7 +65,8 @@ class QuestionHttpIT {
     private static final EmbeddingModel MODEL = new EmbeddingModel(EmbeddingModel.BGE_M3_ID, 1024);
     private static final Instant RETRY = Instant.parse("2030-01-02T00:00:00Z");
     private static final Pattern SOURCE_LINK =
-            Pattern.compile("href=\"(/documents/[0-9a-f-]{36}/passages/[0-9a-f-]{36})\"");
+            Pattern.compile(
+                    "href=\"(/documents/[0-9a-f-]{36}\\?view=reading&amp;from=[0-9]+&amp;to=[0-9]+)#line-[0-9]+\"");
 
     private static final TestDatabase POSTGRES = TestDatabase.create();
 
@@ -119,13 +120,16 @@ class QuestionHttpIT {
                     SOURCE_LINK
                             .matcher(response.body())
                             .results()
-                            .map(result -> result.group(1))
+                            .map(result -> result.group(1).replace("&amp;", "&"))
                             .toList();
             assertThat(links).hasSize(pdf ? 2 : 1);
             for (var link : links) {
                 var source = get(client, origin, link);
                 assertThat(source.statusCode()).isEqualTo(200);
-                assertThat(source.body()).contains(SOURCE).doesNotContain(ANSWER, "<script>");
+                // Sources open the reading view with the cited lines highlighted.
+                assertThat(source.body())
+                        .contains(SOURCE, "cited")
+                        .doesNotContain(ANSWER, "<script>");
             }
             if (pdf) assertThat(response.body()).contains("Page 1", "Page 3");
             assertThat(models.chatCalls).hasValue(1);

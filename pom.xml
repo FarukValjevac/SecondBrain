@@ -27,9 +27,10 @@
         <!-- Spotless 3.10.4 requires the Style enum API changed in formatter 1.37.0. -->
         <google-java-format.version>1.36.1</google-java-format.version>
         <pdfbox.version>3.0.8</pdfbox.version>
-        <!-- Parallel test JVMs; override with -Dtest.forkCount=1 / -Dit.forkCount=1 to run serially. -->
-        <test.forkCount>2</test.forkCount>
-        <it.forkCount>3</it.forkCount>
+        <!-- Test JVMs. Serial by default: on a busy laptop parallel JVMs gain little and make timing
+             tests unreliable. CI passes -Dtest.forkCount=2 -Dit.forkCount=3 on its dedicated cores. -->
+        <test.forkCount>1</test.forkCount>
+        <it.forkCount>1</it.forkCount>
         <!-- Preserve late additions such as coverage agents while loading Mockito at JVM startup. -->
         <argLine/>
     </properties>

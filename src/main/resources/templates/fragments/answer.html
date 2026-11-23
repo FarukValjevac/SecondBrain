@@ -28,7 +28,7 @@
       <p>Source references were checked against the supplied passages. Check that the passages support the claims. Source links open in a new tab.</p>
       <ol class="search-hits" th:aria-labelledby="${prefix} + 'answer-sources-title'">
         <li th:each="source, position : ${questionAnswer.citations}" th:id="|${prefix}source-${position.count}|">
-          <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.documentId},passageId=${source.passageId})}"
+          <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{id}(id=${source.documentId},view='reading',from=${source.location.startLine},to=${source.location.endLine})} + '#line-' + ${source.location.startLine}"
                  th:text="|Source ${position.count}: ${source.name}|">Source document</a></h3>
           <p class="source-location">
             <span th:if="${source.location.pageNumber.isPresent()}" th:text="|Page ${source.location.pageNumber.asInt} · |">Page 1 · </span>
@@ -64,7 +64,7 @@
         <ol class="search-hits">
           <li th:each="source : ${turn.sources}" th:id="|saved-${turn.position}-source-${source.number}|">
             <th:block th:if="${source.isAvailable()}">
-              <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${source.passage.documentId},passageId=${source.passage.passageId})}"
+              <h3><a target="_blank" rel="noopener noreferrer" th:href="@{/documents/{id}(id=${source.passage.documentId},view='reading',from=${source.passage.location.startLine},to=${source.passage.location.endLine})} + '#line-' + ${source.passage.location.startLine}"
                      th:text="|Source ${source.number}: ${source.passage.name}|">Source document</a></h3>
               <p class="source-location">
                 <span th:if="${source.passage.location.pageNumber.isPresent()}" th:text="|Page ${source.passage.location.pageNumber.asInt} · |">Page 1 · </span>

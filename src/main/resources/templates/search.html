@@ -46,7 +46,7 @@
           </p>
           <pre class="search-excerpt" th:text="${hit.match.text}">Passage text</pre>
           <p class="passage-actions">
-            <a th:href="@{/documents/{documentId}/passages/{passageId}(documentId=${hit.match.documentId},passageId=${hit.match.passageId})}">Open source passage<span class="visually-hidden" th:text="| from ${hit.name}|"> from document</span></a>
+            <a th:href="@{/documents/{id}(id=${hit.match.documentId},view='reading',from=${hit.match.location.startLine},to=${hit.match.location.endLine})} + '#line-' + ${hit.match.location.startLine}">Open source passage<span class="visually-hidden" th:text="| from ${hit.name}|"> from document</span></a>
             <a th:if="${nav != null and nav.ask}" th:href="@{/questions(documentId=${hit.match.documentId})}">Ask about this document<span class="visually-hidden" th:text="|: ${hit.name}|">: document</span></a>
           </p>
         </li>

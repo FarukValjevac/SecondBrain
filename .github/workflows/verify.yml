@@ -40,4 +40,4 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng
 
       - name: Verify build and tests
-        run: ./mvnw --batch-mode --no-transfer-progress verify -Docr.tesseract=true
+        run: ./mvnw --batch-mode --no-transfer-progress verify -Docr.tesseract=true -Dtest.forkCount=2 -Dit.forkCount=3

@@ -2205,3 +2205,25 @@
     font-weight: 600;
   }
 }
+
+@layer components {
+  /* A cited passage opened from an answer or search result. */
+  .reading .cited,
+  .source-lines .cited {
+    background: color-mix(in oklch, var(--warning) 28%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--warning) 28%, transparent);
+    border-radius: 0.2em;
+  }
+  .source-lines .cited {
+    border-radius: 0;
+  }
+  [id^="line-"] {
+    scroll-margin-block: 30vh;
+  }
+  .cited-note {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+  }
+}
