@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,7 +38,6 @@ import java.util.UUID;
 @WebMvcTest(
         controllers = {QuestionController.class, HomeController.class},
         properties = "spring.config.import=")
-@Import(AnswerSignature.class)
 class ConversationControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private QuestionAnswerService answers;

@@ -88,8 +88,6 @@ class TelemetryConfiguration {
                                                                 "/chats/{id}/delete",
                                                                 "/chats/ask",
                                                                 "/chats/delete-all",
-                                                                "/questions/feedback",
-                                                                "/questions/feedback/export",
                                                                 "/documents/import",
                                                                 "/documents/{id}/summary",
                                                                 "/documents/{id}/folder",

@@ -138,10 +138,7 @@ class QuestionHttpIT {
             assertThat(turn.statusCode()).isEqualTo(200);
             assertThat(turn.body())
                     .startsWith("<li class=\"turn\" data-conversation=\"")
-                    .contains(
-                            "bubble-user",
-                            ANSWER + " &lt;script&gt;answer()&lt;/script&gt;",
-                            "name=\"signature\"")
+                    .contains("bubble-user", ANSWER + " &lt;script&gt;answer()&lt;/script&gt;")
                     .doesNotContain("<html", "<script>");
             assertPrivateHeaders(turn);
             assertThat(models.chatCalls).hasValue(2);

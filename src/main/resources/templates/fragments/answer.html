@@ -37,25 +37,6 @@
           <pre class="search-excerpt" th:text="${source.text}">Source excerpt</pre>
         </li>
       </ol>
-      <form method="post" th:action="@{/questions/feedback}" class="answer-feedback">
-        <input type="hidden" name="q" th:value="${queryText}">
-        <input type="hidden" name="answer" th:value="${questionAnswer.text}">
-        <input type="hidden" name="source" th:each="source : ${answerSources}" th:value="${source}">
-        <input type="hidden" name="signature" th:value="${answerSignature}">
-        <fieldset>
-          <legend>Was this answer helpful?</legend>
-          <p class="hint">Saved only on this computer, to help you review answer quality later.</p>
-          <button type="submit" name="rating" value="helpful">Helpful</button>
-          <label th:for="${prefix} + 'feedback-reason'" for="feedback-reason">Reason if not helpful</label>
-          <select th:id="${prefix} + 'feedback-reason'" id="feedback-reason" name="reason">
-            <option value="">No reason</option>
-            <option value="WRONG">Wrong</option>
-            <option value="INCOMPLETE">Incomplete</option>
-            <option value="WRONG_SOURCE">Wrong source</option>
-          </select>
-          <button type="submit" name="rating" value="not-helpful">Not helpful</button>
-        </fieldset>
-      </form>
     </section>
 </th:block>
 
