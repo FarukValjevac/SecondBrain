@@ -4,59 +4,72 @@
  */
 @layer reset, tokens, base, layout, components, utilities;
 
+/* ---------- Fonts (served by the app: no third-party requests; SIL Open Font License) ---------- */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+
 /* ---------- Tokens ---------- */
 @layer tokens {
   :root {
-    /* Literal palette (light). */
-    --gray-0: oklch(99% 0.003 260);
-    --gray-50: oklch(97.5% 0.005 260);
-    --gray-100: oklch(95% 0.007 260);
-    --gray-200: oklch(90% 0.01 260);
-    --gray-400: oklch(64% 0.015 260);
-    --gray-600: oklch(45% 0.02 260);
-    --gray-800: oklch(28% 0.02 260);
-    --gray-900: oklch(20% 0.02 260);
-    --violet-500: oklch(52% 0.2 285);
-    --violet-600: oklch(46% 0.21 285);
-    --violet-100: oklch(95% 0.03 285);
-    --green-600: oklch(48% 0.12 155);
-    --green-100: oklch(95% 0.04 155);
-    --red-600: oklch(50% 0.18 25);
-    --red-100: oklch(95.5% 0.03 25);
-    --amber-100: oklch(96% 0.05 85);
-    --amber-700: oklch(45% 0.1 70);
-
-    /* Semantic roles. */
-    --bg: var(--gray-50);
-    --surface: var(--gray-0);
-    --surface-raised: var(--gray-0);
-    --surface-sunken: var(--gray-100);
-    --text: var(--gray-900);
-    --text-muted: var(--gray-600);
-    --line: var(--gray-200);
-    --control-border: var(--gray-400);
-    --accent: var(--violet-500);
-    --accent-strong: var(--violet-600);
-    --accent-soft: var(--violet-100);
-    --on-accent: white;
-    --success: var(--green-600);
-    --success-soft: var(--green-100);
-    --danger: var(--red-600);
-    --danger-soft: var(--red-100);
-    --warning: var(--amber-700);
-    --warning-soft: var(--amber-100);
+    /* "Frost and slate": cool off-white ground, slate ink, one teal accent. */
+    --bg: #f7f9fa;
+    --sidebar: #ecf0f2;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-sunken: #eef2f4;
+    --text: #1f3038;
+    --text-muted: #55666e;
+    --line: #dde4e8;
+    --control-border: #b7c3c9;
+    --accent: #0d7480;
+    --accent-strong: #0a5d67;
+    --accent-soft: #dcedef;
+    --on-accent: #ffffff;
+    --success: #1d7a46;
+    --success-soft: #e1f1e7;
+    --danger: #b3261e;
+    --danger-soft: #fbe9e7;
+    --warning: #8a5a00;
+    --warning-soft: #fdf1d6;
     --focus: var(--accent);
-    --shadow: 0 1px 2px oklch(20% 0.02 260 / 0.06), 0 4px 16px oklch(20% 0.02 260 / 0.06);
-    --shadow-raised: 0 2px 6px oklch(20% 0.02 260 / 0.08), 0 16px 40px oklch(20% 0.02 260 / 0.12);
+    /* Hairlines carry structure; shadows are only for things that float. */
+    --shadow: 0 1px 2px rgb(31 48 56 / 0.05);
+    --shadow-raised: 0 2px 6px rgb(31 48 56 / 0.08), 0 18px 40px rgb(31 48 56 / 0.12);
 
     /* Type, space, shape, motion. */
-    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --text-sm: 0.875rem;
     --text-base: 1rem;
     --text-lg: 1.125rem;
     --text-xl: 1.375rem;
-    --text-2xl: clamp(1.6rem, 1.2rem + 1.5vw, 2.25rem);
+    --text-2xl: clamp(1.7rem, 1.2rem + 1.6vw, 2.4rem);
     --space-1: 0.25rem;
     --space-2: 0.5rem;
     --space-3: 0.75rem;
@@ -64,14 +77,15 @@
     --space-5: 1.5rem;
     --space-6: 2rem;
     --space-7: 3rem;
-    --radius-sm: 0.5rem;
-    --radius: 0.75rem;
-    --radius-lg: 1.25rem;
+    /* One soft radius scale. */
+    --radius-sm: 0.375rem;
+    --radius: 0.625rem;
+    --radius-lg: 0.875rem;
     --radius-pill: 999px;
     --sidebar-width: 15rem;
     --content-width: 52rem;
     --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-    --duration: 180ms;
+    --duration: 160ms;
 
     color-scheme: light dark;
     accent-color: var(--accent);
@@ -80,26 +94,27 @@
   /* Dark palette: only role tokens change; components never branch on the theme. */
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: oklch(17% 0.015 265);
-      --surface: oklch(21% 0.016 265);
-      --surface-raised: oklch(25% 0.018 265);
-      --surface-sunken: oklch(15% 0.014 265);
-      --text: oklch(94% 0.008 265);
-      --text-muted: oklch(74% 0.015 265);
-      --line: oklch(32% 0.018 265);
-      --control-border: oklch(56% 0.02 265);
-      --accent: oklch(74% 0.14 285);
-      --accent-strong: oklch(80% 0.12 285);
-      --accent-soft: oklch(30% 0.06 285);
-      --on-accent: oklch(18% 0.03 285);
-      --success: oklch(78% 0.13 155);
-      --success-soft: oklch(28% 0.05 155);
-      --danger: oklch(78% 0.13 25);
-      --danger-soft: oklch(29% 0.06 25);
-      --warning: oklch(84% 0.12 85);
-      --warning-soft: oklch(30% 0.05 85);
-      --shadow: 0 1px 2px oklch(0% 0 0 / 0.3), 0 4px 16px oklch(0% 0 0 / 0.25);
-      --shadow-raised: 0 2px 6px oklch(0% 0 0 / 0.35), 0 16px 40px oklch(0% 0 0 / 0.45);
+      --bg: #0e1619;
+      --sidebar: #121c20;
+      --surface: #172327;
+      --surface-raised: #1b2a2f;
+      --surface-sunken: #111b1f;
+      --text: #e3ecef;
+      --text-muted: #9db0b7;
+      --line: #24353c;
+      --control-border: #3d525a;
+      --accent: #4fb6c2;
+      --accent-strong: #79cbd4;
+      --accent-soft: #173238;
+      --on-accent: #06191c;
+      --success: #6fcf97;
+      --success-soft: #16301f;
+      --danger: #f2948a;
+      --danger-soft: #3a1c1a;
+      --warning: #e8c06a;
+      --warning-soft: #33290f;
+      --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+      --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.35), 0 18px 40px rgb(0 0 0 / 0.45);
     }
   }
 }
@@ -2374,5 +2389,174 @@
   }
   .highlight-actions .swatch:has(input:checked)::after {
     color: var(--text);
+  }
+}
+
+/* ---------- Visual refresh: type, one card style, sidebar, quiet motion ---------- */
+@layer base {
+  html {
+    font-feature-settings: "kern", "liga";
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 {
+    font-weight: 500;
+    letter-spacing: -0.035em;
+  }
+  h2 {
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+  h3 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  /* Links in text: a light underline that firms up on hover. */
+  main a:not([class]) {
+    text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+    transition: text-decoration-color var(--duration);
+  }
+  main a:not([class]):hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+@layer components {
+  /* Sidebar: a quiet paper column with one clear active marker. */
+  .sidebar {
+    background: var(--sidebar);
+  }
+  .brand {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  /* The "Two minds" logo: your mind and your second brain, overlapping. */
+  .brand-mark {
+    background: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .nav-link {
+    font-weight: 500;
+  }
+  .nav-link:hover {
+    background: color-mix(in oklch, var(--text) 6%, transparent);
+  }
+  .nav-link[aria-current="page"] {
+    background: var(--surface);
+    color: var(--accent-strong);
+    box-shadow: inset 3px 0 0 var(--accent), var(--shadow);
+  }
+  .nav-section {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+  }
+  .palette-button {
+    background: var(--surface);
+  }
+
+  /* One card style everywhere: white surface, hairline border, soft radius, barely a shadow. */
+  /* :where() keeps these at zero specificity, so each component's own accents still win. */
+  :where(.library-card, .upload-card, .document-card, .folder-card, .passage-card, .highlight-item,
+      .notice, .chat-list-page li) {
+    border-radius: var(--radius-lg);
+  }
+  :where(.library-card, .document-grid > li.document-card, .folder-card, .passage-card,
+      .highlight-item, .chat-list-page li) {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+  }
+  .folder-grid .folder-card:not(.folder-card-new) {
+    background:
+      linear-gradient(150deg, color-mix(in oklch, var(--folder, var(--accent)) 12%, transparent), transparent 55%),
+      var(--surface);
+  }
+  .bubble-assistant > .library-card {
+    box-shadow: none;
+  }
+
+  /* Small labels speak in the mono face. */
+  :is(.type-badge, .document-state, .pill, kbd, .nav-section, .palette-key) {
+    font-family: var(--font-mono);
+  }
+  .document-state {
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border: 1px solid var(--line);
+    background: transparent;
+  }
+  .type-badge {
+    font-weight: 500;
+  }
+
+  /* Buttons: one filled main action, one quiet secondary; they step on hover and press on click. */
+  button,
+  .button-link {
+    font-weight: 500;
+    transition:
+      background-color var(--duration),
+      border-color var(--duration),
+      color var(--duration),
+      translate var(--duration) var(--ease-out),
+      scale 90ms;
+  }
+  .secondary-link,
+  .secondary-button {
+    font-weight: 500;
+  }
+
+  /* Home: the question is the page. */
+  .chat-intro h1 {
+    font-size: clamp(2rem, 1.3rem + 2.2vw, 3rem);
+    letter-spacing: -0.04em;
+  }
+  .composer {
+    border-radius: var(--radius-lg);
+    box-shadow: 0 1px 2px rgb(31 48 56 / 0.04), 0 10px 30px rgb(31 48 56 / 0.08);
+  }
+  .bubble-user {
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  }
+  .document-card time,
+  .chat-list-page time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    button:hover:not(:disabled),
+    .button-link:hover {
+      translate: 0 -1px;
+    }
+    button:active:not(:disabled),
+    .button-link:active {
+      translate: 0;
+      scale: 0.98;
+    }
+    /* Linked cards lift 2px. */
+    :is(.document-grid > li.document-card, .folder-card, .passage-card, .chat-list-page li) {
+      transition: translate var(--duration) var(--ease-out), border-color var(--duration),
+        box-shadow var(--duration);
+    }
+    :is(.document-grid > li.document-card, .folder-card, .passage-card, .chat-list-page li):hover {
+      translate: 0 -2px;
+      box-shadow: 0 1px 2px rgb(31 48 56 / 0.05), 0 8px 22px rgb(31 48 56 / 0.08);
+    }
+    /* The home page enters once. */
+    .chat-intro,
+    .chat .composer {
+      animation: enter 420ms var(--ease-out) both;
+    }
+    .chat .composer {
+      animation-delay: 80ms;
+    }
+    @keyframes enter {
+      from {
+        opacity: 0;
+        translate: 0 8px;
+      }
+    }
   }
 }

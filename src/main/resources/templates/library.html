@@ -128,7 +128,7 @@
         Folder sync:
         <span th:text="|${folderSync.tracked} files imported|">3 files imported</span>
         <th:block th:if="${folderSync.lastScan.isPresent()}">· last scan
-          <time th:datetime="${folderSync.lastScan.get()}" th:text="${folderSync.lastScan.get()}">time</time></th:block>
+          <time th:datetime="${folderSync.lastScan.get()}" th:text="${dates.label(folderSync.lastScan.get())}">time</time></th:block>
         <strong th:if="${folderSync.problem.isPresent()}" th:text="${folderSync.problem.get() == 'FOLDER_UNAVAILABLE' ? '· The folder cannot be read.' : '· Too many files; only part of the folder was scanned.'}">problem</strong>
       </p>
       <p><a th:href="${currentFolder == null ? '/library?page=' + library.page : '/library?folder=' + currentFolder.folderId + '&page=' + library.page}">Refresh status</a></p>
@@ -149,7 +149,7 @@
           </div>
           <div class="document-summary">
             <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}" data-filter-name>Document name</a>
-            <time th:datetime="${document.createdAt}" th:text="${document.createdAt}">Upload time</time>
+            <time th:datetime="${document.createdAt}" th:text="${dates.label(document.createdAt)}">Upload time</time>
           </div>
           <th:block th:if="${processing != null and processing.containsKey(document.documentId)}"
                     th:insert="~{fragments/processing :: status(${processing.get(document.documentId)}, ${document.documentId})}"></th:block>
