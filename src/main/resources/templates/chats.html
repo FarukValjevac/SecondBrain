@@ -23,7 +23,7 @@
     <ul class="chat-list-page" role="list" th:unless="${chats.isEmpty()}">
       <li th:each="chat : ${chats}">
         <a th:href="@{/chats/{id}(id=${chat.conversationId})}" th:text="${chat.title}">Chat title</a>
-        <time th:datetime="${chat.updatedAt}" th:text="${#temporals.format(chat.updatedAt, 'd MMM yyyy, HH:mm')}">22 Nov 2026</time>
+        <time th:datetime="${chat.updatedAt}" th:text="${dates.label(chat.updatedAt)}">22 Nov 2026</time>
         <a class="danger-link chat-delete-link" th:href="@{/chats/{id}/delete(id=${chat.conversationId})}"
            th:aria-label="|Delete ${chat.title}|">Delete</a>
       </li>

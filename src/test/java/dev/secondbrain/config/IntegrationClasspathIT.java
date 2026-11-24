@@ -43,6 +43,8 @@ class IntegrationClasspathIT {
                     "templates/folder-delete.html",
                     "templates/fragments/folders.html",
                     "static/css/app.css",
+                    "static/fonts/ibm-plex-sans-latin-400-normal.woff2",
+                    "static/fonts/ibm-plex-mono-latin-500-normal.woff2",
                     "static/js/app.js",
                     "static/js/chat.js",
                     "static/js/library.js",

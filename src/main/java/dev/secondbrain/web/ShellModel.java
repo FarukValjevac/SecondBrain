@@ -68,4 +68,12 @@ class ShellModel {
     FileTypeLabel fileType() {
         return FILE_TYPE;
     }
+
+    private final DateLabels dates = new DateLabels(java.time.Clock.systemDefaultZone());
+
+    /** Readable dates for lists, in this computer's time zone. */
+    @ModelAttribute("dates")
+    DateLabels dates() {
+        return dates;
+    }
 }
