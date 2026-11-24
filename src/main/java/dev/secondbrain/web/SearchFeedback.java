@@ -14,7 +14,7 @@ enum SearchFeedback {
     FOLDER_TOO_LARGE(
             HttpStatus.OK,
             "Folder too large to search at once",
-            "This folder and its subfolders hold more than 100 documents. Choose a subfolder or Whole library."),
+            "This folder and its subfolders hold more than 10,000 documents. Choose a subfolder or Whole library."),
     FOLDER_MISSING(
             HttpStatus.NOT_FOUND,
             "Folder unavailable",

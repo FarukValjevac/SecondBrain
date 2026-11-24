@@ -6,7 +6,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,18 +82,9 @@ final class JdbcDocumentRepository {
     }
 
     Map<UUID, DocumentInspectionService.PassageSource> sources(Map<UUID, UUID> passageOwners) {
-        if (passageOwners.size() > 5)
+        if (passageOwners.size() > DocumentInspectionService.MAXIMUM_SOURCES)
             throw new IllegalArgumentException("Too many passage sources requested");
         if (passageOwners.isEmpty()) return Map.of();
-        var references = new ArrayList<>(passageOwners.entrySet());
-        var predicates = new ArrayList<String>();
-        for (int index = 0; index < references.size(); index++)
-            predicates.add(
-                    "(d.document_id = :document"
-                            + index
-                            + " AND p.passage_id = :passage"
-                            + index
-                            + ")");
         var statement =
                 jdbc.sql(
                                 """
@@ -115,18 +105,14 @@ final class JdbcDocumentRepository {
                     WHERE q.document_id = i.document_id AND q.indexing_version = i.indexing_version
                 ) complete ON complete.passages = i.passage_count AND complete.vectors = i.passage_count
                     AND complete.first_sequence = 1 AND complete.last_sequence = i.passage_count
-                WHERE (%s) AND d.deleted_at IS NULL
+                WHERE p.passage_id IN (:passages) AND d.deleted_at IS NULL
                     AND d.extraction_state = 'EXTRACTED' AND i.extraction_version = d.processing_version
                     AND i.passage_configuration_version = 1 AND i.passage_count > 0
                     AND i.embedding_model_id = :model AND i.embedding_dimensions = 1024
-                """
-                                        .formatted(String.join(" OR ", predicates)))
+                """)
                         .withQueryTimeout(5)
-                        .param("model", EmbeddingModel.BGE_M3_ID);
-        for (int index = 0; index < references.size(); index++) {
-            statement.param("document" + index, references.get(index).getValue());
-            statement.param("passage" + index, references.get(index).getKey());
-        }
+                        .param("model", EmbeddingModel.BGE_M3_ID)
+                        .param("passages", passageOwners.keySet());
         var rows =
                 statement
                         .query(
@@ -149,7 +135,10 @@ final class JdbcDocumentRepository {
                                 })
                         .list();
         var sources = new LinkedHashMap<UUID, DocumentInspectionService.PassageSource>();
-        for (var row : rows) sources.put(row.passageId(), row);
+        // Passage IDs are unique; a source counts only for the document it was cited from.
+        for (var row : rows)
+            if (row.documentId().equals(passageOwners.get(row.passageId())))
+                sources.put(row.passageId(), row);
         return Map.copyOf(sources);
     }
 

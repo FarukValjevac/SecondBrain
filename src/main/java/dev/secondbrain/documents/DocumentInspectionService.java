@@ -17,6 +17,10 @@ import java.util.UUID;
 /** Public document-reading use cases; persistence types stay inside the documents feature. */
 public final class DocumentInspectionService {
     private static final int PAGE_SIZE = 50;
+
+    /** Enough for every citation of a full saved chat (500 turns of five sources) in one read. */
+    public static final int MAXIMUM_SOURCES = 2500;
+
     private final JdbcDocumentRepository documents;
     private final JdbcExtractedTextRepository texts;
     private final TransactionTemplate transactions;
@@ -141,7 +145,7 @@ public final class DocumentInspectionService {
     /** Passage UUID -> owner UUID; all returned sources share one fresh committed SQL snapshot. */
     public Map<UUID, PassageSource> sources(Map<UUID, UUID> passageOwners) {
         Objects.requireNonNull(passageOwners, "passageOwners");
-        if (passageOwners.size() > 5)
+        if (passageOwners.size() > MAXIMUM_SOURCES)
             throw new IllegalArgumentException("Too many passage sources requested");
         var owners = Map.copyOf(passageOwners);
         if (owners.isEmpty()) return Map.of();

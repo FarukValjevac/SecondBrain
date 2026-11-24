@@ -131,7 +131,7 @@ class LibraryControllerTest {
                         "class=\"type-badge\"",
                         "data-filter hidden",
                         "aria-controls=\"document-cards\"",
-                        "src=\"/js/library.js\"")
+                        "src=\"/js/library-")
                 .doesNotContain("<script>", "100%", "documents.embed-passages");
         Assertions.assertThat(output).doesNotContain("private-note");
     }
@@ -272,18 +272,18 @@ class LibraryControllerTest {
                         "Upload document",
                         "multiple required",
                         "data-drop-zone",
-                        "src=\"/js/upload.js\" defer")
+                        "src=\"/js/upload-")
                 .contains(
-                        "href=\"/css/app.css\"",
+                        "href=\"/css/app-",
                         "<meta name=\"color-scheme\" content=\"light dark\">",
                         // Shared shell: skip link, navigation with the current page marked.
                         "class=\"skip-link\" href=\"#content\"",
                         "<main id=\"content\">",
                         "<nav class=\"nav\" aria-label=\"Main\">",
                         "href=\"/library\" aria-current=\"page\"",
-                        "src=\"/js/app.js\"",
+                        "src=\"/js/app-",
                         // The "Two minds" icon in the tab and the sidebar.
-                        "<link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\">",
+                        "<link rel=\"icon\" href=\"/favicon-",
                         "rel=\"apple-touch-icon\"",
                         "<svg class=\"brand-mark\"",
                         "id=\"nav-drawer\"",
@@ -298,7 +298,7 @@ class LibraryControllerTest {
                         "<dialog class=\"shortcuts\" id=\"shortcuts-dialog\"",
                         "<form method=\"dialog\"><button autofocus>Close</button></form>",
                         "id=\"toasts\" popover=\"manual\" aria-label=\"Notifications\"",
-                        "src=\"/js/forms.js\" defer")
+                        "src=\"/js/forms-")
                 .doesNotContain("0 documents", "Your library is empty.", "th:href");
 
         mvc.perform(MockMvcRequestBuilders.get("/css/app.css"))

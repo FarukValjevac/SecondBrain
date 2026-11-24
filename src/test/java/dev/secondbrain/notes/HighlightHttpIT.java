@@ -79,7 +79,7 @@ class HighlightHttpIT {
                             "Bindung ist ein emotionales Band. Sie entsteht früh.",
                             "Private &lt;b&gt;note&lt;/b&gt; zu Bindung",
                             "id=\"highlight-toolbar\"",
-                            "src=\"/js/reading.js\"")
+                            "src=\"/js/reading-")
                     .doesNotContain("id=\"line-1\" class=\"hl", "<b>note</b>");
 
             var notes = get(client, origin, "/notes").body();

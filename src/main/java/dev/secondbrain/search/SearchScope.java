@@ -7,7 +7,8 @@ import java.util.UUID;
 /** An empty explicit selection never means the whole library. */
 public sealed interface SearchScope
         permits SearchScope.AllDocuments, SearchScope.SelectedDocuments {
-    int MAXIMUM_SELECTED_DOCUMENTS = 100;
+    /** A whole folder can be a scope; hand-picked selections have their own, smaller limit. */
+    int MAXIMUM_SELECTED_DOCUMENTS = 10_000;
 
     static SearchScope all() {
         return new AllDocuments();

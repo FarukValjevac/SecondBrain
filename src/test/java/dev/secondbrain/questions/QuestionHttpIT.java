@@ -93,7 +93,7 @@ class QuestionHttpIT {
             var origin = origin(context);
             // The home page is the conversation; without JavaScript it posts to /chats/ask.
             assertThat(get(client, origin, "/").body())
-                    .contains("action=\"/chats/ask\"", "data-chat", "src=\"/js/chat.js\"");
+                    .contains("action=\"/chats/ask\"", "data-chat", "src=\"/js/chat-");
             var alpha = uploadSample(client, origin, "ALPHA", pdf);
             var beta = uploadSample(client, origin, "BETA", false);
             ready(context, 2);

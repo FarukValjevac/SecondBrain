@@ -43,7 +43,7 @@ class HomeControllerTest {
                         "<label for=\"ask\" class=\"visually-hidden\">",
                         "class=\"thread\"",
                         "aria-live=\"polite\"",
-                        "src=\"/js/chat.js\"",
+                        "src=\"/js/chat-",
                         "href=\"/\" aria-current=\"page\"",
                         "href=\"/library\"")
                 .doesNotContain("Questions are turned off");

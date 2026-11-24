@@ -69,6 +69,12 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 It serves the same local URL and reads configuration from the working directory, just like the Maven startup command.
 
+## Static files and caching
+
+`web.StaticResources` serves stylesheets, fonts and icons under content-hashed names (`/css/app-<md5>.css`); Thymeleaf `@{...}` links and `url(...)` references in the stylesheet are rewritten automatically. Those files are cached for a year (`Cache-Control: max-age=31536000, public, immutable`): a changed file gets a new name. Scripts are hashed too, but sent with `Cache-Control: no-cache`, because module imports such as `./dialogs.js` keep their plain names; browsers revalidate them (a cheap 304) and never run an outdated copy. The `dev` profile sets `secondbrain.web.static-max-age=0s`. Check with `./mvnw -Dit.test=StaticResourcesIT verify`.
+
+The sidebar's chats and folder tree are lazy model values: they are read only when a rendered page uses them, so redirects and the conversation fragment cost no query. A reopened chat looks up the sources of all its answers in one read.
+
 ## Development reload
 
 Start PostgreSQL as described in the README, then run:
@@ -159,7 +165,7 @@ Every stored original has a SHA-256 content fingerprint. After a file upload or 
 
 The library is browsed like a file explorer. Its top shows coloured folder cards (with document and subfolder counts, including subfolders) and the **Unfiled documents**; opening a folder (`/library?folder=<id>`) shows a clickable path such as **Library › Psychology › Cognitive biases**, its subfolders and its own documents, with **New subfolder** and **Delete folder** in the header. Documents come first and the upload area follows, preset to the open folder. Top-level folders are listed in the sidebar (and drawer), and every folder can be reached by typing its name in **Jump to…** (Ctrl/⌘K). With JavaScript, a document card can be dragged onto a folder card or a breadcrumb (Library means Unfiled) to move it; the move is announced and the card leaves the view. The document page's **Move** form does the same without JavaScript or a pointer. An unknown folder address returns 404.
 
-A folder is also a scope. Its page offers **Ask this folder** (opens the conversation with the folder preselected), and **Search this folder**. The home ask box gets a menu (**Whole library** or any folder; it submits `scope=folder:<id>`), and the question and search pages get **A folder and its subfolders** with a folder menu (`scope=folder` plus `folder=<id>`). The server resolves the folder to the visible documents in it and all its subfolders and hands them to the existing selected-documents scope, so retrieval, visibility and citation checks are unchanged; answers show "Scope: Psychology › Biases (including subfolders)". An empty folder answers "No documents in this folder" instead of searching everything; a folder with more than 100 documents (the selection limit) asks you to pick a subfolder; a deleted folder returns 404.
+A folder is also a scope. Its page offers **Ask this folder** (opens the conversation with the folder preselected), and **Search this folder**. The home ask box gets a menu (**Whole library** or any folder; it submits `scope=folder:<id>`), and the question and search pages get **A folder and its subfolders** with a folder menu (`scope=folder` plus `folder=<id>`). The server resolves the folder to the visible documents in it and all its subfolders and hands them to the existing selected-documents scope, so retrieval, visibility and citation checks are unchanged; answers show "Scope: Psychology › Biases (including subfolders)". An empty folder answers "No documents in this folder" instead of searching everything; a folder with more than 10,000 documents asks you to pick a subfolder (hand-picked selections stay limited to 100 ticked documents); a deleted folder returns 404.
 
 Once a folder exists, the upload and **Import a web page** forms show **Save to folder**; the document is filed in the same database transaction that saves it. The document page shows its folder as a coloured chip and offers **Folder → Move**. Documents uploaded before folders existed are unfiled; nothing is re-uploaded or re-indexed. Folder names are never logged.
 
@@ -178,7 +184,7 @@ Word documents have no browser viewer, so they use the reading view and download
 
 Pages follow the operating system's light or dark setting (`color-scheme` plus a dark palette in `static/css/app.css`); form controls, scrollbars and checkboxes are themed to match. Colors are CSS custom properties on `:root`, and text, control borders and focus rings meet WCAG contrast minimums in both palettes.
 
-`static/js/forms.js` is the only script. After a form passes its built-in validation, it ignores further submissions of that form, so a double click cannot send a second upload, search or question to the provider. Forms still submit normally without it, and the server keeps all checks. A page restored with the browser's Back button accepts submissions again.
+`static/js/forms.js` guards forms. After a form passes its built-in validation, it ignores further submissions of that form, so a double click cannot send a second upload, search or question to the provider. Forms still submit normally without it, and the server keeps all checks. A page restored with the browser's Back button accepts submissions again.
 
 Search results add a visually hidden document name to each **Open source passage** link so screen-reader link lists can tell them apart. A rejected search or question links its error message to the input with `aria-describedby`. Check with `./mvnw -Dtest=LibraryControllerTest,SearchControllerTest,QuestionControllerTest test`.
 
@@ -784,7 +790,7 @@ The `search` feature defines validated Java input/result types, query embedding,
 
 `SearchQuery` accepts at most 1,200 Unicode code points, including outer whitespace before trimming; blank text, NUL, and malformed Unicode are rejected. It preserves internal text/case and strips outer whitespace. Result limits range from 1 through 20, defaulting to 5. These are application limits, not a measured quality threshold.
 
-`SearchScope.all()` explicitly selects the library. `SearchScope.selected(Set<UUID>)` accepts up to 100 IDs and keeps an empty set as an empty selection. It never converts that selection into all documents. The input set is copied and cannot change through later caller mutation.
+`SearchScope.all()` explicitly selects the library. `SearchScope.selected(Set<UUID>)` accepts up to 10,000 IDs (the picker form allows 100 ticked documents; folder scopes use the rest) and keeps an empty set as an empty selection. It never converts that selection into all documents. The input set is copied and cannot change through later caller mutation.
 
 `SearchResult` holds an immutable list of up to 20 distinct passage matches. Each match has stable passage/document IDs, index version, sequence, text, source coordinates, and a finite cosine score in [-1,1]. A score is similarity, not answer confidence. Lines/pages are one-based, columns count Unicode code points from zero, and the range end is exclusive. Optional PDF page numbers preserve physical page identity. Query/result/match diagnostics omit private text and IDs.
 

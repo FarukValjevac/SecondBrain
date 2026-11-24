@@ -38,22 +38,35 @@ public final class SavedTurns {
     }
 
     static List<Turn> of(Conversation conversation, DocumentInspectionService documents) {
+        // Every cited passage of the chat, looked up together in one read.
+        var owners = new LinkedHashMap<java.util.UUID, java.util.UUID>();
+        for (var turn : conversation.turns())
+            for (var source : turn.sources()) owners.put(source.passageId(), source.documentId());
+        java.util.Map<java.util.UUID, DocumentInspectionService.PassageSource> found;
+        try {
+            found =
+                    documents == null || owners.isEmpty()
+                            ? java.util.Map.of()
+                            : documents.sources(owners);
+        } catch (DataAccessException | TransactionException | IllegalArgumentException missing) {
+            found = java.util.Map.of();
+        }
         var turns = new ArrayList<Turn>();
         for (var turn : conversation.turns()) {
-            var owners = new LinkedHashMap<java.util.UUID, java.util.UUID>();
-            for (var source : turn.sources()) owners.put(source.passageId(), source.documentId());
-            java.util.Map<java.util.UUID, DocumentInspectionService.PassageSource> found;
-            try {
-                found = documents == null ? java.util.Map.of() : documents.sources(owners);
-            } catch (DataAccessException
-                    | TransactionException
-                    | IllegalArgumentException missing) {
-                found = java.util.Map.of();
-            }
             var sources = new ArrayList<Source>();
             int number = 1;
             for (var source : turn.sources())
-                sources.add(new Source(number++, found.get(source.passageId())));
+                sources.add(
+                        new Source(
+                                number++,
+                                source.documentId()
+                                                .equals(
+                                                        found.containsKey(source.passageId())
+                                                                ? found.get(source.passageId())
+                                                                        .documentId()
+                                                                : null)
+                                        ? found.get(source.passageId())
+                                        : null));
             boolean answered = turn.outcome() == Conversation.Outcome.ANSWERED;
             turns.add(
                     new Turn(
