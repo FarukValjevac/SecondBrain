@@ -174,7 +174,7 @@ class LibraryControllerTest {
         Assertions.assertThat(html)
                 .contains(
                         "href=\"/documents/" + id + "\"",
-                        "EXTRACTED",
+                        "Text ready",
                         "href=\"/documents/" + id + "/delete\"",
                         "aria-label=\"Delete sentinel-private-&lt;script&gt;alert(1)&lt;/script&gt;.md\"",
                         "sentinel-private-&lt;script&gt;alert(1)&lt;/script&gt;.md",
@@ -265,8 +265,8 @@ class LibraryControllerTest {
                         "method=\"post\"",
                         "name=\"file\"",
                         "accept=\".pdf,.docx,.html,.htm,.md,.markdown,.txt,",
-                        "PDFs need selectable text",
-                        "encrypted and scanned-only PDFs and legacy .doc files are unsupported",
+                        "Scanned PDFs are read with text recognition on this computer",
+                        "encrypted PDFs and legacy .doc files are unsupported",
                         "aria-describedby=\"upload-help\"",
                         "2KB",
                         "Upload document",
@@ -360,7 +360,10 @@ class LibraryControllerTest {
                         .getContentAsString();
         // A one-time message: shown as a toast with JavaScript, an ordinary notice without it.
         Assertions.assertThat(firstPage)
-                .contains("Saved and queued", "QUEUED", "role=\"status\" data-toast");
+                .contains(
+                        "Saved and queued",
+                        "Status: <strong>Queued</strong>",
+                        "role=\"status\" data-toast");
         var refreshedPage =
                 mvc.perform(MockMvcRequestBuilders.get("/library").session(session))
                         .andExpect(status().isOk())

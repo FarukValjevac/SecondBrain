@@ -13,7 +13,7 @@
       <h2 th:text="${searchFeedback.title}">Search feedback</h2>
       <p id="search-feedback-message" th:text="${searchFeedback.message}">Check your query and try again.</p>
       <p th:if="${retryAt.isPresent()}">Provider suggests trying again after:
-        <time th:datetime="${retryAt.orElseThrow()}" th:text="${retryAt.orElseThrow()}">Retry hint</time> (UTC).
+        <time th:datetime="${retryAt.orElseThrow()}" th:text="${dates.label(retryAt.orElseThrow())}">Retry hint</time>.
       </p>
       <p th:if="${searchResult != null}" th:text="|Matching passages: ${searchResult.matches.size()}|">Matching passages: 0</p>
     </section>

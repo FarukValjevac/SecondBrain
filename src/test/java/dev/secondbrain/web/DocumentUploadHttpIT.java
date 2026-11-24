@@ -139,7 +139,7 @@ class DocumentUploadHttpIT {
             var page = client.send(pageRequest, HttpResponse.BodyHandlers.ofString());
             assertThat(page.statusCode()).isEqualTo(200);
             assertThat(page.body())
-                    .contains("Saved and queued", "QUEUED")
+                    .contains("Saved and queued", "Queued")
                     .doesNotContain("sentinel-private", ";jsessionid=");
             var refreshed = client.send(pageRequest, HttpResponse.BodyHandlers.ofString());
             assertThat(refreshed.statusCode()).isEqualTo(200);

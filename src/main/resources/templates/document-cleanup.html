@@ -16,8 +16,8 @@
       <li th:each="request : ${cleanup.requests}">
         <div class="document-summary">
           <strong th:text="${request.state.label}">Awaiting cleanup</strong>
-          <span>Requested <time th:datetime="${request.requestedAt}" th:text="${request.requestedAt}">time</time></span>
-          <span th:text="|Waiting ${request.ageSeconds} seconds; ${request.attempts} attempts.|">Waiting.</span>
+          <span>Requested <time th:datetime="${request.requestedAt}" th:text="${dates.label(request.requestedAt)}">time</time></span>
+          <span th:text="|Waiting ${dates.duration(request.ageSeconds)}; ${request.attempts == 1 ? '1 attempt' : request.attempts + ' attempts'}.|">Waiting.</span>
         </div>
         <p th:if="${request.state.name() == 'FAILED'}">Cleanup could not finish. Check storage permissions and database availability before retrying.</p>
         <form th:if="${request.retry.isPresent()}" method="post"

@@ -478,7 +478,8 @@ class QuestionControllerTest {
                         QuestionFailure.Reason.RATE_LIMITED,
                         QuestionFailure.Reason.QUOTA_EXHAUSTED,
                         QuestionFailure.Reason.UNAVAILABLE)
-                .contains(reason)) assertThat(html).contains(hint.toString(), "(UTC)");
+                .contains(reason))
+            assertThat(html).contains(hint.toString(), "Provider suggests trying again after");
         else assertThat(html).doesNotContain(hint.toString());
         assertThat(output).doesNotContain(PRIVATE, "provider-private-token-answer-sentinel");
     }

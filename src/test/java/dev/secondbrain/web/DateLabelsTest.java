@@ -28,4 +28,17 @@ class DateLabelsTest {
         // 23:30 UTC on the 23rd is already the 24th in Berlin.
         assertThat(labels.label(Instant.parse("2026-11-23T23:30:00Z"))).isEqualTo("Today, 00:30");
     }
+
+    @Test
+    void waitingTimesReadAsMinutesHoursOrDays() {
+        var labels = new DateLabels(java.time.Clock.systemUTC());
+        org.assertj.core.api.Assertions.assertThat(
+                        java.util.List.of(
+                                labels.duration(45),
+                                labels.duration(720),
+                                labels.duration(3 * 3600),
+                                labels.duration(3 * 3600 + 300),
+                                labels.duration(3 * 86400)))
+                .containsExactly("45 s", "12 min", "3 h", "3 h 5 min", "3 days");
+    }
 }

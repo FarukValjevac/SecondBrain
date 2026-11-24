@@ -224,7 +224,8 @@ class QuestionHttpIT {
                     .doesNotContain(ANSWER, SOURCE, BODY, "id=\"answer-title\"");
             assertPrivateHeaders(response);
             if (mode == Mode.CHAT_QUOTA || mode == Mode.SEARCH_QUOTA)
-                assertThat(response.body()).contains(RETRY.toString(), "(UTC)");
+                assertThat(response.body())
+                        .contains(RETRY.toString(), "Provider suggests trying again after");
             assertThat(models.chatCalls).hasValue(mode == Mode.SEARCH_QUOTA ? 0 : 1);
         }
         assertSafeOutput(output);

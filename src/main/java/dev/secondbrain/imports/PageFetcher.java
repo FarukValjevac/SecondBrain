@@ -256,7 +256,7 @@ final class PageFetcher {
         var mediaType = contentType.split(";", 2)[0].strip();
         if (!List.of("text/html", "application/xhtml+xml", "text/plain", "text/markdown")
                 .contains(mediaType)) throw new PageImportException(Reason.UNSUPPORTED_CONTENT);
-        var charset = StandardCharsets.UTF_8;
+        Charset charset = null;
         for (var parameter : contentType.split(";")) {
             var pair = parameter.strip().split("=", 2);
             if (pair.length == 2 && pair[0].equals("charset")) {
@@ -267,6 +267,7 @@ final class PageFetcher {
                 }
             }
         }
+        if (charset == null) charset = undeclared(mediaType, response.body());
         // The extractors read UTF-8; other declared encodings are converted once here.
         var utf8 =
                 charset.equals(StandardCharsets.UTF_8)
@@ -274,6 +275,37 @@ final class PageFetcher {
                         : new String(response.body(), charset).getBytes(StandardCharsets.UTF_8);
         if (utf8.length > maximumBytes) throw new PageImportException(Reason.TOO_LARGE);
         return new Page(uri, mediaType, utf8, clock.instant());
+    }
+
+    private static final java.util.regex.Pattern META_CHARSET =
+            java.util.regex.Pattern.compile(
+                    "<meta[^>]{0,200}?charset\\s*=\\s*[\"']?\\s*([A-Za-z0-9_.:-]{1,40})",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Without a charset in the header: an HTML page's own meta declaration (searched in its first
+     * 1,024 bytes, as browsers do), otherwise UTF-8 when the bytes are valid UTF-8, otherwise
+     * windows-1252, the usual encoding of older unlabeled European pages.
+     */
+    static Charset undeclared(String mediaType, byte[] body) {
+        if (!mediaType.equals("text/plain") && !mediaType.equals("text/markdown")) {
+            var head =
+                    new String(body, 0, Math.min(body.length, 1024), StandardCharsets.ISO_8859_1);
+            var meta = META_CHARSET.matcher(head);
+            if (meta.find()) {
+                try {
+                    return Charset.forName(meta.group(1));
+                } catch (IllegalArgumentException unsupported) {
+                    throw new PageImportException(Reason.UNSUPPORTED_CONTENT, unsupported);
+                }
+            }
+        }
+        try {
+            StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(body));
+            return StandardCharsets.UTF_8;
+        } catch (java.nio.charset.CharacterCodingException notUtf8) {
+            return Charset.forName("windows-1252");
+        }
     }
 
     private record Response(int status, Map<String, String> headers, byte[] body) {}

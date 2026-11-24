@@ -201,7 +201,7 @@ Rollback, interrupted writes, abandoned-file recovery, and concurrent acceptance
 |---|---|---|
 | `.pdf` | `PDF` | Selectable text per physical page; see [PDF support and limits](#pdf-support-and-limits). |
 | `.docx` | `DOCX` | Body text of `word/document.xml`: one line per paragraph, tabs and line breaks kept. Headers, footers, comments, footnotes, deleted revisions, field codes and images are ignored. |
-| `.html`, `.htm` | `HTML` | Visible text: scripts, styles and comments are dropped, block elements such as `<p>`, `<li>` and `<h1>` become lines, and common entities are decoded. |
+| `.html`, `.htm` | `HTML` | Visible text: scripts, styles and comments are dropped, block elements such as `<p>`, `<li>` and `<h1>` become lines, and named entities (Latin-1 letters such as `&auml;` and `&szlig;`, plus common typography such as `&mdash;` and `&hellip;`) and numeric entities are decoded; unknown names stay literal. |
 | `.md`, `.markdown` | `MARKDOWN` | UTF-8 text, Markdown syntax kept as written. |
 | `.txt`, `.text`, `.log`, `.csv`, `.tsv`, `.json`, `.xml`, `.yaml`, `.yml`, `.toml`, `.ini`, `.rst`, `.tex`, `.sql` and source code (`.java`, `.kt`, `.py`, `.js`, `.ts`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.go`, `.rs`, `.rb`, `.php`, `.sh`, `.swift`) | `TXT` | UTF-8 text kept exactly, so structure and syntax stay searchable reference text. |
 
@@ -218,14 +218,14 @@ Legacy `.doc`, spreadsheets (`.xlsx`), presentations (`.pptx`), `.odt`, `.rtf` a
 
 ## PDF support and limits
 
-PDFs need selectable text. Encrypted PDFs (including those that open with an empty password), corrupt/unsupported files, and PDFs without selectable text fail with a fixed message; OCR is not available. **Saved and queued** or HTTP `202` confirms that the original was stored and processing was queued. **EXTRACTED** confirms successful extraction.
+PDFs with selectable text are read directly; PDFs without selectable text (scans) are read with local text recognition, see [scanned PDFs](#scanned-pdfs-text-recognition). Encrypted PDFs (including those that open with an empty password) and corrupt/unsupported files fail with a fixed message. **Saved and queued** or HTTP `202` confirms that the original was stored and processing was queued. **Text ready** on the document card confirms successful extraction. Pages show friendly state names (Queued, Reading text, Text ready, Failed) and local times; the JSON upload API keeps the stored names such as `QUEUED`.
 
 Source links show physical PDF pages, counted from the first page including covers and blank pages; printed page numbers may differ. Each **Page N** link targets a stable numbered source line. A blank page retains a labeled empty line. Filenames and extracted text remain literal, escaped content.
 
 | Limit | Current policy |
 |---|---|
 | Input bytes | Configured upload limit (10MB by default), capped at 32 MiB for PDF extraction |
-| Physical pages | 200 |
+| Physical pages | 1,000 |
 | Glyph text and output text | 1,000,000 UTF-16 code units each |
 | Content operators | 1,000,000 |
 | Parsing time | Cooperative 15-second budget |
@@ -774,7 +774,7 @@ Known limitations:
 - Passage text, queries and bounded evidence are sent to Cloudflare when those features are enabled. Originals and stored content remain local.
 - Exact vector search scans eligible vectors; it is not tuned for large libraries. Quality was measured only on a small synthetic corpus, once, on a hosted model whose revision is not pinned.
 - A valid citation shows which passage was supplied, not that the claim is true. Review the excerpt.
-- Scanned PDFs, encrypted PDFs, legacy `.doc`, spreadsheets, presentations, other formats, and files over the configured limits are rejected. Word extraction reads body text only.
+- Encrypted PDFs, legacy `.doc`, spreadsheets, presentations, other formats, and files over the configured limits are rejected. Word extraction reads body text only.
 - The event failure matrix, telemetry privacy and exporter-failure checks run in the required integration tests; telemetry backends are optional.
 - A separate developer has not yet reproduced this walkthrough from a fresh checkout.
 
@@ -1126,7 +1126,7 @@ Relative paths are stored privately and never logged; logs show only fixed codes
 
 ## Importing a web page
 
-Under **Add a document**, **Import a web page** takes one public `http://` or `https://` address. SecondBrain fetches it once and stores it through the normal upload path as HTML, Markdown or text, with the same size limit and extraction rules. The source URL and fetch time are recorded (`document_sources`, migration V20) and shown on the document page.
+Under **Add a document**, **Import a web page** takes one public `http://` or `https://` address. SecondBrain fetches it once and stores it through the normal upload path as HTML, Markdown or text, with the same size limit and extraction rules. The source URL and fetch time are recorded (`document_sources`, migration V20) and shown on the document page. The text encoding comes from the `Content-Type` header; without one, an HTML page's own `<meta charset>` (or `http-equiv`) declaration in its first 1,024 bytes is used, and unlabeled bytes that are not valid UTF-8 are read as windows-1252, as browsers do. Everything is stored as UTF-8.
 
 The fetch is built to avoid server-side request forgery:
 
