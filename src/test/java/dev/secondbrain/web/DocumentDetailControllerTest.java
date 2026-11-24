@@ -44,7 +44,38 @@ class DocumentDetailControllerTest {
     @MockitoBean private DocumentInspectionService documents;
     @MockitoBean private DocumentDeletionService deletion;
     @MockitoBean private DocumentProcessingService processing;
+    @MockitoBean private dev.secondbrain.documents.OriginalDocumentService originals;
     private final UUID id = UUID.randomUUID();
+
+    @Test
+    void theOriginalPdfViewDoesNotLoadTheExtractedText() throws Exception {
+        when(originals.find(id))
+                .thenReturn(
+                        Optional.of(
+                                new dev.secondbrain.documents.OriginalDocumentService.Original(
+                                        id,
+                                        "book.pdf",
+                                        dev.secondbrain.documents.OriginalDocumentService.Kind.PDF,
+                                        10)));
+        when(documents.findWithoutText(id))
+                .thenReturn(
+                        Optional.of(
+                                new DocumentInspectionService.DocumentView(
+                                        id,
+                                        "book.pdf",
+                                        1,
+                                        ExtractionState.EXTRACTED,
+                                        "",
+                                        List.of())));
+        assertThat(
+                        mvc.perform(get("/documents/" + id))
+                                .andExpect(status().isOk())
+                                .andReturn()
+                                .getResponse()
+                                .getContentAsString())
+                .contains("class=\"original-frame\"");
+        org.mockito.Mockito.verify(documents, org.mockito.Mockito.never()).find(id);
+    }
 
     @Test
     void rendersEscapedNamesAndLiteralUnicodeMarkupWithLineAnchors() throws Exception {

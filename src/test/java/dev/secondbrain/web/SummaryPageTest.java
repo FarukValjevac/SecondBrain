@@ -53,6 +53,16 @@ class SummaryPageTest {
                                         ExtractionState.EXTRACTED,
                                         "",
                                         List.of(new DocumentInspectionService.Line(1, "Text")))));
+        when(documents.findWithoutText(id))
+                .thenReturn(
+                        Optional.of(
+                                new DocumentInspectionService.DocumentView(
+                                        id,
+                                        "notes.md",
+                                        1,
+                                        ExtractionState.EXTRACTED,
+                                        "",
+                                        List.of())));
         when(processing.read(Set.of(id)))
                 .thenReturn(
                         Map.of(
@@ -120,7 +130,7 @@ class SummaryPageTest {
     @Test
     void unknownDocumentsCannotBeSummarized() throws Exception {
         var unknown = UUID.randomUUID();
-        when(documents.find(unknown)).thenReturn(Optional.empty());
+        when(documents.findWithoutText(unknown)).thenReturn(Optional.empty());
         mvc.perform(post("/documents/" + unknown + "/summary")).andExpect(status().isNotFound());
         verifyNoInteractions(summaries);
     }

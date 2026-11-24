@@ -12,7 +12,11 @@ final class DocumentExtractionReconciliation {
         this.events = events;
     }
 
-    @Scheduled(fixedDelay = 1000)
+    // Recovery for work that predates a handler or lost its delivery: soon after startup, then
+    // rarely. New work is delivered by events, so this never needs to run every second.
+    @Scheduled(
+            initialDelayString = "${secondbrain.documents.reconcile-initial-delay:1s}",
+            fixedDelayString = "${secondbrain.documents.reconcile-interval:30s}")
     void reconcile() {
         try {
             events.scheduleMissing(DocumentAcceptedEvent.TYPE, DocumentExtractionHandler.ID, 100);

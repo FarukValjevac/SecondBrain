@@ -85,11 +85,6 @@ class DocumentDetailController {
             @org.springframework.web.bind.annotation.RequestParam(name = "to", required = false)
                     String to,
             Model model) {
-        var document =
-                documents
-                        .find(id)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        model.addAttribute("document", document);
         // PDFs open on the original; everything else on the reading view. Unknown views fall back.
         var original = Optional.<OriginalDocumentService.Original>empty();
         var originalService = originals.getIfAvailable();
@@ -111,6 +106,11 @@ class DocumentDetailController {
                                 ? "lines"
                                 : "reading".equals(view) || !pdf ? "reading" : "original";
         model.addAttribute("view", selected);
+        // The original PDF view shows the stored file, so the extracted text is not loaded.
+        var document =
+                (selected.equals("original") ? documents.findWithoutText(id) : documents.find(id))
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        model.addAttribute("document", document);
         var notes = highlights.getIfAvailable();
         if (notes != null) {
             try {
@@ -189,7 +189,7 @@ class DocumentDetailController {
             @RequestAttribute(RequestCorrelationFilter.ATTRIBUTE) UUID correlationId,
             RedirectAttributes feedback) {
         var summarizer = summaries.getIfAvailable();
-        if (summarizer == null || documents.find(id).isEmpty())
+        if (summarizer == null || documents.findWithoutText(id).isEmpty())
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         summarizer.request(id, correlationId);
         feedback.addFlashAttribute(

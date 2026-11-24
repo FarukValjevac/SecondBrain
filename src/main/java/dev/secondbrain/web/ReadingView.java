@@ -98,8 +98,12 @@ final class ReadingView {
      */
     private static List<Block> promoteHeadings(List<Block> blocks) {
         var result = new ArrayList<Block>(blocks.size());
+        // Whether any non-page block came before: tracked as we go, so long scans stay linear.
+        boolean seenContent = false;
         for (int i = 0; i < blocks.size(); i++) {
             var block = blocks.get(i);
+            boolean first = !seenContent;
+            if (!block.isPage()) seenContent = true;
             if (!headingLike(block)) {
                 result.add(block);
                 continue;
@@ -107,7 +111,6 @@ final class ReadingView {
             Block next = null;
             for (int j = i + 1; j < blocks.size() && next == null; j++)
                 if (!blocks.get(j).isPage()) next = blocks.get(j);
-            boolean first = result.stream().noneMatch(previous -> !previous.isPage());
             boolean introducesText = next != null && next.isParagraph() && !headingLike(next);
             if (first || introducesText)
                 result.add(

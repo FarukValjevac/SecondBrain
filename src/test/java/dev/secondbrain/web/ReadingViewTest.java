@@ -122,4 +122,21 @@ class ReadingViewTest {
     void emptyDocumentsHaveNoBlocks() {
         assertThat(ReadingView.blocks(List.of())).isEmpty();
     }
+
+    @Test
+    void longScansWithManyShortLinesBuildInLinearTime() {
+        // A scanned book: thousands of short standalone lines, each a heading candidate.
+        var lines = new ArrayList<Line>();
+        for (int number = 1; number <= 20_000; number++)
+            lines.add(
+                    new Line(
+                            number,
+                            number % 2 == 0 ? "" : "Chapter " + number,
+                            OptionalInt.of(1 + number / 40)));
+        long started = System.nanoTime();
+        var blocks = ReadingView.blocks(lines);
+        long millis = (System.nanoTime() - started) / 1_000_000;
+        assertThat(blocks).isNotEmpty();
+        assertThat(millis).isLessThan(2_000);
+    }
 }

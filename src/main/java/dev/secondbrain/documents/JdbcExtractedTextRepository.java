@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -92,6 +93,30 @@ final class JdbcExtractedTextRepository {
                                         rows -> {
                                             return readText(rows, documentId, processingVersion);
                                         })));
+    }
+
+    /** Lines {@code from..to} of one stored version, in order; never the whole text. */
+    List<ExtractedText.Line> linesBetween(UUID documentId, long version, int from, int to) {
+        return jdbc.query(
+                """
+                SELECT line_number, line_text, page_number FROM document_text_lines
+                WHERE document_id = ? AND processing_version = ?
+                AND line_number BETWEEN ? AND ? ORDER BY line_number
+                """,
+                statement -> {
+                    statement.setQueryTimeout(5);
+                    statement.setObject(1, documentId);
+                    statement.setLong(2, version);
+                    statement.setInt(3, from);
+                    statement.setInt(4, to);
+                },
+                (row, index) -> {
+                    var page = row.getObject("page_number", Integer.class);
+                    return new ExtractedText.Line(
+                            row.getInt("line_number"),
+                            row.getString("line_text"),
+                            page == null ? OptionalInt.empty() : OptionalInt.of(page));
+                });
     }
 
     private static Optional<ExtractedText> readText(
