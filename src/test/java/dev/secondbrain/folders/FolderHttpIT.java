@@ -141,6 +141,17 @@ class FolderHttpIT {
                     .contains("Your folders", "Running", "Add subfolder", "color-picker");
         }
         assertThat(output).doesNotContain("Sport-private-name");
+        // Each finished upload is logged once, with its correlation ID written once: a repeated
+        // JSON key would make the encoder drop the line.
+        var accepted =
+                output.getOut()
+                        .lines()
+                        .filter(line -> line.contains("Document acceptance finished"))
+                        .toList();
+        assertThat(accepted).isNotEmpty();
+        assertThat(output).doesNotContain("has already been written");
+        assertThat(accepted)
+                .allSatisfy(line -> assertThat(line.split("\"correlation_id\"", -1)).hasSize(2));
     }
 
     @Test

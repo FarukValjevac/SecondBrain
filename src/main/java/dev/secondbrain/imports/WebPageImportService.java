@@ -46,23 +46,24 @@ public final class WebPageImportService {
             String address, UUID correlationId, Optional<UUID> folderId)
             throws IOException, InterruptedException {
         var page = fetcher.fetch(address);
-        var receipt =
-                acceptance.accept(
-                        fileName(page),
-                        page.utf8().length,
-                        new ByteArrayInputStream(page.utf8()),
-                        correlationId,
-                        folderId);
-        jdbc.sql(
-                        """
-                INSERT INTO document_sources(document_id, source_url, fetched_at) VALUES (:id, :url, :at)
-                ON CONFLICT (document_id) DO NOTHING
-                """)
-                .param("id", receipt.documentId())
-                .param("url", page.finalUri().toString())
-                .param("at", Timestamp.from(page.fetchedAt()))
-                .update();
-        return receipt;
+        // The source is saved in the document's own transaction: both or neither.
+        return acceptance.accept(
+                fileName(page),
+                page.utf8().length,
+                new ByteArrayInputStream(page.utf8()),
+                correlationId,
+                folderId,
+                documentId ->
+                        jdbc.sql(
+                                        """
+                        INSERT INTO document_sources(document_id, source_url, fetched_at)
+                        VALUES (:id, :url, :at) ON CONFLICT (document_id) DO NOTHING
+                        """)
+                                .withQueryTimeout(5)
+                                .param("id", documentId)
+                                .param("url", page.finalUri().toString())
+                                .param("at", Timestamp.from(page.fetchedAt()))
+                                .update());
     }
 
     public Optional<Source> source(UUID documentId) {
