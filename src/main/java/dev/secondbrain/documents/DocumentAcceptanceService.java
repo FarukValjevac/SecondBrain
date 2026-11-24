@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /** Coordinates durable original storage with atomic metadata and event persistence. */
 public final class DocumentAcceptanceService {
@@ -58,13 +59,36 @@ public final class DocumentAcceptanceService {
             UUID correlationId,
             Optional<UUID> folderId)
             throws IOException {
+        return accept(originalName, declaredSize, input, correlationId, folderId, id -> {});
+    }
+
+    /**
+     * As above; {@code sameTransaction} receives the new document's ID inside the transaction that
+     * saves it, so a caller's own record (such as a web page's source) commits with the document or
+     * not at all. It must do short database work only.
+     */
+    public Receipt accept(
+            String originalName,
+            long declaredSize,
+            InputStream input,
+            UUID correlationId,
+            Optional<UUID> folderId,
+            Consumer<UUID> sameTransaction)
+            throws IOException {
+        Objects.requireNonNull(sameTransaction, "sameTransaction");
         Objects.requireNonNull(input, "input");
         Objects.requireNonNull(folderId, "folderId");
         Objects.requireNonNull(correlationId, "correlationId");
         try (var operation = telemetry.upload(correlationId)) {
             try {
                 var receipt =
-                        acceptOriginal(originalName, declaredSize, input, correlationId, folderId);
+                        acceptOriginal(
+                                originalName,
+                                declaredSize,
+                                input,
+                                correlationId,
+                                folderId,
+                                sameTransaction);
                 operation.outcome(DocumentTelemetry.Outcome.ACCEPTED);
                 return receipt;
             } catch (UploadRejectedException rejected) {
@@ -79,7 +103,8 @@ public final class DocumentAcceptanceService {
             long declaredSize,
             InputStream input,
             UUID correlationId,
-            Optional<UUID> folderId)
+            Optional<UUID> folderId,
+            Consumer<UUID> sameTransaction)
             throws IOException {
         var documentType = uploadPolicy.validate(originalName, declaredSize);
         try (var staged = originalFileStore.stage(input)) {
@@ -119,6 +144,7 @@ public final class DocumentAcceptanceService {
                                             null,
                                             null,
                                             Map.of()));
+                            sameTransaction.accept(document.documentId());
                         });
                 return new Receipt(document.documentId(), document.extractionState());
             } catch (IOException | RuntimeException failure) {

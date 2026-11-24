@@ -1126,7 +1126,7 @@ Relative paths are stored privately and never logged; logs show only fixed codes
 
 ## Importing a web page
 
-Under **Add a document**, **Import a web page** takes one public `http://` or `https://` address. SecondBrain fetches it once and stores it through the normal upload path as HTML, Markdown or text, with the same size limit and extraction rules. The source URL and fetch time are recorded (`document_sources`, migration V20) and shown on the document page. The text encoding comes from the `Content-Type` header; without one, an HTML page's own `<meta charset>` (or `http-equiv`) declaration in its first 1,024 bytes is used, and unlabeled bytes that are not valid UTF-8 are read as windows-1252, as browsers do. Everything is stored as UTF-8.
+Under **Add a document**, **Import a web page** takes one public `http://` or `https://` address. SecondBrain fetches it once and stores it through the normal upload path as HTML, Markdown or text, with the same size limit and extraction rules. The source URL and fetch time are recorded (`document_sources`, migration V20) in the same transaction as the document, so an import keeps both or neither, and shown on the document page. The text encoding comes from the `Content-Type` header; without one, an HTML page's own `<meta charset>` (or `http-equiv`) declaration in its first 1,024 bytes is used, and unlabeled bytes that are not valid UTF-8 are read as windows-1252, as browsers do. Everything is stored as UTF-8.
 
 The fetch is built to avoid server-side request forgery:
 
@@ -1465,7 +1465,7 @@ Each synchronous HTTP request returns an `X-Correlation-ID` response header. Sup
 curl -i -H 'X-Correlation-ID: 11111111-1111-4111-8111-111111111111' http://127.0.0.1:8080/
 ```
 
-The response header and the JSON completion log share `correlation_id`. Logs emitted during synchronous handling also receive this context. The summary records `operation=http_request`, `duration_ms`, `outcome`, and the response `status` when handling returns normally. `outcome=completed` means the handler chain returned; inspect `status` for HTTP success or failure. An escaping exception produces `outcome=failed` and `code=REQUEST_FAILED`, with no guessed status or exception text.
+The response header and the JSON completion log share `correlation_id`. Logs emitted during synchronous handling also receive this context. Feature logs never add `correlation_id` themselves when the context already holds it: the JSON encoder refuses a repeated key and would drop the whole line. The summary records `operation=http_request`, `duration_ms`, `outcome`, and the response `status` when handling returns normally. `outcome=completed` means the handler chain returned; inspect `status` for HTTP success or failure. An escaping exception produces `outcome=failed` and `code=REQUEST_FAILED`, with no guessed status or exception text.
 
 The summary omits URLs, queries, bodies, cookies, and arbitrary headers. The ID is removed from the thread's logging context after handling, or the previous value is restored. Request context covers synchronous handling; it is not automatically copied into async tasks. Correlation IDs are log fields, not metric tags.
 

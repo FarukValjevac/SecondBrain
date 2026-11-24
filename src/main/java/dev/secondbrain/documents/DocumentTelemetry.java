@@ -134,6 +134,17 @@ final class DocumentTelemetry {
         return new Operation(name, observation, counter, fallback, correlationId);
     }
 
+    /**
+     * A request or delivery already puts correlation_id into the log context; adding it again would
+     * write the JSON key twice, and the JSON encoder then drops the whole line.
+     */
+    static org.slf4j.spi.LoggingEventBuilder withCorrelation(
+            org.slf4j.spi.LoggingEventBuilder log, UUID correlationId) {
+        return org.slf4j.MDC.get("correlation_id") == null
+                ? log.addKeyValue("correlation_id", correlationId.toString())
+                : log;
+    }
+
     private static void safely(Runnable action) {
         try {
             action.run();
@@ -203,10 +214,12 @@ final class DocumentTelemetry {
             if (correlationId != null) {
                 safely(
                         () ->
-                                LOG.atInfo()
-                                        .addKeyValue("operation", "document_" + name)
-                                        .addKeyValue("outcome", outcome.tag())
-                                        .addKeyValue("correlation_id", correlationId.toString())
+                                withCorrelation(
+                                                LOG.atInfo()
+                                                        .addKeyValue(
+                                                                "operation", "document_" + name)
+                                                        .addKeyValue("outcome", outcome.tag()),
+                                                correlationId)
                                         .log(
                                                 name.equals("upload")
                                                         ? "Document acceptance finished"

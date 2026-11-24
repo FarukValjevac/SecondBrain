@@ -596,17 +596,27 @@ final class JdbcEventStore {
                                 @Override
                                 public void afterCommit() {
                                     try {
-                                        LoggerFactory.getLogger(JdbcEventStore.class)
-                                                .atInfo()
-                                                .addKeyValue("operation", "event_manual_retry")
-                                                .addKeyValue("outcome", "requested")
-                                                .addKeyValue(
-                                                        "event_id",
-                                                        candidate.event().eventId().toString())
-                                                .addKeyValue("delivery_id", id.toString())
-                                                .addKeyValue(
-                                                        "correlation_id", correlationId.toString())
-                                                .log("Event retry requested");
+                                        var log =
+                                                LoggerFactory.getLogger(JdbcEventStore.class)
+                                                        .atInfo()
+                                                        .addKeyValue(
+                                                                "operation", "event_manual_retry")
+                                                        .addKeyValue("outcome", "requested")
+                                                        .addKeyValue(
+                                                                "event_id",
+                                                                candidate
+                                                                        .event()
+                                                                        .eventId()
+                                                                        .toString())
+                                                        .addKeyValue("delivery_id", id.toString());
+                                        // The HTTP request context already carries the ID; a
+                                        // repeated JSON key would make the encoder drop the line.
+                                        if (org.slf4j.MDC.get("correlation_id") == null)
+                                            log =
+                                                    log.addKeyValue(
+                                                            "correlation_id",
+                                                            correlationId.toString());
+                                        log.log("Event retry requested");
                                     } catch (RuntimeException unavailable) {
                                         /* Logging cannot undo a commit. */
                                     }

@@ -7,6 +7,7 @@ import static dev.secondbrain.TestHttp.origin;
 import static dev.secondbrain.TestHttp.post;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import com.sun.net.httpserver.HttpServer;
@@ -94,6 +95,17 @@ class WebImportIT {
                                                                             + receipt.documentId())
                                                             .body())
                                             .contains("Imported from", url, "Lists keep order."));
+
+            // The source is saved with the document: if it cannot be saved, neither is kept.
+            var jdbc = context.getBean(JdbcClient.class);
+            jdbc.sql("ALTER TABLE document_sources RENAME TO document_sources_unavailable")
+                    .update();
+            int before = documents(context);
+            assertThatThrownBy(() -> allowed.importPage(url, UUID.randomUUID()))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class);
+            assertThat(documents(context)).isEqualTo(before);
+            jdbc.sql("ALTER TABLE document_sources_unavailable RENAME TO document_sources")
+                    .update();
         } finally {
             stub.stop(0);
         }
