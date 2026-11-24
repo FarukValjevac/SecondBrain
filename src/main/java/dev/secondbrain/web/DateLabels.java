@@ -25,6 +25,17 @@ public final class DateLabels {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
+    /** A waiting time such as "45 s", "12 min", "3 h 5 min" or "2 days". */
+    public String duration(long seconds) {
+        if (seconds < 60) return Math.max(0, seconds) + " s";
+        long minutes = seconds / 60;
+        if (minutes < 60) return minutes + " min";
+        long hours = minutes / 60;
+        if (hours < 48)
+            return minutes % 60 == 0 ? hours + " h" : hours + " h " + minutes % 60 + " min";
+        return hours / 24 + " days";
+    }
+
     public String label(Instant instant) {
         if (instant == null) return "";
         var zone = clock.getZone();

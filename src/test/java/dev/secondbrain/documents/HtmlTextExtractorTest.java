@@ -43,6 +43,17 @@ class HtmlTextExtractorTest {
     }
 
     @Test
+    void decodesNamedEntitiesThatEuropeanPagesUse() {
+        assertThat(
+                        lines(
+                                "<p>Gr&uuml;&szlig;e aus K&ouml;ln &ndash; caf&eacute; &mdash;"
+                                        + " &bdquo;Zitat&ldquo; &hellip; 5&nbsp;&euro; &AElig;</p>"))
+                .containsExactly("Grüße aus Köln – café — „Zitat“ … 5 € Æ");
+        // Unknown names stay literal, so no text is ever lost.
+        assertThat(lines("<p>&notanentity; &amp;</p>")).containsExactly("&notanentity; &");
+    }
+
+    @Test
     void treatsMarkupAsTextNeverAsInstructions() {
         assertThat(lines("<p>a &lt;script&gt; tag</p><p>1 < 2 and 3 > 2</p>"))
                 .containsExactly("a <script> tag", "", "1 < 2 and 3 > 2");

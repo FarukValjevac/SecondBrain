@@ -25,7 +25,7 @@ final class PdfExtractionException extends RuntimeException {
         SOURCE_UNAVAILABLE("The PDF could not be read."),
         UNREADABLE("The PDF is corrupt or unsupported."),
         ENCRYPTED("Encrypted PDFs are not supported."),
-        NO_TEXT("The PDF contains no selectable text. OCR is not supported."),
+        NO_TEXT("The PDF contains no selectable text."),
         INPUT_TOO_LARGE("The PDF exceeds the input size limit."),
         PAGE_LIMIT("The PDF exceeds the page limit."),
         TEXT_LIMIT("The PDF exceeds the extracted text limit."),

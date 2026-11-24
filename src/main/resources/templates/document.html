@@ -20,10 +20,10 @@
             <svg th:replace="~{fragments/folders :: icon(${folder.color})}"></svg>
             <span th:text="${folderTree.label(folder)}">Psychology</span></a> ·
         </th:block>
-        Text extraction: <strong th:text="${document.state}">QUEUED</strong>
+        Text: <strong th:text="${document.state.label}">Queued</strong>
         <th:block th:if="${webSource != null}"> · Imported from
           <a th:href="${webSource.url}" th:text="${webSource.url}" rel="noopener noreferrer" target="_blank">https://example.com</a>
-          on <time th:datetime="${webSource.fetchedAt}" th:text="${webSource.fetchedAt}">time</time></th:block>
+          on <time th:datetime="${webSource.fetchedAt}" th:text="${dates.label(webSource.fetchedAt)}">time</time></th:block>
       </p>
       <div class="action-bar" role="group" aria-label="Document actions">
         <a class="button-link" th:if="${questionsEnabled and ready}"

@@ -43,6 +43,34 @@ class PageFetcherTest {
         server.createContext(
                 "/latin",
                 exchange -> reply(exchange, 200, "text/plain; charset=ISO-8859-1", "café"));
+        server.createContext(
+                "/meta",
+                exchange ->
+                        reply(
+                                exchange,
+                                200,
+                                "text/html",
+                                "<html><head><meta charset=\"ISO-8859-1\"></head><p>Grüße</p>",
+                                StandardCharsets.ISO_8859_1));
+        server.createContext(
+                "/http-equiv",
+                exchange ->
+                        reply(
+                                exchange,
+                                200,
+                                "text/html",
+                                "<meta http-equiv=\"Content-Type\" content=\"text/html;"
+                                        + " charset=windows-1252\"><p>Köln</p>",
+                                StandardCharsets.ISO_8859_1));
+        server.createContext(
+                "/unlabeled",
+                exchange ->
+                        reply(
+                                exchange,
+                                200,
+                                "text/html",
+                                "<p>Straße</p>",
+                                StandardCharsets.ISO_8859_1));
         server.createContext("/image", exchange -> reply(exchange, 200, "image/png", "png"));
         server.createContext("/missing", exchange -> reply(exchange, 404, "text/html", "no"));
         server.createContext(
@@ -75,6 +103,23 @@ class PageFetcherTest {
         assertThat(new String(page.utf8(), StandardCharsets.UTF_8)).isEqualTo("<p>Hello 📚</p>");
         var latin = fetcher(1024).fetch("http://site.test:" + port + "/latin");
         assertThat(new String(latin.utf8(), StandardCharsets.UTF_8)).isEqualTo("café");
+    }
+
+    @Test
+    void usesTheCharsetAPageDeclaresInItsOwnMarkup() throws Exception {
+        assertThat(text("/meta")).endsWith("<p>Grüße</p>");
+        assertThat(text("/http-equiv")).endsWith("<p>Köln</p>");
+        // No declaration and not valid UTF-8: read like a browser, as windows-1252.
+        assertThat(text("/unlabeled")).isEqualTo("<p>Straße</p>");
+        // Valid UTF-8 without a label stays UTF-8.
+        assertThat(PageFetcher.undeclared("text/html", "Grüße".getBytes(StandardCharsets.UTF_8)))
+                .isEqualTo(StandardCharsets.UTF_8);
+    }
+
+    private String text(String path) throws Exception {
+        return new String(
+                fetcher(1024).fetch("http://site.test:" + port + path).utf8(),
+                StandardCharsets.UTF_8);
     }
 
     @Test
@@ -160,11 +205,22 @@ class PageFetcherTest {
 
     private static void reply(HttpExchange exchange, int status, String type, String body)
             throws IOException {
-        var bytes =
-                body.getBytes(
-                        type.contains("ISO-8859-1")
-                                ? StandardCharsets.ISO_8859_1
-                                : StandardCharsets.UTF_8);
+        reply(
+                exchange,
+                status,
+                type,
+                body,
+                type.contains("ISO-8859-1") ? StandardCharsets.ISO_8859_1 : StandardCharsets.UTF_8);
+    }
+
+    private static void reply(
+            HttpExchange exchange,
+            int status,
+            String type,
+            String body,
+            java.nio.charset.Charset encoding)
+            throws IOException {
+        var bytes = body.getBytes(encoding);
         exchange.getResponseHeaders().set("Content-Type", type);
         exchange.sendResponseHeaders(status, bytes.length);
         try (var out = exchange.getResponseBody()) {

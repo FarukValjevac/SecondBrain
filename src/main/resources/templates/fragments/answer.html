@@ -9,7 +9,7 @@
       <h2 th:text="${questionFeedback.title}">Question feedback</h2>
       <p id="question-feedback-message" th:text="${questionFeedback.message}">Check your question and try again.</p>
       <p th:if="${retryAt.isPresent()}">Provider suggests trying again after:
-        <time th:datetime="${retryAt.orElseThrow()}" th:text="${retryAt.orElseThrow()}">Retry hint</time> (UTC).
+        <time th:datetime="${retryAt.orElseThrow()}" th:text="${dates.label(retryAt.orElseThrow())}">Retry hint</time>.
       </p>
     </section>
 </th:block>

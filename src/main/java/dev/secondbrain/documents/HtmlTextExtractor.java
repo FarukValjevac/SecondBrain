@@ -1,8 +1,10 @@
 package dev.secondbrain.documents;
 
 import java.io.InputStream;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -47,6 +49,17 @@ final class HtmlTextExtractor {
                     "tr",
                     "ul");
     private static final Set<String> CELLS = Set.of("td", "th");
+
+    /**
+     * Latin-1 entities in code point order (160-255): the umlauts, accents and symbols that
+     * European pages commonly write as names.
+     */
+    private static final String LATIN_1 =
+            "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml";
+
+    /** Named entities beyond Latin-1 that appear in ordinary text. */
+    private static final Map<String, String> NAMED = named();
+
     private final Utf8TextExtractor decoder;
 
     HtmlTextExtractor(Utf8TextExtractor decoder) {
@@ -130,7 +143,7 @@ final class HtmlTextExtractor {
                     case "quot" -> "\"";
                     case "apos", "#39" -> "'";
                     case "nbsp" -> " ";
-                    default -> numeric(name);
+                    default -> NAMED.getOrDefault(name, numeric(name));
                 };
         if (decoded == null) {
             text.append('&');
@@ -138,6 +151,60 @@ final class HtmlTextExtractor {
         }
         text.append(decoded);
         return end + 1;
+    }
+
+    private static Map<String, String> named() {
+        var names = new HashMap<String, String>();
+        var latin = LATIN_1.split(" ");
+        for (int index = 0; index < latin.length; index++)
+            names.put(latin[index], Character.toString(160 + index));
+        String[][] typographic = {
+            {"OElig", "\u0152"},
+            {"oelig", "\u0153"},
+            {"Scaron", "\u0160"},
+            {"scaron", "\u0161"},
+            {"Yuml", "\u0178"},
+            {"fnof", "\u0192"},
+            {"circ", "\u02C6"},
+            {"tilde", "\u02DC"},
+            {"ensp", " "},
+            {"emsp", " "},
+            {"thinsp", " "},
+            {"zwnj", ""},
+            {"zwj", ""},
+            {"lrm", ""},
+            {"rlm", ""},
+            {"ndash", "\u2013"},
+            {"mdash", "\u2014"},
+            {"lsquo", "\u2018"},
+            {"rsquo", "\u2019"},
+            {"sbquo", "\u201A"},
+            {"ldquo", "\u201C"},
+            {"rdquo", "\u201D"},
+            {"bdquo", "\u201E"},
+            {"dagger", "\u2020"},
+            {"Dagger", "\u2021"},
+            {"bull", "\u2022"},
+            {"hellip", "\u2026"},
+            {"permil", "\u2030"},
+            {"prime", "\u2032"},
+            {"Prime", "\u2033"},
+            {"lsaquo", "\u2039"},
+            {"rsaquo", "\u203A"},
+            {"euro", "\u20AC"},
+            {"trade", "\u2122"},
+            {"larr", "\u2190"},
+            {"rarr", "\u2192"},
+            {"harr", "\u2194"},
+            {"minus", "\u2212"},
+            {"le", "\u2264"},
+            {"ge", "\u2265"},
+            {"ne", "\u2260"},
+            {"asymp", "\u2248"},
+            {"infin", "\u221E"}
+        };
+        for (var entry : typographic) names.put(entry[0], entry[1]);
+        return Map.copyOf(names);
     }
 
     private static String numeric(String name) {

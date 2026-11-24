@@ -21,7 +21,7 @@
             <label th:each="document : ${documentPage.documents}"><input type="checkbox" name="documentId" th:value="${document.documentId}"
                           th:checked="${documentIds.contains(document.documentId)}">
               <span th:text="${document.name}">Document name</span>
-              <small th:text="${document.state}">EXTRACTED</small>
+              <small th:text="${document.state.label}">Text ready</small>
             </label>
           </div>
           <p th:if="${documentPage.documents.isEmpty()}">No documents on this page.</p>

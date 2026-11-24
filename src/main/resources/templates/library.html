@@ -61,7 +61,7 @@
     </section>
     <section class="notice notice-success" role="status" data-toast th:if="${uploadReceipt != null}">
       <h2>Saved and queued</h2>
-      <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state}">QUEUED</strong>.</p>
+      <p>Your document was saved. Status: <strong th:text="${uploadReceipt.state.label}">Queued</strong>.</p>
       <p><a th:href="@{/documents/{id}(id=${uploadReceipt.documentId})}">Open document</a></p>
     </section>
     <section class="notice" role="status" th:if="${uploadResults != null}"
@@ -145,7 +145,7 @@
         <li class="document-card" th:each="document : ${library.documents}" th:attr="data-document-id=${document.documentId}">
           <div class="document-card-badges">
             <span class="type-badge" th:text="${fileType.of(document.name)}">PDF</span>
-            <span class="document-state" th:text="${document.state}">QUEUED</span>
+            <span class="document-state" th:text="${document.state.label}">Queued</span>
           </div>
           <div class="document-summary">
             <a th:href="@{/documents/{id}(id=${document.documentId})}" th:text="${document.name}" data-filter-name>Document name</a>
@@ -184,7 +184,7 @@
         <label for="document-file">Choose files</label>
         <p id="upload-help" class="upload-help">
           Supported formats: .pdf, .docx, .html, .md and UTF-8 text such as .txt, .csv, .json, .xml, .yaml, .log and source code.
-          PDFs need selectable text; encrypted and scanned-only PDFs and legacy .doc files are unsupported.
+          Scanned PDFs are read with text recognition on this computer; encrypted PDFs and legacy .doc files are unsupported.
           Select up to <span th:text="${maximumFilesPerUpload}">10</span> files, or drop them here.
           Maximum file size: <span th:text="${maximumUploadSize}">10MB</span>.
         </p>

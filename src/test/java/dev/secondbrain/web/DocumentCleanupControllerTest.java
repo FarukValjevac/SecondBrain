@@ -67,7 +67,7 @@ class DocumentCleanupControllerTest {
         assertThat(html)
                 .contains(
                         "Needs attention",
-                        "Waiting 90 seconds; 5 attempts.",
+                        "Waiting 1 min; 5 attempts.",
                         "Retry cleanup",
                         "Previous",
                         "Next",

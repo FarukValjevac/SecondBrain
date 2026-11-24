@@ -1,12 +1,12 @@
 # SecondBrain
 
-SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts selectable-text PDF, Word (.docx), HTML, Markdown and UTF-8 text files such as TXT, CSV, JSON, YAML and source code through a browser form or HTTP endpoint, stores originals privately, and extracts text and prepares source-linked passages through durable background processing. The library lists uploads with processing status and links to document pages, which show numbered source lines, PDF page references, safe failure messages, retry controls, and deletion controls. Health checks, local metrics, and JSON console logs support diagnostics.
+SecondBrain is a local, single-user knowledge library built with Java and Spring Boot. Currently, it accepts PDF (including scanned PDFs, read with local text recognition), Word (.docx), HTML, Markdown and UTF-8 text files such as TXT, CSV, JSON, YAML and source code through a browser form or HTTP endpoint, stores originals privately, and extracts text and prepares source-linked passages through durable background processing. The library lists uploads with processing status and links to document pages, which show numbered source lines, PDF page references, safe failure messages, retry controls, and deletion controls. Health checks, local metrics, and JSON console logs support diagnostics.
 
 ## Project goal
 
 The goal is to turn a personal collection of notes and study materials into a library you can search and ask questions about. SecondBrain lets you:
 
-- Upload PDFs containing selectable text, Word documents, web pages, Markdown and text files, then inspect the extracted content.
+- Upload PDFs (including scans), Word documents, web pages, Markdown and text files, then inspect the extracted content.
 - Find relevant passages by meaning, even when you do not remember the exact words.
 - Ask questions about your documents and receive answers with citations linking to supporting passages.
 - Track document processing, retry failures, and delete documents and their derived data.
@@ -53,7 +53,7 @@ To ask questions, enable embeddings and configure [questions](docs/development.m
 
 The [example workflow](docs/development.md#example-workflow-fresh-checkout-to-deletion) walks through a fresh database, upload, processing, search, questions, source inspection and deletion with non-sensitive files.
 
-Supported formats, with a default limit of 10 MB per file: `.pdf`; Word `.docx`; `.html`/`.htm`; `.md`/`.markdown`; and UTF-8 text such as `.txt`, `.csv`, `.tsv`, `.json`, `.xml`, `.yaml`, `.log` and common source code. Text, Markdown and HTML must be valid UTF-8. Word reads body text only (not headers, footers, comments or images); legacy `.doc`, spreadsheets and presentations are not supported. See [supported formats](docs/development.md#supported-formats). PDFs require selectable text and support up to 200 physical pages; encrypted files and scanned documents without text are unsupported. See [PDF support and limits](docs/development.md#pdf-support-and-limits) for extraction budgets and failure behavior. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
+Supported formats, with a default limit of 10 MB per file: `.pdf`; Word `.docx`; `.html`/`.htm`; `.md`/`.markdown`; and UTF-8 text such as `.txt`, `.csv`, `.tsv`, `.json`, `.xml`, `.yaml`, `.log` and common source code. Text, Markdown and HTML must be valid UTF-8. Word reads body text only (not headers, footers, comments or images); legacy `.doc`, spreadsheets and presentations are not supported. See [supported formats](docs/development.md#supported-formats). PDFs support up to 1,000 physical pages; scanned PDFs without selectable text are read page by page with local text recognition (Tesseract), and encrypted PDFs are unsupported. See [PDF support and limits](docs/development.md#pdf-support-and-limits) for extraction budgets and failure behavior. Extraction supports up to 100,000 lines. Originals are stored in `./data/documents`. Keep this directory and the PostgreSQL data together to preserve uploads across restarts.
 
 On Windows, use `Copy-Item .env.example .env` and `mvnw.cmd` in place of `./mvnw`.
 

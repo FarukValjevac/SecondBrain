@@ -11,7 +11,7 @@
       <span th:text="${progress.vectors}">0</span> passages prepared for search.
     </p>
     <p th:if="${progress.eligibleAt.isPresent()}">Next automatic attempt no earlier than
-      <time th:datetime="${progress.eligibleAt.orElseThrow()}" th:text="${progress.eligibleAt.orElseThrow()}">Retry time</time> (UTC).
+      <time th:datetime="${progress.eligibleAt.orElseThrow()}" th:text="${dates.label(progress.eligibleAt.orElseThrow())}">Retry time</time>.
     </p>
     <form method="post" th:if="${progress.retry.isPresent()}" th:action="@{/documents/{id}/retry(id=${documentId})}">
       <input type="hidden" name="deliveryId" th:value="${progress.retry.orElseThrow().deliveryId}">
