@@ -45,13 +45,13 @@ class HighlightController {
         var service = service();
         var library = documents.getIfAvailable();
         if (library == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        var document =
-                library.find(id)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         var range =
                 DocumentDetailController.citedRange(from, to)
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST));
-        // The quote comes from the stored lines, never from the browser.
+        // Only the selected lines are read; the quote comes from them, never from the browser.
+        var document =
+                library.lines(id, range[0], range[1])
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         var quote = new StringBuilder();
         for (var line : document.lines())
             if (line.number() >= range[0] && line.number() <= range[1]) {

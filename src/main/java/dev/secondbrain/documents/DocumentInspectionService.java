@@ -159,10 +159,67 @@ public final class DocumentInspectionService {
     public Optional<DocumentView> find(UUID id) {
         Objects.requireNonNull(id, "id");
         return Objects.requireNonNull(
-                transactions.execute(status -> documents.findById(id).map(this::view)));
+                transactions.execute(
+                        status -> documents.findById(id).map(found -> view(found, true))));
     }
 
-    private DocumentView view(DocumentMetadata document) {
+    /** The same view without its text lines, for pages that do not show the text. */
+    public Optional<DocumentView> findWithoutText(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return Objects.requireNonNull(
+                transactions.execute(
+                        status -> documents.findById(id).map(found -> view(found, false))));
+    }
+
+    /**
+     * Lines {@code from..to} of a visible document's current extracted text, read on their own
+     * rather than with the whole document. Empty when the document is not visible or not extracted.
+     */
+    public Optional<LineRange> lines(UUID id, int from, int to) {
+        Objects.requireNonNull(id, "id");
+        if (from < 1 || to < from || to - from > 1000)
+            throw new IllegalArgumentException("Invalid line range");
+        return Objects.requireNonNull(
+                transactions.execute(
+                        status ->
+                                documents
+                                        .findById(id)
+                                        .filter(
+                                                found ->
+                                                        found.extractionState()
+                                                                == ExtractionState.EXTRACTED)
+                                        .map(
+                                                found ->
+                                                        new LineRange(
+                                                                found.processingVersion(),
+                                                                texts
+                                                                        .linesBetween(
+                                                                                id,
+                                                                                found
+                                                                                        .processingVersion(),
+                                                                                from,
+                                                                                to)
+                                                                        .stream()
+                                                                        .map(
+                                                                                line ->
+                                                                                        new Line(
+                                                                                                line
+                                                                                                        .number(),
+                                                                                                line
+                                                                                                        .text(),
+                                                                                                line
+                                                                                                        .pageNumber()))
+                                                                        .toList()))));
+    }
+
+    /** Some lines of one processing version of a document. */
+    public record LineRange(long processingVersion, List<Line> lines) {
+        public LineRange {
+            lines = List.copyOf(lines);
+        }
+    }
+
+    private DocumentView view(DocumentMetadata document, boolean withText) {
         var id = document.documentId();
         var progress = documents.progress(id, document.processingVersion());
         var state = document.extractionState().displayedWith(progress.deliveryState());
@@ -170,7 +227,7 @@ public final class DocumentInspectionService {
                 progress.deliveryState().equals("PENDING")
                         || progress.deliveryState().equals("RUNNING");
         var lines =
-                state == ExtractionState.EXTRACTED
+                withText && state == ExtractionState.EXTRACTED
                         ? texts
                                 .findByDocumentVersion(id, document.processingVersion())
                                 .orElseThrow(
