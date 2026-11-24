@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title th:replace="${title}">SecondBrain</title>
   <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/favicon.svg" th:href="@{/favicon.svg}" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" th:href="@{/favicon-32.png}" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" th:href="@{/apple-touch-icon.png}">
   <link rel="stylesheet" href="/css/app.css" th:href="@{/css/app.css}">
   <script src="/js/forms.js" th:src="@{/js/forms.js}" defer></script>
   <script type="module" src="/js/app.js" th:src="@{/js/app.js}"></script>
@@ -14,7 +17,7 @@
   <a class="skip-link" href="#content">Skip to content</a>
   <div class="app">
     <header class="sidebar">
-      <a class="brand" href="/" th:href="@{/}"><span class="brand-mark" aria-hidden="true"></span><span>SecondBrain</span></a>
+      <a class="brand" href="/" th:href="@{/}"><svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#0b2f35"/><circle cx="25" cy="32" r="14" fill="#0d7480"/><circle cx="39" cy="32" r="14" fill="#7fd1b0" fill-opacity=".9"/><path d="M32 19.8a14 14 0 0 1 0 24.4 14 14 0 0 1 0-24.4z" fill="#fff"/></svg><span>SecondBrain</span></a>
       <!-- app.js reveals the palette and menu buttons; without it the links below are the navigation. -->
       <button type="button" class="palette-button" aria-haspopup="dialog" aria-controls="command-palette"
               aria-keyshortcuts="Control+K Meta+K" hidden>

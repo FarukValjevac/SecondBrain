@@ -282,6 +282,10 @@ class LibraryControllerTest {
                         "<nav class=\"nav\" aria-label=\"Main\">",
                         "href=\"/library\" aria-current=\"page\"",
                         "src=\"/js/app.js\"",
+                        // The "Two minds" icon in the tab and the sidebar.
+                        "<link rel=\"icon\" href=\"/favicon.svg\" type=\"image/svg+xml\">",
+                        "rel=\"apple-touch-icon\"",
+                        "<svg class=\"brand-mark\"",
                         "id=\"nav-drawer\"",
                         // Palette, shortcut help and toast stack: native dialogs and a manual
                         // popover, inert until app.js opens them.
