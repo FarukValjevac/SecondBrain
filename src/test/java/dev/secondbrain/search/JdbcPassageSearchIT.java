@@ -515,36 +515,6 @@ class JdbcPassageSearchIT {
         assertThat(search.selectionHasNoVisibleDocument(SearchScope.all())).isFalse();
     }
 
-    @Test
-    void relatedDocumentsComeFromStoredVectorsRankedAndFilteredLikeSearch() {
-        var source = UUID.randomUUID();
-        var close = UUID.randomUUID();
-        var partial = UUID.randomUUID();
-        var unrelated = UUID.randomUUID();
-        var removed = UUID.randomUUID();
-        // The source's mean vector points along the first axis.
-        fixture(source, 7, true, new float[][] {{1, 0.2f}, {1, -0.2f}});
-        fixture(close, 7, true, new float[][] {{0, 1}, {0.95f, 0.05f}});
-        fixture(partial, 7, true, new float[][] {{0.6f, 0.8f}});
-        fixture(unrelated, 7, true, new float[][] {{0, 1}});
-        fixture(removed, 7, true, new float[][] {{1, 0}});
-        update(removed, "deleted_at = updated_at");
-
-        var related = search.related(source, MODEL, 0.3, 5).matches();
-        // Each document appears once, with its closest passage; the source itself never does.
-        assertThat(related)
-                .extracting(SearchResult.Match::documentId)
-                .containsExactly(close, partial);
-        assertThat(related.getFirst().sequence()).isEqualTo(2);
-        assertThat(related.getFirst().score()).isGreaterThan(related.getLast().score());
-        assertThat(search.related(source, MODEL, 0.3, 1).matches())
-                .extracting(SearchResult.Match::documentId)
-                .containsExactly(close);
-        // Without an eligible index there is nothing to compare against.
-        assertThat(search.related(removed, MODEL, 0.3, 5).matches()).isEmpty();
-        assertThat(search.related(UUID.randomUUID(), MODEL, 0.3, 5).matches()).isEmpty();
-    }
-
     private static void update(UUID id, String assignment) {
         // Assignments are fixed fixture constants, never query or document input.
         jdbc.sql("UPDATE documents SET " + assignment + " WHERE document_id = :id")

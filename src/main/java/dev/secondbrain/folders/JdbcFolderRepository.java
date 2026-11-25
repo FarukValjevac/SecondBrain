@@ -71,24 +71,6 @@ final class JdbcFolderRepository {
                         .single());
     }
 
-    /** Deepest level below this folder, counting the folder itself as 0. */
-    int subtreeHeight(UUID id) {
-        return jdbc.sql(
-                        """
-                        WITH RECURSIVE tree(folder_id, level) AS (
-                            SELECT folder_id, 0 FROM folders WHERE folder_id = :id
-                            UNION ALL
-                            SELECT f.folder_id, t.level + 1 FROM folders f
-                            JOIN tree t ON f.parent_id = t.folder_id
-                        )
-                        SELECT COALESCE(max(level), 0) FROM tree
-                        """)
-                .withQueryTimeout(5)
-                .param("id", id)
-                .query(Integer.class)
-                .single();
-    }
-
     void insert(Folder folder, Instant now) {
         jdbc.sql(
                         """

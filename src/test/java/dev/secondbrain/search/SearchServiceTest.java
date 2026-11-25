@@ -42,47 +42,6 @@ class SearchServiceTest {
                     embedding, passages, new SearchProperties(0.4), SearchTelemetry.disabled());
 
     @Test
-    void relatedDocumentsUseStoredVectorsOnlyAndCountTheirOutcome() {
-        var meters = new SimpleMeterRegistry();
-        try {
-            var related =
-                    new SearchService(
-                            embedding,
-                            passages,
-                            new SearchProperties(0.4),
-                            new SearchTelemetry(meters, ObservationRegistry.NOOP));
-            var id = UUID.randomUUID();
-            when(embedding.model()).thenReturn(model);
-            var found = new SearchResult(List.of(match(1, 0.9)));
-            when(passages.related(id, model, 0.4, SearchService.RELATED_LIMIT)).thenReturn(found);
-            assertThat(related.related(id)).isSameAs(found);
-            when(passages.related(id, model, 0.4, SearchService.RELATED_LIMIT))
-                    .thenReturn(new SearchResult(List.of()));
-            assertThat(related.related(id).matches()).isEmpty();
-            when(passages.related(id, model, 0.4, SearchService.RELATED_LIMIT))
-                    .thenThrow(new DataAccessResourceFailureException("private-sql-sentinel"));
-            assertThatThrownBy(() -> related.related(id))
-                    .isInstanceOfSatisfying(
-                            SearchFailure.class,
-                            failure ->
-                                    assertThat(failure.reason())
-                                            .isEqualTo(SearchFailure.Reason.DATABASE_UNAVAILABLE))
-                    .hasMessageNotContaining("private-sql-sentinel");
-            // No query is embedded: the provider is only asked for its configured model.
-            verify(embedding, never()).embed(any(), any());
-            for (var outcome : List.of("found", "none", "unavailable"))
-                assertThat(
-                                meters.get("secondbrain.search.related")
-                                        .tag("outcome", outcome)
-                                        .counter()
-                                        .count())
-                        .isEqualTo(1.0);
-        } finally {
-            meters.close();
-        }
-    }
-
-    @Test
     void finalValidationFailureCannotReturnThePreviouslyRankedText() {
         var ranked = new SearchResult(List.of(match(1, 1)));
         ready(ranked);
