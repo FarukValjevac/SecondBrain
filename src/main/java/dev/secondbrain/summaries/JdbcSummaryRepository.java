@@ -33,6 +33,7 @@ final class JdbcSummaryRepository {
                         SELECT count(*) FROM (SELECT 1 FROM documents WHERE document_id = :id
                             AND deleted_at IS NULL AND active_indexing_version = :version FOR SHARE) d
                         """)
+                        .withQueryTimeout(5)
                         .param("id", documentId)
                         .param("version", version)
                         .query(Integer.class)
@@ -45,12 +46,14 @@ final class JdbcSummaryRepository {
                 ON CONFLICT (document_id) DO UPDATE SET indexing_version = :version,
                     summary = :text, generated_at = :at
                 """)
+                .withQueryTimeout(5)
                 .param("id", documentId)
                 .param("version", version)
                 .param("text", text)
                 .param("at", Timestamp.from(at))
                 .update();
         jdbc.sql("DELETE FROM document_summary_sources WHERE document_id = :id")
+                .withQueryTimeout(5)
                 .param("id", documentId)
                 .update();
         for (int index = 0; index < passages.size(); index++)
@@ -59,6 +62,7 @@ final class JdbcSummaryRepository {
                     INSERT INTO document_summary_sources(document_id, position, passage_id)
                     VALUES (:id, :position, :passage)
                     """)
+                    .withQueryTimeout(5)
                     .param("id", documentId)
                     .param("position", index + 1)
                     .param("passage", passages.get(index))
@@ -76,6 +80,7 @@ final class JdbcSummaryRepository {
                         WHERE s.document_id = :id AND d.deleted_at IS NULL
                           AND d.active_indexing_version = s.indexing_version
                         """)
+                        .withQueryTimeout(5)
                         .param("id", documentId)
                         .query(
                                 (row, index) ->
@@ -88,6 +93,7 @@ final class JdbcSummaryRepository {
         var passages =
                 jdbc.sql(
                                 "SELECT passage_id FROM document_summary_sources WHERE document_id = :id ORDER BY position")
+                        .withQueryTimeout(5)
                         .param("id", documentId)
                         .query(UUID.class)
                         .list();
@@ -108,6 +114,7 @@ final class JdbcSummaryRepository {
                                             SET last_request = document_summary_requests.last_request + 1
                                         RETURNING last_request
                                         """)
+                                        .withQueryTimeout(5)
                                         .param("id", documentId)
                                         .query(Long.class)
                                         .single()));

@@ -176,12 +176,15 @@ class SearchController {
             HttpServletResponse response,
             SearchFeedback feedback,
             Optional<Instant> retryAt) {
-        response.setStatus(feedback.getStatus().value());
-        model.asMap().remove("searchResult");
-        model.asMap().remove("searchHits");
-        model.addAttribute("searchFeedback", feedback);
-        model.addAttribute("retryAt", feedback.acceptsRetryHint() ? retryAt : Optional.empty());
-        return "search";
+        return PageFeedback.show(
+                model,
+                response,
+                "search",
+                "searchFeedback",
+                feedback,
+                retryAt,
+                "searchResult",
+                "searchHits");
     }
 
     private static String invalid(Model model, HttpServletResponse response) {

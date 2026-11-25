@@ -86,13 +86,8 @@ class DocumentDetailController {
         // PDFs open on the original; everything else on the reading view. Unknown views fall back.
         var original = Optional.<OriginalDocumentService.Original>empty();
         var originalService = originals.getIfAvailable();
-        if (originalService != null) {
-            try {
-                original = originalService.find(id);
-            } catch (DataAccessException | TransactionException unavailable) {
-                // The original view is optional; the text views still work.
-            }
-        }
+        if (originalService != null)
+            original = optional(() -> originalService.find(id)).flatMap(found -> found);
         original.ifPresent(found -> model.addAttribute("original", found));
         boolean pdf =
                 original.map(found -> found.kind() == OriginalDocumentService.Kind.PDF)
@@ -109,76 +104,79 @@ class DocumentDetailController {
                 (selected.equals("original") ? documents.findWithoutText(id) : documents.find(id))
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         model.addAttribute("document", document);
+
+        // Each highlighted line gets the colour of its latest highlight.
+        var highlighted = new java.util.HashMap<Integer, String>();
         var notes = highlights.getIfAvailable();
-        if (notes != null) {
-            try {
-                var found = notes.forDocument(id);
-                model.addAttribute("highlights", found);
-                model.addAttribute("colors", java.util.List.of(Highlight.Color.values()));
-                // Each highlighted line gets the colour of its latest highlight.
-                var lines = new java.util.HashMap<Integer, String>();
-                for (var highlight : found)
-                    for (int line = highlight.startLine(); line <= highlight.endLine(); line++)
-                        lines.put(line, highlight.color().token());
-                model.addAttribute("highlightedLines", lines);
-            } catch (DataAccessException | TransactionException unavailable) {
-                // Highlights are optional; the document still reads.
-            }
-        }
+        if (notes != null)
+            optional(() -> notes.forDocument(id))
+                    .ifPresent(
+                            found -> {
+                                model.addAttribute("highlights", found);
+                                model.addAttribute(
+                                        "colors", java.util.List.of(Highlight.Color.values()));
+                                for (var highlight : found)
+                                    for (int line = highlight.startLine();
+                                            line <= highlight.endLine();
+                                            line++)
+                                        highlighted.put(line, highlight.color().token());
+                            });
         // A cited passage (from a source link) is highlighted; anything malformed is ignored.
-        citedRange(from, to)
-                .ifPresent(
-                        range -> {
-                            model.addAttribute("citedFrom", range[0]);
-                            model.addAttribute("citedTo", range[1]);
-                        });
-        try {
-            documents.ocrProgress(id).ifPresent(found -> model.addAttribute("ocrProgress", found));
-        } catch (DataAccessException | TransactionException unavailable) {
-            // Progress is optional.
-        }
+        var cited = citedRange(from, to);
+        cited.ifPresent(
+                range -> {
+                    model.addAttribute("citedFrom", range[0]);
+                    model.addAttribute("citedTo", range[1]);
+                });
+        model.addAttribute(
+                "marks",
+                new LineMarks(
+                        cited.map(range -> range[0]).orElse(0),
+                        cited.map(range -> range[1]).orElse(-1),
+                        highlighted));
         if (selected.equals("reading"))
             model.addAttribute("readingBlocks", ReadingView.blocks(document.lines()));
+
+        // Optional sections: each is left out when its feature is off or cannot be read.
+        optional(() -> documents.ocrProgress(id))
+                .flatMap(found -> found)
+                .ifPresent(found -> model.addAttribute("ocrProgress", found));
         var service = processing.getIfAvailable();
         if (service != null) model.addAttribute("progress", service.read(Set.of(id)).get(id));
         model.addAttribute("questionsEnabled", answers.getIfAvailable() != null);
         var folderService = folders.getIfAvailable();
-        if (folderService != null) {
-            try {
-                folderService
-                        .folderOf(id)
-                        .ifPresent(folder -> model.addAttribute("documentFolder", folder));
-            } catch (DataAccessException | TransactionException unavailable) {
-                // The folder line is optional.
-            }
-        }
+        if (folderService != null)
+            optional(() -> folderService.folderOf(id))
+                    .flatMap(found -> found)
+                    .ifPresent(folder -> model.addAttribute("documentFolder", folder));
         var pages = imports.getIfAvailable();
-        if (pages != null) {
-            try {
-                pages.source(id).ifPresent(source -> model.addAttribute("webSource", source));
-            } catch (DataAccessException | TransactionException unavailable) {
-                // The source line is optional.
-            }
-        }
+        if (pages != null)
+            optional(() -> pages.source(id))
+                    .flatMap(found -> found)
+                    .ifPresent(source -> model.addAttribute("webSource", source));
         var summarizer = summaries.getIfAvailable();
         model.addAttribute("summariesEnabled", summarizer != null);
-        if (summarizer != null) {
-            try {
-                summarizer
-                        .find(id)
-                        .ifPresent(
-                                summary -> {
-                                    model.addAttribute("summary", summary);
-                                    model.addAttribute(
-                                            "summarySegments",
-                                            CitationMarkers.segments(
-                                                    summary.text(), summary.sources().size()));
-                                });
-            } catch (DataAccessException | TransactionException unavailable) {
-                // The summary is optional; the document page still shows its text.
-            }
-        }
+        if (summarizer != null)
+            optional(() -> summarizer.find(id))
+                    .flatMap(found -> found)
+                    .ifPresent(
+                            summary -> {
+                                model.addAttribute("summary", summary);
+                                model.addAttribute(
+                                        "summarySegments",
+                                        CitationMarkers.segments(
+                                                summary.text(), summary.sources().size()));
+                            });
         return "document";
+    }
+
+    /** Reads an optional page section; a database failure leaves the section out. */
+    private static <T> Optional<T> optional(java.util.function.Supplier<T> read) {
+        try {
+            return Optional.ofNullable(read.get());
+        } catch (DataAccessException | TransactionException unavailable) {
+            return Optional.empty();
+        }
     }
 
     @PostMapping("/documents/{id}/summary")

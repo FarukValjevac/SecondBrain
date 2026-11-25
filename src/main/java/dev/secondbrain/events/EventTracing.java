@@ -94,7 +94,9 @@ final class EventTracing {
 
     private static void reportUnavailable() {
         org.slf4j.LoggerFactory.getLogger(EventTracing.class)
-                .warn("Trace instrumentation unavailable code=TELEMETRY_FAILED");
+                .atWarn()
+                .addKeyValue("code", "TELEMETRY_FAILED")
+                .log("Trace instrumentation unavailable");
     }
 
     static final class Attempt implements AutoCloseable {

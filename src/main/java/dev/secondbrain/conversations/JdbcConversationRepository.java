@@ -152,7 +152,7 @@ final class JdbcConversationRepository {
         touch(id, turn.createdAt());
     }
 
-    void rename(UUID id, String title, Instant now) {
+    void rename(UUID id, String title) {
         jdbc.sql("UPDATE conversations SET title = :title WHERE conversation_id = :id")
                 .withQueryTimeout(5)
                 .param("id", id)

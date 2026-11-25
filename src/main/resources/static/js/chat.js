@@ -1,5 +1,5 @@
 // Turns the home page form into a conversation thread. Without this script the same form posts
-// to /questions and shows the answer page. The thread exists only in this page.
+// to /chats/ask, which saves the turn and shows the chat page.
 
 const form = document.querySelector('form[data-chat]');
 const thread = document.querySelector('.thread');

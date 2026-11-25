@@ -41,6 +41,7 @@ final class JdbcFolderFileRepository {
                         FROM folder_files f LEFT JOIN documents d ON d.document_id = f.document_id
                         WHERE f.relative_path = :path
                         """)
+                .withQueryTimeout(5)
                 .param("path", path)
                 .query(
                         (row, index) ->
@@ -71,6 +72,7 @@ final class JdbcFolderFileRepository {
                 ON CONFLICT (relative_path) DO UPDATE SET content_sha256 = :hash, outcome = :outcome,
                     document_id = :document, replaced_document_id = :replaced, seen_at = :seen
                 """)
+                .withQueryTimeout(5)
                 .param("path", path)
                 .param("hash", sha256)
                 .param("outcome", outcome.name())
@@ -82,6 +84,7 @@ final class JdbcFolderFileRepository {
 
     void touch(String path, Instant seenAt) {
         jdbc.sql("UPDATE folder_files SET seen_at = :seen WHERE relative_path = :path")
+                .withQueryTimeout(5)
                 .param("path", path)
                 .param("seen", Timestamp.from(seenAt))
                 .update();
@@ -89,6 +92,7 @@ final class JdbcFolderFileRepository {
 
     void clearReplaced(String path) {
         jdbc.sql("UPDATE folder_files SET replaced_document_id = NULL WHERE relative_path = :path")
+                .withQueryTimeout(5)
                 .param("path", path)
                 .update();
     }
@@ -102,6 +106,7 @@ final class JdbcFolderFileRepository {
                         FROM folder_files f LEFT JOIN documents d ON d.document_id = f.document_id
                         WHERE f.seen_at < :started
                         """)
+                .withQueryTimeout(5)
                 .param("started", Timestamp.from(scanStarted))
                 .query(
                         (row, index) ->
@@ -120,12 +125,14 @@ final class JdbcFolderFileRepository {
 
     void remove(String path) {
         jdbc.sql("DELETE FROM folder_files WHERE relative_path = :path")
+                .withQueryTimeout(5)
                 .param("path", path)
                 .update();
     }
 
     int tracked() {
         return jdbc.sql("SELECT count(*) FROM folder_files WHERE outcome = 'IMPORTED'")
+                .withQueryTimeout(5)
                 .query(Integer.class)
                 .single();
     }

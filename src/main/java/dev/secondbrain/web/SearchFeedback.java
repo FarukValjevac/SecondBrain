@@ -5,7 +5,7 @@ import dev.secondbrain.search.SearchFailure;
 import org.springframework.http.HttpStatus;
 
 /** Closed presentation policy: no provider messages or private request data enter feedback. */
-enum SearchFeedback {
+enum SearchFeedback implements PageFeedback {
     SUCCESS(HttpStatus.OK, "Search completed", "Open a passage to inspect its source."),
     FOLDER_EMPTY(
             HttpStatus.OK,
@@ -112,6 +112,7 @@ enum SearchFeedback {
         };
     }
 
+    @Override
     public HttpStatus getStatus() {
         return status;
     }
@@ -132,7 +133,8 @@ enum SearchFeedback {
         return this == INVALID_QUERY;
     }
 
-    boolean acceptsRetryHint() {
+    @Override
+    public boolean acceptsRetryHint() {
         return this == RATE_LIMIT || this == QUOTA || this == PROVIDER;
     }
 }

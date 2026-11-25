@@ -1,6 +1,5 @@
 package dev.secondbrain.web;
 
-import dev.secondbrain.conversations.Conversation;
 import dev.secondbrain.conversations.ConversationService;
 import dev.secondbrain.documents.DocumentInspectionService;
 import dev.secondbrain.folders.FolderService;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,7 +35,7 @@ class QuestionController {
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<DocumentInspectionService> documents;
     private final ObjectProvider<FolderService> folders;
-    private final ObjectProvider<ConversationService> conversations;
+    private final ChatTurns chats;
 
     QuestionController(
             ObjectProvider<QuestionAnswerService> answers,
@@ -47,7 +45,7 @@ class QuestionController {
         this.answers = answers;
         this.documents = documents;
         this.folders = folders;
-        this.conversations = conversations;
+        this.chats = new ChatTurns(conversations);
     }
 
     @ModelAttribute
@@ -108,13 +106,13 @@ class QuestionController {
             @RequestParam MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response) {
-        return answer(fields, model, response, Optional.empty());
+        return answer(fields, model, response, Optional.empty()).view();
     }
 
     /**
      * The same question flow, rendered as one conversation turn for the home page thread, and saved
-     * in its conversation. Only the view differs: validation, generation, citation checks and
-     * signing are shared.
+     * in its conversation. Only the view differs: validation, generation and citation checks are
+     * shared.
      */
     @PostMapping(value = "/questions/turn", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
     String turn(
@@ -123,7 +121,7 @@ class QuestionController {
             HttpServletResponse response) {
         // Unique within the page, so several answers never repeat element ids.
         model.addAttribute("turnId", "turn-" + UUID.randomUUID().toString().substring(0, 8));
-        var view = conversationTurn(fields, model, response);
+        var view = conversationTurn(fields, model, response).view();
         return view.equals("questions") ? "fragments/answer :: turn" : view;
     }
 
@@ -133,18 +131,22 @@ class QuestionController {
             @RequestParam MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response) {
-        var view = conversationTurn(fields, model, response);
-        if (view.equals("questions") && model.getAttribute("conversationId") instanceof UUID id) {
+        var turn = conversationTurn(fields, model, response);
+        if (turn.view().equals("questions") && turn.saved().isPresent()) {
             var redirect =
-                    new org.springframework.web.servlet.view.RedirectView("/chats/" + id, true);
+                    new org.springframework.web.servlet.view.RedirectView(
+                            "/chats/" + turn.saved().get(), true);
             redirect.setStatusCode(org.springframework.http.HttpStatus.SEE_OTHER);
             return redirect;
         }
-        return view;
+        return turn.view();
     }
 
+    /** What a conversation request produced: the view, and the chat it was saved in, if any. */
+    private record Turn(String view, Optional<UUID> saved) {}
+
     /** Answers with the conversation's previous question as context and saves the turn. */
-    private String conversationTurn(
+    private Turn conversationTurn(
             MultiValueMap<String, String> fields, Model model, HttpServletResponse response) {
         final Optional<UUID> conversation;
         try {
@@ -155,91 +157,40 @@ class QuestionController {
                             ? Optional.empty()
                             : Optional.of(DocumentQueryForm.documentId(values.getFirst()));
         } catch (IllegalArgumentException invalid) {
-            return invalid(model, response);
+            return new Turn(invalid(model, response), Optional.empty());
         }
-        var service = conversations.getIfAvailable();
-        Optional<String> context = Optional.empty();
-        if (service != null && conversation.isPresent()) {
-            try {
-                context = service.lastQuestion(conversation.get());
-            } catch (DataAccessException | TransactionException unavailable) {
-                // Context is a help, not a requirement.
-            }
-        }
-        var view = answer(fields, model, response, context);
-        if (service != null && view.equals("questions")) save(service, conversation, model);
-        return view;
-    }
-
-    /** Saves answered and insufficient-information turns; errors are not part of a chat. */
-    private static void save(
-            ConversationService service, Optional<UUID> conversation, Model model) {
-        var feedback = model.getAttribute("questionFeedback");
-        var outcome =
-                feedback == QuestionFeedback.ANSWERED
-                        ? Conversation.Outcome.ANSWERED
-                        : feedback == QuestionFeedback.INSUFFICIENT_INFORMATION
-                                ? Conversation.Outcome.INSUFFICIENT
-                                : null;
-        var scope =
-                "all".equals(model.getAttribute("scope"))
-                        ? "all"
-                        : "folder".equals(model.getAttribute("scope"))
-                                        && model.getAttribute("scopeFolder") instanceof UUID folder
-                                ? "folder:" + folder
-                                : null;
-        if (outcome == null
-                || scope == null
-                || !(model.getAttribute("queryText") instanceof String question)) return;
-        var answer =
-                model.getAttribute("questionAnswer") instanceof QuestionAnswerService.Answer found
-                        ? found
-                        : null;
-        var sources = new ArrayList<Conversation.SourceRef>();
-        if (answer != null)
-            for (var source : answer.citations())
-                sources.add(new Conversation.SourceRef(source.documentId(), source.passageId()));
-        try {
-            model.addAttribute(
-                    "conversationId",
-                    service.save(
-                            conversation,
-                            question,
-                            scope,
-                            outcome,
-                            answer == null ? "" : answer.text(),
-                            sources));
-        } catch (DataAccessException
-                | TransactionException
-                | IllegalArgumentException
-                | IllegalStateException unsaved) {
-            // The answer is still shown; it just is not added to the saved conversation.
-            model.addAttribute("conversationUnsaved", true);
-        }
+        var asked = answer(fields, model, response, chats.previousQuestion(conversation));
+        if (!asked.view().equals("questions")) return new Turn(asked.view(), Optional.empty());
+        var saved = chats.save(conversation, asked);
+        saved.ifPresent(id -> model.addAttribute("conversationId", id));
+        if (saved.isEmpty() && asked.saveable()) model.addAttribute("conversationUnsaved", true);
+        return new Turn(asked.view(), saved);
     }
 
     /**
-     * Adds the previous question so a follow-up like "and why?" finds the right passages. The
-     * combined text stays within the question limit; the shown and saved question is unchanged.
+     * One answered (or refused) question: the rendered view plus what a chat needs to save it. The
+     * question is the user's own text; any conversation context only helped retrieval.
      */
-    static SearchQuery withContext(String previous, SearchQuery request) {
-        var question = request.text();
-        var prefix = "Earlier question in this conversation: ";
-        var middle = "\n\nCurrent question: ";
-        int budget =
-                SearchQuery.MAXIMUM_CODE_POINTS
-                        - question.codePointCount(0, question.length())
-                        - prefix.length()
-                        - middle.length();
-        if (budget < 20) return request;
-        var earlier = previous.strip();
-        if (earlier.codePointCount(0, earlier.length()) > budget)
-            earlier = earlier.substring(0, earlier.offsetByCodePoints(0, budget));
-        return new SearchQuery(
-                prefix + earlier + middle + question, request.scope(), request.limit());
+    record Asked(
+            String view,
+            Optional<String> question,
+            Optional<String> scope,
+            QuestionFeedback feedback,
+            Optional<QuestionAnswerService.Answer> answer) {
+        static Asked shown(String view, QuestionFeedback feedback) {
+            return new Asked(view, Optional.empty(), Optional.empty(), feedback, Optional.empty());
+        }
+
+        /** Answered and insufficient-information turns are saved; errors are not part of a chat. */
+        boolean saveable() {
+            return question.isPresent()
+                    && scope.isPresent()
+                    && (feedback == QuestionFeedback.ANSWERED
+                            || feedback == QuestionFeedback.INSUFFICIENT_INFORMATION);
+        }
     }
 
-    private String answer(
+    private Asked answer(
             MultiValueMap<String, String> fields,
             Model model,
             HttpServletResponse response,
@@ -248,7 +199,7 @@ class QuestionController {
         try {
             form = DocumentQueryForm.read(fields, "ask");
         } catch (IllegalArgumentException invalid) {
-            return invalid(model, response);
+            return Asked.shown(invalid(model, response), QuestionFeedback.INVALID_FORM);
         }
         DocumentQueryView.restore(form, model);
         final Optional<SearchQuery> question;
@@ -258,52 +209,75 @@ class QuestionController {
                             ? Optional.of(form.toQuery())
                             : Optional.empty();
         } catch (IllegalArgumentException invalidQuestion) {
-            return feedback(model, response, QuestionFeedback.INVALID_QUESTION, Optional.empty());
+            return Asked.shown(
+                    feedback(model, response, QuestionFeedback.INVALID_QUESTION, Optional.empty()),
+                    QuestionFeedback.INVALID_QUESTION);
         }
         var service = answers.getIfAvailable();
         if (service == null || documents.getIfAvailable() == null)
-            return feedback(model, response, QuestionFeedback.DISABLED, Optional.empty());
+            return Asked.shown(
+                    feedback(model, response, QuestionFeedback.DISABLED, Optional.empty()),
+                    QuestionFeedback.DISABLED);
+        // Only whole-library and folder questions belong to a saved chat.
+        var scope =
+                switch (form.scope()) {
+                    case ALL -> Optional.of("all");
+                    case FOLDER -> form.folder().map(folder -> "folder:" + folder);
+                    case SELECTED -> Optional.<String>empty();
+                };
         try {
             // Load picker metadata before generation so no later DB work follows the final source
             // check.
             DocumentQueryView.populate(form, documents.getObject(), model);
-            if (form.action() == DocumentQueryForm.Action.BROWSE) return "questions";
+            if (form.action() == DocumentQueryForm.Action.BROWSE)
+                return Asked.shown("questions", null);
             SearchQuery request;
             try {
                 request = FolderScope.resolve(form, question.orElseThrow(), folders);
             } catch (FolderScope.Problem problem) {
-                return feedback(
-                        model, response, QuestionFeedback.from(problem.reason()), Optional.empty());
+                var feedback = QuestionFeedback.from(problem.reason());
+                return Asked.shown(feedback(model, response, feedback, Optional.empty()), feedback);
             }
-            // The user's own question is shown, signed and saved; context only helps retrieval.
+            // The user's own question is shown and saved; context only helps retrieval.
             var asked = request.text();
-            if (context.isPresent()) request = withContext(context.get(), request);
+            if (context.isPresent()) request = ChatTurns.withContext(context.get(), request);
             model.addAttribute("queryText", asked);
             var result = service.answer(request);
-            if (result.outcome() == QuestionAnswerService.Outcome.INSUFFICIENT_INFORMATION)
-                return feedback(
-                        model,
-                        response,
+            if (result.outcome() == QuestionAnswerService.Outcome.INSUFFICIENT_INFORMATION) {
+                var feedback =
                         form.scope() == DocumentQueryForm.Scope.SELECTED
                                         && form.documentIds().isEmpty()
                                 ? QuestionFeedback.EMPTY_SELECTION
-                                : QuestionFeedback.INSUFFICIENT_INFORMATION,
+                                : QuestionFeedback.INSUFFICIENT_INFORMATION;
+                return new Asked(
+                        feedback(model, response, feedback, Optional.empty()),
+                        Optional.of(asked),
+                        scope,
+                        feedback,
                         Optional.empty());
+            }
             model.addAttribute("questionAnswer", result);
             model.addAttribute(
                     "answerSegments",
                     CitationMarkers.segments(result.text(), result.citations().size()));
             model.addAttribute("questionFeedback", QuestionFeedback.ANSWERED);
+            return new Asked(
+                    "questions",
+                    Optional.of(asked),
+                    scope,
+                    QuestionFeedback.ANSWERED,
+                    Optional.of(result));
         } catch (QuestionFailure failure) {
             if (failure.reason() == QuestionFailure.Reason.SOURCE_UNAVAILABLE
                     || failure.reason() == QuestionFailure.Reason.INVALID_EVIDENCE)
                 DocumentQueryView.restore(form, model);
-            return feedback(
-                    model, response, QuestionFeedback.from(failure.reason()), failure.retryAt());
+            var feedback = QuestionFeedback.from(failure.reason());
+            return Asked.shown(feedback(model, response, feedback, failure.retryAt()), feedback);
         } catch (DataAccessException | TransactionException unavailable) {
-            return feedback(model, response, QuestionFeedback.DATABASE, Optional.empty());
+            return Asked.shown(
+                    feedback(model, response, QuestionFeedback.DATABASE, Optional.empty()),
+                    QuestionFeedback.DATABASE);
         }
-        return "questions";
     }
 
     private static String feedback(
@@ -311,11 +285,14 @@ class QuestionController {
             HttpServletResponse response,
             QuestionFeedback feedback,
             Optional<Instant> retryAt) {
-        response.setStatus(feedback.getStatus().value());
-        model.asMap().remove("questionAnswer");
-        model.addAttribute("questionFeedback", feedback);
-        model.addAttribute("retryAt", feedback.acceptsRetryHint() ? retryAt : Optional.empty());
-        return "questions";
+        return PageFeedback.show(
+                model,
+                response,
+                "questions",
+                "questionFeedback",
+                feedback,
+                retryAt,
+                "questionAnswer");
     }
 
     private static String invalid(Model model, HttpServletResponse response) {

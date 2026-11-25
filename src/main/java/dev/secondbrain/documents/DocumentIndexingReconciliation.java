@@ -53,7 +53,10 @@ final class DocumentIndexingReconciliation {
             if (recovery != null) recovery.reconcile();
         } catch (RuntimeException unavailable) {
             LoggerFactory.getLogger(getClass())
-                    .warn("Index enrollment will retry code=DATABASE_OR_HANDLER_UNAVAILABLE");
+                    .atWarn()
+                    .addKeyValue("operation", "document_indexing_reconciliation")
+                    .addKeyValue("code", "DATABASE_OR_HANDLER_UNAVAILABLE")
+                    .log("Index enrollment will retry");
         }
     }
 }

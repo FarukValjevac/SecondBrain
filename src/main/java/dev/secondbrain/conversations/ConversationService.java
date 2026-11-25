@@ -121,7 +121,7 @@ public final class ConversationService {
                 transactions.execute(
                         status -> {
                             if (conversations.lock(id).isEmpty()) return false;
-                            conversations.rename(id, clean, clock.instant());
+                            conversations.rename(id, clean);
                             return true;
                         }));
     }
