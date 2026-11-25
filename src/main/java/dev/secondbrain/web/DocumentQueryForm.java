@@ -20,6 +20,9 @@ record DocumentQueryForm(
         Optional<UUID> folder,
         int page,
         Action action) {
+    /** Documents a person can tick in the picker. */
+    static final int MAXIMUM_PICKED = 100;
+
     DocumentQueryForm {
         Objects.requireNonNull(text, "text");
         Objects.requireNonNull(scope, "scope");
@@ -29,7 +32,7 @@ record DocumentQueryForm(
         if ((scope == Scope.FOLDER) != folder.isPresent())
             throw new IllegalArgumentException("A folder scope needs exactly one folder");
         if (page < 0
-                || documentIds.size() > SearchScope.MAXIMUM_SELECTED_DOCUMENTS
+                || documentIds.size() > MAXIMUM_PICKED
                 || text.length() > SearchQuery.MAXIMUM_CODE_POINTS * 2
                 || text.codePointCount(0, text.length()) > SearchQuery.MAXIMUM_CODE_POINTS
                 || text.indexOf('\0') >= 0
@@ -96,7 +99,7 @@ record DocumentQueryForm(
                 folder = Optional.of(documentId(single(fields, "folder", null)));
         }
         var values = fields.getOrDefault("documentId", java.util.List.of());
-        if (values.size() > SearchScope.MAXIMUM_SELECTED_DOCUMENTS)
+        if (values.size() > MAXIMUM_PICKED)
             throw new IllegalArgumentException("Too many document selections");
         var ids = new HashSet<UUID>();
         for (var value : values) ids.add(documentId(value));

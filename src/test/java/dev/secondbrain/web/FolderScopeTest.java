@@ -87,7 +87,7 @@ class FolderScopeTest {
     @Test
     void aFolderQuestionSearchesExactlyTheFolderDocuments() throws Exception {
         var inside = List.of(UUID.randomUUID(), UUID.randomUUID());
-        when(folders.documentsWithin(psychology.folderId(), 101)).thenReturn(inside);
+        when(folders.documentsWithin(psychology.folderId(), 10_001)).thenReturn(inside);
         var html =
                 ask("folder:" + psychology.folderId())
                         .andReturn()
@@ -101,16 +101,30 @@ class FolderScopeTest {
     }
 
     @Test
+    void aFolderWithMoreThanAHundredDocumentsCanBeAsked() throws Exception {
+        var many = IntStream.range(0, 250).mapToObj(i -> UUID.randomUUID()).toList();
+        when(folders.documentsWithin(psychology.folderId(), 10_001)).thenReturn(many);
+        ask("folder:" + psychology.folderId());
+        var question = ArgumentCaptor.forClass(SearchQuery.class);
+        verify(answers).answer(question.capture());
+        assertThat(
+                        ((dev.secondbrain.search.SearchScope.SelectedDocuments)
+                                        question.getValue().scope())
+                                .documentIds())
+                .hasSize(250);
+    }
+
+    @Test
     void emptyOversizedAndMissingFoldersExplainInsteadOfSearchingEverything() throws Exception {
         var id = psychology.folderId();
-        when(folders.documentsWithin(id, 101)).thenReturn(List.of());
+        when(folders.documentsWithin(id, 10_001)).thenReturn(List.of());
         assertThat(ask("folder:" + id).andReturn().getResponse().getContentAsString())
                 .contains("No documents in this folder");
-        when(folders.documentsWithin(id, 101))
-                .thenReturn(IntStream.range(0, 101).mapToObj(i -> UUID.randomUUID()).toList());
+        when(folders.documentsWithin(id, 10_001))
+                .thenReturn(IntStream.range(0, 10_001).mapToObj(i -> UUID.randomUUID()).toList());
         assertThat(ask("folder:" + id).andReturn().getResponse().getContentAsString())
                 .contains("Folder too large");
-        when(folders.documentsWithin(id, 101))
+        when(folders.documentsWithin(id, 10_001))
                 .thenThrow(new FolderException(FolderException.Reason.NOT_FOUND));
         ask("folder:" + id).andExpect(status().isNotFound());
         verify(answers, never()).answer(any());

@@ -10,6 +10,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.thymeleaf.context.LazyContextVariable;
 
 /** Tells the shared page shell which optional areas exist, so navigation never dead-ends. */
 @ControllerAdvice
@@ -27,24 +28,43 @@ class ShellModel {
         this.conversations = conversations;
     }
 
-    /** The most recent chats for the sidebar, titles only; empty when unavailable. */
+    /**
+     * The most recent chats for the sidebar, titles only; empty when unavailable. Lazy: read only
+     * when a rendered page uses it, so redirects and fragments cost no query.
+     */
     @ModelAttribute("recentChats")
-    java.util.List<Conversation.Summary> recentChats() {
-        var service = conversations.getIfAvailable();
-        if (service == null) return java.util.List.of();
-        try {
-            return service.recent(12);
-        } catch (DataAccessException | TransactionException unavailable) {
-            return java.util.List.of();
-        }
+    LazyContextVariable<java.util.List<Conversation.Summary>> recentChats() {
+        return new LazyContextVariable<>() {
+            @Override
+            protected java.util.List<Conversation.Summary> loadValue() {
+                var service = conversations.getIfAvailable();
+                if (service == null) return java.util.List.of();
+                try {
+                    return service.recent(12);
+                } catch (DataAccessException | TransactionException unavailable) {
+                    return java.util.List.of();
+                }
+            }
+        };
     }
 
     /**
-     * Every folder (at most 200) for navigation and folder choosers. Folders are a convenience:
-     * when they are off or cannot be read, pages render without them.
+     * Every folder (at most 200) for navigation and folder choosers, read only when a rendered page
+     * uses it. Folders are a convenience: when they are off or cannot be read, pages render without
+     * them.
      */
     @ModelAttribute("folderTree")
-    FolderService.FolderTree folderTree() {
+    LazyContextVariable<FolderService.FolderTree> folderTree() {
+        return new LazyContextVariable<>() {
+            @Override
+            protected FolderService.FolderTree loadValue() {
+                return tree(folders);
+            }
+        };
+    }
+
+    /** The folder tree now, for controllers; null when folders are off or unreadable. */
+    static FolderService.FolderTree tree(ObjectProvider<FolderService> folders) {
         var service = folders.getIfAvailable();
         if (service == null) return null;
         try {

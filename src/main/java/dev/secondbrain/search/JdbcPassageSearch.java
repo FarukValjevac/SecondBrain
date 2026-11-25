@@ -143,10 +143,13 @@ final class JdbcPassageSearch {
         return Boolean.TRUE.equals(
                 reads.execute(
                         status ->
+                                // Not materialized: the existence check stops at the first
+                                // complete index instead of checking every document.
                                 eligible(
                                                 scope,
                                                 model,
-                                                "SELECT EXISTS (SELECT 1 FROM eligible_indexes)")
+                                                "SELECT EXISTS (SELECT 1 FROM eligible_indexes)",
+                                                false)
                                         .query(Boolean.class)
                                         .single()));
     }
@@ -355,10 +358,18 @@ final class JdbcPassageSearch {
 
     private JdbcClient.StatementSpec eligible(
             SearchScope scope, EmbeddingModel model, String operation) {
+        return eligible(scope, model, operation, true);
+    }
+
+    private JdbcClient.StatementSpec eligible(
+            SearchScope scope, EmbeddingModel model, String operation, boolean materialized) {
         var selected = scope instanceof SearchScope.SelectedDocuments;
         var statement =
                 jdbc.sql(
-                                ELIGIBLE
+                                (materialized
+                                                ? ELIGIBLE
+                                                : ELIGIBLE.replace(
+                                                        "AS MATERIALIZED", "AS NOT MATERIALIZED"))
                                         + (selected ? " AND d.document_id IN (:documents)\n" : "")
                                         + ")\n"
                                         + operation)

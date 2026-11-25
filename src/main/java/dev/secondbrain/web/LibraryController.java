@@ -35,6 +35,7 @@ class LibraryController {
     private final ObjectProvider<DocumentProcessingService> processing;
     private final ObjectProvider<QuestionAnswerService> answers;
     private final ObjectProvider<FolderSync> folderSync;
+    private final ObjectProvider<FolderService> folders;
 
     LibraryController(
             @Value("${secondbrain.events.enabled:true}") boolean uploadsEnabled,
@@ -43,7 +44,8 @@ class LibraryController {
             ObjectProvider<DocumentInspectionService> documents,
             ObjectProvider<DocumentProcessingService> processing,
             ObjectProvider<QuestionAnswerService> answers,
-            ObjectProvider<FolderSync> folderSync) {
+            ObjectProvider<FolderSync> folderSync,
+            ObjectProvider<FolderService> folders) {
         this.uploadsEnabled = uploadsEnabled;
         this.maximumUploadSize = maximumUploadSize;
         this.maximumFilesPerUpload = maximumFilesPerUpload;
@@ -51,6 +53,7 @@ class LibraryController {
         this.processing = Objects.requireNonNull(processing, "processing");
         this.answers = Objects.requireNonNull(answers, "answers");
         this.folderSync = Objects.requireNonNull(folderSync, "folderSync");
+        this.folders = Objects.requireNonNull(folders, "folders");
     }
 
     @GetMapping("/library")
@@ -60,11 +63,10 @@ class LibraryController {
             Model model) {
         if (page < 0) throw new IllegalArgumentException("Page must not be negative");
         var folder = FolderForm.choice(folderParameter);
-        // Set by ShellModel; absent when folders are off or unreadable.
-        var folderTree =
-                model.getAttribute("folderTree") instanceof FolderService.FolderTree tree
-                        ? tree
-                        : null;
+        // Read here because the page structure depends on it; null when folders are off.
+        var folderTree = ShellModel.tree(folders);
+        // Reuse it for the shell instead of reading the tree a second time.
+        model.addAttribute("folderTree", folderTree);
         if (folder.isPresent()) {
             // An unknown folder (deleted, or folders unavailable) is a missing page, not the root.
             var current =

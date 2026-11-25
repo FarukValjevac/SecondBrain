@@ -124,7 +124,8 @@ class DocumentInspectionServiceTest {
         assertThat(service.sources(Map.of())).isEmpty();
         assertThatThrownBy(() -> service.sources(null)).isInstanceOf(NullPointerException.class);
         var tooMany = new java.util.HashMap<UUID, UUID>();
-        for (int index = 0; index < 6; index++) tooMany.put(UUID.randomUUID(), UUID.randomUUID());
+        for (int index = 0; index <= DocumentInspectionService.MAXIMUM_SOURCES; index++)
+            tooMany.put(UUID.randomUUID(), UUID.randomUUID());
         assertThatThrownBy(() -> service.sources(tooMany))
                 .isInstanceOf(IllegalArgumentException.class);
         tooMany.clear();

@@ -31,7 +31,7 @@ final class FolderScope {
                 validated.text(), SearchScope.selected(new HashSet<>(ids)), validated.limit());
     }
 
-    /** Up to 101 documents, so callers can tell when a folder exceeds the selection limit. */
+    /** One more than the scope limit, so callers can tell when a folder exceeds it. */
     static List<UUID> documents(UUID folder, ObjectProvider<FolderService> folders) {
         var service = folders.getIfAvailable();
         if (service == null) throw new Problem(Problem.Reason.MISSING);

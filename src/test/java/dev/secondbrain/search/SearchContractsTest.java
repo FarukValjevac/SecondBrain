@@ -75,10 +75,11 @@ class SearchContractsTest {
     @Test
     void boundsExplicitSelectionsAndRejectsMissingScopeOrIdentifiers() {
         var ids =
-                IntStream.range(0, 100)
+                IntStream.range(0, SearchScope.MAXIMUM_SELECTED_DOCUMENTS)
                         .mapToObj(ignored -> UUID.randomUUID())
                         .collect(Collectors.toSet());
-        assertThat(new SearchScope.SelectedDocuments(ids).documentIds()).hasSize(100);
+        assertThat(new SearchScope.SelectedDocuments(ids).documentIds())
+                .hasSize(SearchScope.MAXIMUM_SELECTED_DOCUMENTS);
         ids.add(UUID.randomUUID());
         assertThatThrownBy(() -> SearchScope.selected(ids))
                 .isInstanceOf(IllegalArgumentException.class);

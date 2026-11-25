@@ -164,6 +164,17 @@ class ConversationControllerTest {
                                                         Conversation.Outcome.ANSWERED,
                                                         "Ein Bezugspunkt [1].",
                                                         List.of(gone),
+                                                        Instant.now()),
+                                                new Conversation.Turn(
+                                                        2,
+                                                        "Und warum?",
+                                                        "all",
+                                                        Conversation.Outcome.ANSWERED,
+                                                        "Darum [1].",
+                                                        List.of(
+                                                                new Conversation.SourceRef(
+                                                                        UUID.randomUUID(),
+                                                                        UUID.randomUUID())),
                                                         Instant.now())))));
         when(documents.sources(any())).thenReturn(Map.of());
         var html =
@@ -184,6 +195,8 @@ class ConversationControllerTest {
                         "Ask a follow-up",
                         "/chats/" + chat + "/delete")
                 .doesNotContain("<i>Anker", "What do you want to know?");
+        // All sources of the chat are looked up in one read, not one per answer.
+        verify(documents, org.mockito.Mockito.times(1)).sources(any());
         mvc.perform(get("/chats/" + UUID.randomUUID())).andExpect(status().isNotFound());
     }
 

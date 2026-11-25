@@ -130,7 +130,7 @@ public final class FolderService {
     /** Visible documents in the folder and its subfolders, at most {@code limit}. */
     public List<UUID> documentsWithin(UUID folderId, int limit) {
         Objects.requireNonNull(folderId, "folderId");
-        if (limit < 1 || limit > 1000) throw new IllegalArgumentException("Invalid limit");
+        if (limit < 1 || limit > 10_001) throw new IllegalArgumentException("Invalid limit");
         return Objects.requireNonNull(
                 transactions.execute(
                         status -> {
