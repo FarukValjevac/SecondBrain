@@ -31,3 +31,6 @@ target/
 *.log
 
 # Keep Maven Wrapper artifacts trackable
+
+# Library backups (private documents)
+/backups/
