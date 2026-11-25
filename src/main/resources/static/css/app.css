@@ -2869,3 +2869,32 @@
     white-space: nowrap !important;
   }
 }
+
+/* ---------- Long documents: one section at a time ---------- */
+@layer components {
+  .section-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin-block: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .section-jump {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  .section-count {
+    color: var(--text-muted);
+  }
+
+  .section-jump button {
+    flex: none;
+    inline-size: auto;
+    min-inline-size: 3rem;
+    white-space: nowrap;
+  }
+}

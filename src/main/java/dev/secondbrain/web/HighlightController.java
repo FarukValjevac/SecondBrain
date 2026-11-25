@@ -146,7 +146,7 @@ class HighlightController {
     }
 
     private static RedirectView reading(UUID document, int line) {
-        return redirect("/documents/" + document + "?view=reading#line-" + line);
+        return redirect("/documents/" + document + "?view=reading&at=" + line + "#line-" + line);
     }
 
     private static RedirectView redirect(String path) {

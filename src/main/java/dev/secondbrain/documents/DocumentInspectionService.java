@@ -167,6 +167,90 @@ public final class DocumentInspectionService {
                         status -> documents.findById(id).map(found -> view(found, true))));
     }
 
+    /** PDF pages shown together in the reading and lines views. */
+    public static final int PAGES_PER_SECTION = 20;
+
+    /** Lines shown together for documents without pages. */
+    public static final int LINES_PER_SECTION = 1000;
+
+    /**
+     * One section of a document's text: about {@value #PAGES_PER_SECTION} PDF pages, or {@value
+     * #LINES_PER_SECTION} lines without pages. {@code part} is chosen directly, or as the section
+     * holding {@code line} (for a source link or highlight); otherwise the first. Long books are
+     * therefore never read or rendered whole.
+     */
+    public Optional<SectionView> findSection(UUID id, OptionalInt part, OptionalInt line) {
+        Objects.requireNonNull(id, "id");
+        return Objects.requireNonNull(
+                transactions.execute(
+                        status -> documents.findById(id).map(found -> section(found, part, line))));
+    }
+
+    private SectionView section(DocumentMetadata document, OptionalInt part, OptionalInt line) {
+        var empty = view(document, false);
+        if (empty.state() != ExtractionState.EXTRACTED)
+            return new SectionView(empty, new Section(1, 1, List.of()));
+        var id = document.documentId();
+        long version = document.processingVersion();
+        var extent = texts.extent(id, version);
+        boolean paged = extent.lastPage().isPresent();
+        int size = paged ? PAGES_PER_SECTION : LINES_PER_SECTION;
+        int total = paged ? extent.lastPage().getAsInt() : extent.lines();
+        int parts = Math.max(1, (total + size - 1) / size);
+        int chosen = 1;
+        if (part.isPresent()) chosen = part.getAsInt();
+        else if (line.isPresent()) {
+            var unit =
+                    paged
+                            ? texts.pageOfLine(id, version, line.getAsInt())
+                            : OptionalInt.of(line.getAsInt());
+            if (unit.isPresent()) chosen = (unit.getAsInt() - 1) / size + 1;
+        }
+        chosen = Math.min(Math.max(chosen, 1), parts);
+        int first = (chosen - 1) * size + 1;
+        int last = Math.min(chosen * size, total);
+        var stored =
+                paged
+                        ? texts.linesOnPages(id, version, first, last)
+                        : texts.linesBetween(id, version, first, last);
+        var lines =
+                stored.stream()
+                        .map(found -> new Line(found.number(), found.text(), found.pageNumber()))
+                        .toList();
+        var labels = new ArrayList<String>();
+        for (int index = 1; index <= parts; index++) {
+            int from = (index - 1) * size + 1;
+            int to = Math.min(index * size, total);
+            labels.add((paged ? "Pages " : "Lines ") + (from == to ? from : from + "–" + to));
+        }
+        return new SectionView(
+                new DocumentView(
+                        empty.documentId(),
+                        empty.name(),
+                        empty.processingVersion(),
+                        empty.state(),
+                        empty.message(),
+                        lines),
+                new Section(chosen, parts, labels));
+    }
+
+    /** Which section is shown, how many there are, and their labels ("Pages 21–40"). */
+    public record Section(int part, int parts, List<String> labels) {
+        public Section {
+            labels = List.copyOf(labels);
+        }
+
+        public boolean isSplit() {
+            return parts > 1;
+        }
+
+        public String getLabel() {
+            return labels.isEmpty() ? "" : labels.get(part - 1);
+        }
+    }
+
+    public record SectionView(DocumentView document, Section section) {}
+
     /** The same view without its text lines, for pages that do not show the text. */
     public Optional<DocumentView> findWithoutText(UUID id) {
         Objects.requireNonNull(id, "id");

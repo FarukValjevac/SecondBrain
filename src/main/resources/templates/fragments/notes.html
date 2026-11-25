@@ -8,7 +8,7 @@
        th:href="@{/documents/{id}(id=${highlight.documentId},view='reading',from=${highlight.startLine},to=${highlight.endLine})} + '#line-' + ${highlight.startLine}"
        th:text="${highlight.documentName}">notes.pdf</a>
     <a th:unless="${back == 'notes'}"
-       th:href="@{/documents/{id}(id=${highlight.documentId},view='reading')} + '#line-' + ${highlight.startLine}"
+       th:href="@{/documents/{id}(id=${highlight.documentId},view='reading',at=${highlight.startLine})} + '#line-' + ${highlight.startLine}"
        th:text="${highlight.startLine == highlight.endLine ? 'Line ' + highlight.startLine : 'Lines ' + highlight.startLine + '–' + highlight.endLine}">Lines 3–5</a>
   </p>
   <blockquote class="highlight-quote" th:text="${#strings.abbreviate(highlight.quote, 400)}">Quoted text</blockquote>
