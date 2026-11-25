@@ -16,7 +16,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.transaction.TransactionException;
 import org.springframework.ui.Model;
@@ -27,10 +26,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
 
@@ -259,15 +257,14 @@ class DocumentDetailController {
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    @ResponseBody
-    ResponseEntity<String> statusFailure(ResponseStatusException failure) {
+    ModelAndView statusFailure(ResponseStatusException failure) {
         String message =
                 failure.getStatusCode().value() == 409
                         ? "This step cannot be retried. Refresh its status; it may already be queued, paused, changed or removed."
                         : failure.getStatusCode().value() == 400
                                 ? "Refresh the document page before retrying."
                                 : "Document not found.";
-        return ResponseEntity.status(failure.getStatusCode()).body(message);
+        return ErrorPage.of(failure.getStatusCode(), message);
     }
 
     @ExceptionHandler({
@@ -275,17 +272,15 @@ class DocumentDetailController {
         TransactionException.class,
         IllegalStateException.class
     })
-    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
-    @ResponseBody
-    String unavailable() {
-        return "Documents are temporarily unavailable. Try again later.";
+    ModelAndView unavailable() {
+        return ErrorPage.of(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Documents are temporarily unavailable. Try again later.");
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    @ResponseBody
-    String invalidId() {
-        return "Use a valid document ID.";
+    ModelAndView invalidId() {
+        return ErrorPage.of(HttpStatus.BAD_REQUEST, "Use a valid document ID.");
     }
 
     /** Lines {@code from..to} of a cited passage: positive, ordered, at most 500 lines. */

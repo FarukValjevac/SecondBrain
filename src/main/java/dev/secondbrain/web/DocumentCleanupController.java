@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.transaction.TransactionException;
 import org.springframework.ui.Model;
@@ -19,7 +18,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import org.springframework.web.servlet.view.RedirectView;
@@ -72,9 +70,9 @@ class DocumentCleanupController {
             return invalid();
         }
         if (!cleanup.retry(id, delivery, cycle, correlationId))
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(
-                            "Cleanup cannot be retried. Refresh its status; it may be queued, paused or already complete.");
+            return ErrorPage.of(
+                    HttpStatus.CONFLICT,
+                    "Cleanup cannot be retried. Refresh its status; it may be queued, paused or already complete.");
         feedback.addFlashAttribute(
                 "cleanupMessage", "Cleanup retry queued. The document stays removed.");
         var redirect = new RedirectView("/documents/cleanup", true);
@@ -83,10 +81,10 @@ class DocumentCleanupController {
     }
 
     @ExceptionHandler({IllegalArgumentException.class, MethodArgumentTypeMismatchException.class})
-    @ResponseBody
-    ResponseEntity<String> invalid() {
-        return ResponseEntity.badRequest()
-                .body("Refresh cleanup status and use a non-negative page number.");
+    org.springframework.web.servlet.ModelAndView invalid() {
+        return ErrorPage.of(
+                HttpStatus.BAD_REQUEST,
+                "Refresh cleanup status and use a non-negative page number.");
     }
 
     @ExceptionHandler({
@@ -94,9 +92,9 @@ class DocumentCleanupController {
         TransactionException.class,
         IllegalStateException.class
     })
-    @ResponseBody
-    ResponseEntity<String> unavailable() {
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body("Cleanup status is temporarily unavailable. Deleted documents stay removed.");
+    org.springframework.web.servlet.ModelAndView unavailable() {
+        return ErrorPage.of(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Cleanup status is temporarily unavailable. Deleted documents stay removed.");
     }
 }

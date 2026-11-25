@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{fragments/shell :: page(~{::title}, 'error', ~{::main}, ~{})}">
+<head>
+  <title>Something went wrong | SecondBrain</title>
+</head>
+<body>
+  <main id="content" class="error-page"
+        th:with="code=${status != null ? status : 500},
+                 heading=${code == 404 ? 'Page not found' : code == 403 ? 'Not allowed' : code == 400 ? 'Check the request' : code == 409 ? 'Already changed' : code == 413 ? 'File too large' : code >= 500 ? 'Something went wrong' : 'Request not completed'},
+                 fallback=${code == 404 ? 'This page or document does not exist, or it was deleted.' : code == 400 ? 'The link or form contained a value SecondBrain cannot use. Go back and try again.' : code == 409 ? 'Someone or something changed this in the meantime. Refresh and try again.' : code >= 500 ? 'SecondBrain could not finish this request. Try again in a moment; your documents are safe.' : 'This request could not be completed.'}">
+    <p class="error-code" th:text="${code}">404</p>
+    <h1 th:text="${heading}">Page not found</h1>
+    <p class="error-message" th:text="${errorMessage != null ? errorMessage : fallback}">This page does not exist.</p>
+    <nav class="error-actions" aria-label="Where to go next">
+      <a class="button-link" href="/library" th:href="@{/library}">Open the library</a>
+      <a class="button-link secondary-link" href="/" th:href="@{/}">Ask your documents</a>
+    </nav>
+  </main>
+</body>
+</html>
