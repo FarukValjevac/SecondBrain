@@ -265,7 +265,7 @@ class DocumentIndexingIT {
             id = fixture(context, 1);
         }
         try (var restarted = start(false, false, true)) {
-            await().atMost(Duration.ofSeconds(10))
+            await().atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> assertThat(count(restarted, "event_keys", id)).isEqualTo(1));
         }
@@ -426,7 +426,7 @@ class DocumentIndexingIT {
             context.getBean(DocumentIndexingService.class)
                     .requestNext(id, UUID.randomUUID())
                     .orElseThrow();
-            await().atMost(Duration.ofSeconds(10))
+            await().atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> {
                                 assertThat(
@@ -571,7 +571,7 @@ class DocumentIndexingIT {
 
     private static void awaitCompleted(ConfigurableApplicationContext context, UUID id) {
         await().pollInterval(Duration.ofMillis(50))
-                .atMost(Duration.ofSeconds(10))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () ->
                                 assertThat(

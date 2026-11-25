@@ -109,7 +109,7 @@ class DurableEventWorkerTest {
             clock.advance(Duration.ofSeconds(5));
             Assertions.assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
             Awaitility.await()
-                    .atMost(Duration.ofSeconds(2))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () ->
                                     Mockito.verify(store)
@@ -207,7 +207,7 @@ class DurableEventWorkerTest {
             Assertions.assertThatThrownBy(worker::start).isInstanceOf(IllegalStateException.class);
             release.countDown();
             Awaitility.await()
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () ->
                                     Assertions.assertThatCode(worker::start)

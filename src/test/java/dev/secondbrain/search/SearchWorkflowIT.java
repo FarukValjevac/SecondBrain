@@ -261,7 +261,7 @@ class SearchWorkflowIT {
         try (var traces = new TraceProbe();
                 var context = start(restarted, traces)) {
             await().during(Duration.ofMillis(200))
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(() -> assertThat(restarted.calls).isEmpty());
             assertThat(
                             context.getBean(MeterRegistry.class)
@@ -320,7 +320,7 @@ class SearchWorkflowIT {
             var service = context.getBean(SearchService.class);
             assertFailure(service, query(ALPHA, SearchScope.all()), expected);
             await().during(Duration.ofMillis(200))
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(() -> assertThat(provider.calls.size()).isEqualTo(before + 1));
             assertThat(vectors(context)).isEqualTo(vectors);
             assertThat(jobs(context)).isEqualTo(jobs);

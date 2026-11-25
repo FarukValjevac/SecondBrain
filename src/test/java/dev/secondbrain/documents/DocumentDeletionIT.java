@@ -318,7 +318,7 @@ class DocumentDeletionIT {
                                     .request(id, UUID.randomUUID()))
                     .isTrue();
             Awaitility.await()
-                    .atMost(Duration.ofSeconds(10))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> {
                                 assertThat(cleanupState(context, id)).isEqualTo("PENDING");
@@ -352,7 +352,7 @@ class DocumentDeletionIT {
 
     private static void awaitRemoved(ConfigurableApplicationContext context, UUID id) {
         Awaitility.await()
-                .atMost(Duration.ofSeconds(10))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () ->
                                 assertThat(

@@ -27,6 +27,7 @@
         <!-- Spotless 3.10.4 requires the Style enum API changed in formatter 1.37.0. -->
         <google-java-format.version>1.36.1</google-java-format.version>
         <pdfbox.version>3.0.8</pdfbox.version>
+        <archunit.version>1.4.1</archunit.version>
         <!-- Test JVMs. Serial by default: on a busy laptop parallel JVMs gain little and make timing
              tests unreliable. CI passes -Dtest.forkCount=2 -Dit.forkCount=3 on its dedicated cores. -->
         <test.forkCount>1</test.forkCount>
@@ -115,6 +116,13 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Architecture rules from .task/architecture.md, checked as a unit test. -->
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

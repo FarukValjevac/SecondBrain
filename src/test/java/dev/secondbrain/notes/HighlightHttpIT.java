@@ -10,14 +10,11 @@ import static dev.secondbrain.TestHttp.upload;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.TestDatabase;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -140,17 +137,14 @@ class HighlightHttpIT {
     }
 
     private ConfigurableApplicationContext start(TestDatabase postgres) {
-        return new SpringApplicationBuilder(SecondBrainApplication.class)
-                .web(WebApplicationType.SERVLET)
-                .registerShutdownHook(false)
-                .run(
-                        postgres.arguments(
-                                "--secondbrain.telemetry.otlp-endpoint=",
-                                "--server.address=127.0.0.1",
-                                "--server.port=0",
-                                "--secondbrain.documents.indexing.enabled=false",
-                                "--secondbrain.events.polling-enabled=true",
-                                "--secondbrain.events.poll-interval=50ms",
-                                "--secondbrain.documents.storage-directory=" + storage));
+        return dev.secondbrain.TestApplication.run(
+                postgres.arguments(
+                        "--secondbrain.telemetry.otlp-endpoint=",
+                        "--server.address=127.0.0.1",
+                        "--server.port=0",
+                        "--secondbrain.documents.indexing.enabled=false",
+                        "--secondbrain.events.polling-enabled=true",
+                        "--secondbrain.events.poll-interval=50ms",
+                        "--secondbrain.documents.storage-directory=" + storage));
     }
 }

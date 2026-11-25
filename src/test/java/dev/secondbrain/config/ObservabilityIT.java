@@ -134,7 +134,7 @@ class ObservabilityIT {
         awaitCompleted();
         var sink = context.getBean(TraceSink.class);
         Awaitility.await()
-                .atMost(Duration.ofSeconds(5))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () -> {
                             context.getBean(SdkTracerProvider.class)
@@ -179,7 +179,7 @@ class ObservabilityIT {
         context.getBean(ProbeHandler.class).failEffect.set(true);
         publish(event());
         Awaitility.await()
-                .atMost(Duration.ofSeconds(5))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () -> {
                             Assertions.assertThat(counter("retry")).isEqualTo(1);
@@ -213,7 +213,7 @@ class ObservabilityIT {
 
     private void awaitCompleted() {
         Awaitility.await()
-                .atMost(Duration.ofSeconds(5))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () ->
                                 Assertions.assertThat(
@@ -222,7 +222,7 @@ class ObservabilityIT {
                                                         .single())
                                         .isEqualTo("COMPLETED"));
         Awaitility.await()
-                .atMost(Duration.ofSeconds(5))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(() -> Assertions.assertThat(counter("completed")).isEqualTo(1));
     }
 

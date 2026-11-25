@@ -68,26 +68,70 @@ public final class TestHttp {
         return URLEncoder.encode(text, StandardCharsets.UTF_8);
     }
 
+    /** The boundary used by {@link #multipart}; send with {@link #MULTIPART_TYPE}. */
+    public static final String MULTIPART_TYPE =
+            "multipart/form-data; boundary=test-upload-boundary";
+
+    /**
+     * A multipart form body with optional text fields (name, value pairs) followed by one file part
+     * named "file".
+     */
+    public static byte[] multipart(
+            String filename, String contentType, byte[] data, String... fields) {
+        if (fields.length % 2 != 0) throw new IllegalArgumentException("Fields come in pairs");
+        var body = new ByteArrayOutputStream();
+        for (int index = 0; index < fields.length; index += 2)
+            body.writeBytes(
+                    ("--test-upload-boundary\r\nContent-Disposition: form-data; name=\""
+                                    + fields[index]
+                                    + "\"\r\n\r\n"
+                                    + fields[index + 1]
+                                    + "\r\n")
+                            .getBytes(StandardCharsets.UTF_8));
+        body.writeBytes(
+                ("--test-upload-boundary\r\nContent-Disposition: form-data; name=\"file\";"
+                                + " filename=\""
+                                + filename
+                                + "\"\r\nContent-Type: "
+                                + contentType
+                                + "\r\n\r\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        body.writeBytes(data);
+        body.writeBytes("\r\n--test-upload-boundary--\r\n".getBytes(StandardCharsets.UTF_8));
+        return body.toByteArray();
+    }
+
+    /** Uploads like the browser form (to /documents/upload), optionally into a folder. */
+    public static HttpResponse<String> browserUpload(
+            HttpClient client, URI origin, String filename, String text, String... fields)
+            throws IOException, InterruptedException {
+        return client.send(
+                HttpRequest.newBuilder(origin.resolve("/documents/upload"))
+                        .timeout(Duration.ofSeconds(15))
+                        .header("Content-Type", MULTIPART_TYPE)
+                        .header("Origin", "null")
+                        .header("Sec-Fetch-Site", "same-origin")
+                        .POST(
+                                HttpRequest.BodyPublishers.ofByteArray(
+                                        multipart(
+                                                filename,
+                                                "text/markdown",
+                                                text.getBytes(StandardCharsets.UTF_8),
+                                                fields)))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     /** Uploads through the JSON endpoint and returns the accepted document's ID. */
     public static UUID upload(HttpClient client, URI origin, String filename, byte[] data)
             throws IOException, InterruptedException {
-        var boundary = "test-upload-boundary";
-        var body = new ByteArrayOutputStream();
-        body.writeBytes(
-                ("--"
-                                + boundary
-                                + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
-                                + filename
-                                + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-        body.writeBytes(data);
-        body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        var body = multipart(filename, "application/octet-stream", data);
         var response =
                 client.send(
                         HttpRequest.newBuilder(origin.resolve("/documents"))
                                 .timeout(Duration.ofSeconds(15))
-                                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                                .header("Content-Type", MULTIPART_TYPE)
+                                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                                 .build(),
                         HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(202);

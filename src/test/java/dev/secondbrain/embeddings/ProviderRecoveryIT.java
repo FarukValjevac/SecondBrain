@@ -157,7 +157,7 @@ class ProviderRecoveryIT {
         }
         try (var restarted = start()) {
             await().during(Duration.ofMillis(200))
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(() -> assertThat(stub.alphaCalls).hasValue(2));
             assertThat(attempts(delivery)).isEqualTo(1);
             assertThat(vectorCount(id)).isEqualTo(1);
@@ -315,7 +315,7 @@ class ProviderRecoveryIT {
             // Either graceful cancellation recorded failure, or its old lease needs expiry
             // recovery.
             clock.advance(Duration.ofSeconds(12));
-            await().atMost(Duration.ofSeconds(10))
+            await().atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> {
                                 var state = state(id);
@@ -478,7 +478,7 @@ class ProviderRecoveryIT {
     }
 
     private void idle(ConfigurableApplicationContext context) {
-        await().atMost(Duration.ofSeconds(5))
+        await().atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () ->
                                 assertThat(

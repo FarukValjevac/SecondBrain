@@ -1678,7 +1678,9 @@ Apply Java formatting before committing:
 ./mvnw spotless:apply
 ```
 
-The [GitHub Actions workflow](../.github/workflows/verify.yml) runs the shared Maven verification command on pushes and manual dispatch. It can be started manually from the Actions tab.
+The [GitHub Actions workflow](../.github/workflows/verify.yml) runs on pushes and manual dispatch, as two parallel jobs: **unit** (`verify -Dit.test=NONE`: unit tests in two JVMs, formatting and the package, no Docker) and **integration** (`verify -Dtest=NONE`: PostgreSQL integration tests in three JVMs plus the real Tesseract check). Tesseract's Ubuntu packages are installed through `awalsh128/cache-apt-pkgs-action`, so after the first run they come from the Actions cache instead of a package mirror. When a job fails, its Surefire or Failsafe reports are kept as a workflow artifact for seven days. It can be started manually from the Actions tab.
+
+Test conventions: integration tests start the application with `TestApplication.run(...)` and send uploads with `TestHttp.multipart(...)` / `TestHttp.browserUpload(...)`; background work is awaited for at least 15 seconds (it costs nothing when it is fast); migration counts come from `TestDatabase.migrationCount()`, so a new migration needs no test edits. `ArchitectureTest` (ArchUnit) checks the feature boundaries: only `web` knows about pages, controllers never use `Jdbc*` repositories, events and providers know no feature, and feature packages have no dependency cycles.
 
 ## Troubleshooting
 
