@@ -1683,6 +1683,14 @@ The [GitHub Actions workflow](../.github/workflows/verify.yml) runs on pushes an
 
 Test conventions: integration tests start the application with `TestApplication.run(...)` and send uploads with `TestHttp.multipart(...)` / `TestHttp.browserUpload(...)`; background work is awaited for at least 15 seconds (it costs nothing when it is fast); migration counts come from `TestDatabase.migrationCount()`, so a new migration needs no test edits. `ArchitectureTest` (ArchUnit) checks the feature boundaries: only `web` knows about pages, controllers never use `Jdbc*` repositories, events and providers know no feature, and feature packages have no dependency cycles.
 
+## Backup and restore
+
+`scripts/backup.sh [storage-directory]` writes `backups/secondbrain-<yyyymmdd-hhmmss>.tar.gz` (mode 600, inside a 700 directory). It holds `database.dump` (a `pg_dump` custom-format dump made inside the Compose `postgres` container, so no password is read or printed), `documents/` (a copy of the storage directory, default `./data/documents`) and `manifest.txt` (time, number of originals, dump size). Stop SecondBrain first for a fully consistent copy; while it runs, the script warns that uploads during the backup may be missing.
+
+`scripts/restore.sh <archive> [storage-directory] [--replace]` refuses while SecondBrain listens on port 8080, and refuses to overwrite a database that already holds documents or a non-empty storage directory unless `--replace` is given. It drops and recreates the database, restores the dump (schema, Flyway history, documents, passages, vectors, chats, notes) and copies the originals back with private permissions. Start SecondBrain normally afterwards; originals without a document row are removed by the regular cleanup.
+
+`SECONDBRAIN_DB_CONTAINER` (a container name) and `SECONDBRAIN_PORT` override the Compose service and the port check, for example to try both scripts against a throwaway database. Both were checked that way: back up two documents, restore into an empty database and storage folder, start the app on them and download an original; and restore an older backup over a newer library with `--replace`.
+
 ## Troubleshooting
 
 - **Java runtime not found:** run `java -version` in the same terminal. Ensure a Java 25 JDK is available through `JAVA_HOME` or `PATH` in every new shell.

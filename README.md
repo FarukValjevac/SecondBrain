@@ -85,6 +85,22 @@ For automatic development restarts and HTML/CSS refreshes, start with `./mvnw -P
 
 `test` runs the fast suite without Docker. `verify` also runs PostgreSQL integration tests, including the example workflow from an empty database with deterministic providers, packages the application, and checks formatting; it requires a running Docker engine but no Cloudflare credentials. Locally, test classes run one at a time. CI runs unit and integration tests as two parallel jobs, each with several JVMs (each integration JVM with its own PostgreSQL container); on a Mac, Docker Desktop's small VM gains little from parallel JVMs, so use `-Dtest.forkCount=2 -Dit.forkCount=3` locally only on an otherwise idle machine.
 
+## Backup and restore
+
+Back up the whole library (database and stored originals) into one dated archive under `./backups` (ignored by Git; keep it private):
+
+```sh
+scripts/backup.sh
+```
+
+Restore it into an empty setup with SecondBrain stopped and PostgreSQL running; `--replace` deletes the current library first:
+
+```sh
+scripts/restore.sh backups/secondbrain-<date>.tar.gz
+```
+
+See [backup and restore](docs/development.md#backup-and-restore).
+
 ## Shutdown
 
 Stop the application with `Ctrl+C`, then stop the database:
