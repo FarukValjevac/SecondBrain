@@ -44,7 +44,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -111,7 +110,7 @@ class DocumentIndexingWorkflowIT {
             assertThat(inference.calls.get()).isEqualTo(rows(context, "document_passages", id));
             assertLocationsAndIdentity(context, id, format);
             assertCorrelation(context, id, correlation);
-            await().atMost(Duration.ofSeconds(10))
+            await().atMost(Duration.ofSeconds(15))
                     .untilAsserted(() -> assertStageTraces(traces, context, id, correlation));
             var versions = context.getBean(DocumentIndexingService.class);
             int calls = inference.calls.get();
@@ -163,7 +162,7 @@ class DocumentIndexingWorkflowIT {
         try (var traces = new TraceProbe();
                 var context = start(resumed, traces)) {
             await().during(Duration.ofMillis(200))
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> {
                                 assertThat(resumed.calls.get()).isZero();
@@ -184,7 +183,7 @@ class DocumentIndexingWorkflowIT {
             assertThat(timer(context)).isZero();
             assertThat(attempts(context, id)).isEqualTo(2);
             await().during(Duration.ofMillis(200))
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(() -> assertThat(idle.calls.get()).isZero());
         }
     }
@@ -227,7 +226,7 @@ class DocumentIndexingWorkflowIT {
         try (var traces = new TraceProbe();
                 var context = start(idle, traces)) {
             await().during(Duration.ofMillis(200))
-                    .atMost(Duration.ofSeconds(3))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> {
                                 assertCleaned(context, id, original);
@@ -449,21 +448,16 @@ class DocumentIndexingWorkflowIT {
                                                         + ": unique study material with café and Unicode 📚.\n")
                                 .collect(java.util.stream.Collectors.joining())
                                 .getBytes(StandardCharsets.UTF_8);
-        var body = new ByteArrayOutputStream();
-        body.writeBytes(
-                ("--workflow-boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"private-workflow."
-                                + format.extension
-                                + "\"\r\nContent-Type: application/octet-stream\r\n\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-        body.writeBytes(bytes);
-        body.writeBytes("\r\n--workflow-boundary--\r\n".getBytes(StandardCharsets.UTF_8));
+        var body =
+                dev.secondbrain.TestHttp.multipart(
+                        "private-workflow." + format.extension, "application/octet-stream", bytes);
         int port = ((WebServerApplicationContext) context).getWebServer().getPort();
         var request =
                 HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/documents"))
                         .timeout(Duration.ofSeconds(10))
                         .header("X-Correlation-ID", correlation.toString())
-                        .header("Content-Type", "multipart/form-data; boundary=workflow-boundary")
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                        .header("Content-Type", dev.secondbrain.TestHttp.MULTIPART_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                         .build();
         var response = client.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(202);

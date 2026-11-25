@@ -51,6 +51,21 @@ public final class TestDatabase implements AutoCloseable {
         return container;
     }
 
+    /**
+     * The number of Flyway migrations shipped with the application, read from the migration files
+     * so a new migration needs no test edits. Versions are consecutive, so this is also the latest
+     * version.
+     */
+    public static int migrationCount() {
+        try {
+            return new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                    .getResources("classpath*:db/migration/V*__*.sql")
+                    .length;
+        } catch (java.io.IOException unreadable) {
+            throw new IllegalStateException("Migrations could not be listed", unreadable);
+        }
+    }
+
     public String getJdbcUrl() {
         return jdbcUrl;
     }

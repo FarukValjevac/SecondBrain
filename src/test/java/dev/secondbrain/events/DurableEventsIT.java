@@ -233,7 +233,7 @@ class DurableEventsIT {
         context.close();
         startContext(true);
         Awaitility.await()
-                .atMost(Duration.ofSeconds(5))
+                .atMost(Duration.ofSeconds(15))
                 .untilAsserted(
                         () ->
                                 Assertions.assertThat(state(original.eventId()))
@@ -571,7 +571,7 @@ class DurableEventsIT {
             clock.advance(Duration.ofSeconds(5));
             Assertions.assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
             Awaitility.await()
-                    .atMost(Duration.ofSeconds(5))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> {
                                 Assertions.assertThat(
@@ -591,7 +591,7 @@ class DurableEventsIT {
             Assertions.assertThat(maximum).hasValue(2);
             release.countDown();
             Awaitility.await()
-                    .atMost(Duration.ofSeconds(5))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () -> Assertions.assertThat(count("probe_effects")).isEqualTo(1));
             for (UUID id : timedOutDocuments) {

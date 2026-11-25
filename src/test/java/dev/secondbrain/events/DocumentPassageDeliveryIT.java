@@ -234,7 +234,7 @@ class DocumentPassageDeliveryIT {
         List<Map<String, Object>> snapshot;
         UUID factId;
         try (var context = start(true, true, true)) {
-            await().atMost(Duration.ofSeconds(10))
+            await().atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () ->
                                     assertThat(

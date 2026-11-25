@@ -51,9 +51,10 @@ class DatabaseMigrationIT {
             var flyway = context.getBean(Flyway.class);
             assertRetryMigration(jdbc, failedDelivery);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(26);
+            Assertions.assertThat(flyway.info().applied()).hasSize(TestDatabase.migrationCount());
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("26");
+            Assertions.assertThat(firstMigration.getVersion().getVersion())
+                    .isEqualTo(Integer.toString(TestDatabase.migrationCount()));
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -178,7 +179,7 @@ class DatabaseMigrationIT {
             var flyway = context.getBean(Flyway.class);
             assertRetryMigration(jdbc, failedDelivery);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(26);
+            Assertions.assertThat(flyway.info().applied()).hasSize(TestDatabase.migrationCount());
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(
@@ -191,7 +192,7 @@ class DatabaseMigrationIT {
                             jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE success")
                                     .query(Integer.class)
                                     .single())
-                    .isEqualTo(26);
+                    .isEqualTo(TestDatabase.migrationCount());
             assertExtractedLines(jdbc, documentId);
             Assertions.assertThat(
                             jdbc.sql(

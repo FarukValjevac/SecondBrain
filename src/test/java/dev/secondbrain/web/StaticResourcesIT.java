@@ -6,13 +6,10 @@ import static dev.secondbrain.TestHttp.origin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.TestDatabase;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 
 import java.nio.file.Path;
 import java.util.regex.Pattern;
@@ -25,17 +22,13 @@ class StaticResourcesIT {
     void servesHashedAssetsWithTheirCachingPolicy() throws Exception {
         try (var postgres = TestDatabase.create();
                 var context =
-                        new SpringApplicationBuilder(SecondBrainApplication.class)
-                                .web(WebApplicationType.SERVLET)
-                                .registerShutdownHook(false)
-                                .run(
-                                        postgres.arguments(
-                                                "--secondbrain.telemetry.otlp-endpoint=",
-                                                "--server.address=127.0.0.1",
-                                                "--server.port=0",
-                                                "--secondbrain.events.polling-enabled=false",
-                                                "--secondbrain.documents.storage-directory="
-                                                        + storage));
+                        dev.secondbrain.TestApplication.run(
+                                postgres.arguments(
+                                        "--secondbrain.telemetry.otlp-endpoint=",
+                                        "--server.address=127.0.0.1",
+                                        "--server.port=0",
+                                        "--secondbrain.events.polling-enabled=false",
+                                        "--secondbrain.documents.storage-directory=" + storage));
                 var client = client()) {
             var origin = origin(context);
             var page = get(client, origin, "/library").body();

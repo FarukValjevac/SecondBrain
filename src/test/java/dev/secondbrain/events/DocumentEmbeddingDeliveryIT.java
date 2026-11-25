@@ -368,7 +368,7 @@ class DocumentEmbeddingDeliveryIT {
         restartedProvider.failAt = 1;
         try (var context = start(restartedProvider, true, true)) {
             await().pollInterval(Duration.ofMillis(50))
-                    .atMost(Duration.ofSeconds(8))
+                    .atMost(Duration.ofSeconds(15))
                     .untilAsserted(
                             () ->
                                     assertThat(

@@ -2,23 +2,16 @@ package dev.secondbrain.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.secondbrain.SecondBrainApplication;
 import dev.secondbrain.TestDatabase;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-import java.io.ByteArrayOutputStream;
 import java.net.CookieManager;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.UUID;
@@ -74,43 +67,18 @@ class DuplicateUploadIT {
 
     private static String upload(HttpClient client, URI origin, String name, String text)
             throws Exception {
-        var boundary = "duplicate-test-boundary";
-        var body = new ByteArrayOutputStream();
-        body.writeBytes(
-                ("--"
-                                + boundary
-                                + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
-                                + name
-                                + "\"\r\nContent-Type: text/markdown\r\n\r\n"
-                                + text
-                                + "\r\n--"
-                                + boundary
-                                + "--\r\n")
-                        .getBytes(StandardCharsets.UTF_8));
-        var response =
-                client.send(
-                        HttpRequest.newBuilder(origin.resolve("/documents/upload"))
-                                .timeout(Duration.ofSeconds(15))
-                                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                                .header("Origin", "null")
-                                .header("Sec-Fetch-Site", "same-origin")
-                                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
+        var response = dev.secondbrain.TestHttp.browserUpload(client, origin, name, text);
         assertThat(response.statusCode()).isEqualTo(200);
         return response.body();
     }
 
     private ConfigurableApplicationContext start(TestDatabase postgres) {
-        return new SpringApplicationBuilder(SecondBrainApplication.class)
-                .web(WebApplicationType.SERVLET)
-                .registerShutdownHook(false)
-                .run(
-                        postgres.arguments(
-                                "--secondbrain.telemetry.otlp-endpoint=",
-                                "--server.address=127.0.0.1",
-                                "--server.port=0",
-                                "--secondbrain.events.polling-enabled=false",
-                                "--secondbrain.documents.storage-directory=" + storage));
+        return dev.secondbrain.TestApplication.run(
+                postgres.arguments(
+                        "--secondbrain.telemetry.otlp-endpoint=",
+                        "--server.address=127.0.0.1",
+                        "--server.port=0",
+                        "--secondbrain.events.polling-enabled=false",
+                        "--secondbrain.documents.storage-directory=" + storage));
     }
 }
