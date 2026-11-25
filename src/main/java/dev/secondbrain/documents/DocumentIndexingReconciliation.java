@@ -16,6 +16,7 @@ final class DocumentIndexingReconciliation {
     private final ObjectProvider<DocumentPassageHandler> passages;
     private final ObjectProvider<DocumentEmbeddingHandler> embeddings;
     private final ObjectProvider<DocumentIndexPublication> publication;
+    private final boolean reprepare;
 
     DocumentIndexingReconciliation(
             JdbcIndexingRepository indexes,
@@ -24,12 +25,24 @@ final class DocumentIndexingReconciliation {
             ObjectProvider<DocumentPassageHandler> passages,
             ObjectProvider<DocumentEmbeddingHandler> embeddings,
             ObjectProvider<DocumentIndexPublication> publication) {
+        this(indexes, indexing, events, passages, embeddings, publication, false);
+    }
+
+    DocumentIndexingReconciliation(
+            JdbcIndexingRepository indexes,
+            DocumentIndexingService indexing,
+            EventPublisher events,
+            ObjectProvider<DocumentPassageHandler> passages,
+            ObjectProvider<DocumentEmbeddingHandler> embeddings,
+            ObjectProvider<DocumentIndexPublication> publication,
+            boolean reprepare) {
         this.indexes = indexes;
         this.indexing = indexing;
         this.events = events;
         this.passages = passages;
         this.embeddings = embeddings;
         this.publication = publication;
+        this.reprepare = reprepare;
     }
 
     // Recovery for work that predates a handler or lost its delivery: soon after startup, then
@@ -51,6 +64,12 @@ final class DocumentIndexingReconciliation {
             }
             var recovery = publication.getIfAvailable();
             if (recovery != null) recovery.reconcile();
+            // Opt-in: re-prepare a few documents per pass with the current passage splitting.
+            // Each one is embedded again, which uses the provider's allowance; the old index
+            // stays searchable until the new one is complete.
+            if (reprepare && passages.getIfAvailable() != null)
+                for (var document : indexes.findOutdatedPassages(5))
+                    indexing.requestNext(document, UUID.randomUUID());
         } catch (RuntimeException unavailable) {
             LoggerFactory.getLogger(getClass())
                     .atWarn()

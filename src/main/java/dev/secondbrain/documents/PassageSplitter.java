@@ -9,7 +9,14 @@ import java.util.Objects;
  * Deterministic local preparation; no database, provider, or mutable per-document service state.
  */
 final class PassageSplitter {
-    static final int CONFIGURATION_VERSION = 1;
+    /**
+     * 2: windows end at paragraph, sentence, line or word boundaries and overlaps start at a word.
+     * 1 (older indexes, still searchable): fixed 1,200-code-point windows.
+     */
+    static final int CONFIGURATION_VERSION = 2;
+
+    // Complete indexes of configuration 1 and 2 are both searched (SQL: IN (1, 2)).
+
     static final int MAXIMUM_CODE_POINTS = 1200;
     static final int OVERLAP_CODE_POINTS = 200;
     static final int MAXIMUM_PASSAGES = 20_000;
@@ -54,21 +61,19 @@ final class PassageSplitter {
             content.append(line);
             points += line.codePointCount(0, line.length());
         }
-        var text = content.toString();
-        int remaining = points;
-        int startPoint = 0;
+        var text = content.codePoints().toArray();
         int start = 0;
-        while (remaining > 0) {
+        while (start < text.length) {
             checkInterruption();
-            int length = Math.min(MAXIMUM_CODE_POINTS, remaining);
-            int end = text.offsetByCodePoints(start, length);
-            var part = text.substring(start, end);
+            int limit = Math.min(start + MAXIMUM_CODE_POINTS, text.length);
+            int end = limit < text.length ? breakBefore(text, start, limit) : limit;
+            var part = new String(text, start, end - start);
             if (!part.isBlank()) {
                 if (passages.size() == MAXIMUM_PASSAGES) {
                     throw new IllegalArgumentException("Document exceeds the passage count limit");
                 }
-                var from = position(lines, starts, startPoint);
-                var to = position(lines, starts, startPoint + length);
+                var from = position(lines, starts, start);
+                var to = position(lines, starts, end);
                 passages.add(
                         new PreparedPassages.Passage(
                                 passages.size() + 1,
@@ -80,12 +85,43 @@ final class PassageSplitter {
                                         to.column(),
                                         lines.getFirst().pageNumber())));
             }
-            if (end == text.length()) break;
-            // Count once per block, then advance linearly; avoid recounting the remaining suffix.
-            start = text.offsetByCodePoints(end, -OVERLAP_CODE_POINTS);
-            startPoint += length - OVERLAP_CODE_POINTS;
-            remaining = points - startPoint;
+            if (end == text.length) break;
+            start = nextStart(text, start, end);
         }
+    }
+
+    /**
+     * Where a window ending at {@code limit} should end: after the latest paragraph break, else
+     * sentence end, else line break, else before the latest space, in the last 40% of the window.
+     * Text without any of these (one very long word or token) is cut at the limit.
+     */
+    private static int breakBefore(int[] text, int start, int limit) {
+        int earliest = start + MAXIMUM_CODE_POINTS * 6 / 10;
+        for (int end = limit; end > earliest; end--)
+            if (text[end - 1] == '\n' && text[end - 2] == '\n') return end;
+        for (int end = limit; end > earliest; end--)
+            if (".!?:;".indexOf(text[end - 1]) >= 0 && Character.isWhitespace(text[end]))
+                return end;
+        for (int end = limit; end > earliest; end--) if (text[end - 1] == '\n') return end;
+        for (int end = limit; end > earliest; end--)
+            if (Character.isWhitespace(text[end]) && !Character.isWhitespace(text[end - 1]))
+                return end;
+        return limit;
+    }
+
+    /**
+     * The next window repeats about {@link #OVERLAP_CODE_POINTS} of context, starting at the
+     * beginning of a word when one begins within 50 code points, and never on whitespace.
+     */
+    private static int nextStart(int[] text, int start, int end) {
+        int next = Math.max(start + 1, end - OVERLAP_CODE_POINTS);
+        for (int back = next; back > Math.max(start + 1, next - 50); back--)
+            if (Character.isWhitespace(text[back - 1])) {
+                next = back;
+                break;
+            }
+        while (next < end && Character.isWhitespace(text[next])) next++;
+        return next;
     }
 
     private static Position position(List<ExtractedText.Line> lines, int[] starts, int offset) {

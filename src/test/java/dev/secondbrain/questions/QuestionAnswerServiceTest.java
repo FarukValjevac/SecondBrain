@@ -80,14 +80,13 @@ class QuestionAnswerServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"missing", "fabricated", "other-question", "duplicate", "omitted"})
+    @ValueSource(strings = {"missing", "fabricated", "other-question", "omitted"})
     void invalidCitationsNeverReadSourcesOrProduceAnAnswer(String fault) {
         var supplied = match("Supplied evidence", OptionalInt.empty());
         var omitted = match("Real but not supplied evidence", OptionalInt.empty());
         List<UUID> ids =
                 switch (fault) {
                     case "missing" -> List.of();
-                    case "duplicate" -> List.of(supplied.passageId(), supplied.passageId());
                     case "omitted", "other-question" -> List.of(omitted.passageId());
                     default -> List.of(UUID.randomUUID());
                 };
@@ -110,11 +109,33 @@ class QuestionAnswerServiceTest {
         var expected =
                 fault.equals("missing")
                         ? QuestionFailure.Reason.MISSING_CITATIONS
-                        : fault.equals("duplicate")
-                                ? QuestionFailure.Reason.DUPLICATE_CITATION
-                                : QuestionFailure.Reason.INVALID_CITATION;
+                        : QuestionFailure.Reason.INVALID_CITATION;
         assertFailure(expected, QuestionFailure.Stage.CITATIONS);
         verifyNoInteractions(documents);
+    }
+
+    @Test
+    void repeatedCitationsAreMergedAndTheirMarkersFollow() {
+        var first = match("First evidence", OptionalInt.empty());
+        var second = match("Second evidence", OptionalInt.empty());
+        ready(List.of(first, second), List.of(first.passageId(), second.passageId()));
+        when(generation.generate(query))
+                .thenReturn(
+                        new QuestionService.Candidate(
+                                new ChatProvider.Reply(
+                                        ChatProvider.Outcome.ANSWERED,
+                                        "One [1]. Two [2]. One again [3].",
+                                        List.of(
+                                                first.passageId(),
+                                                second.passageId(),
+                                                first.passageId())),
+                                EvidenceContext.select(
+                                        query, new SearchResult(List.of(first, second)))));
+        var result = service.answer(query);
+        assertThat(result.citations())
+                .extracting(DocumentInspectionService.PassageSource::passageId)
+                .containsExactly(first.passageId(), second.passageId());
+        assertThat(result.text()).isEqualTo("One [1]. Two [2]. One again [1].");
     }
 
     @Test
@@ -400,7 +421,6 @@ class QuestionAnswerServiceTest {
                 "insufficient_information",
                 "missing_citations",
                 "invalid_citation",
-                "duplicate_citation",
                 "source_unavailable"
             })
     void recordsSafeFinalOutcomesAndCallerTraceWithoutContent(
@@ -420,11 +440,6 @@ class QuestionAnswerServiceTest {
             candidate(List.of(source), List.of(), ChatProvider.Outcome.ANSWERED);
         if (expected.equals("invalid_citation"))
             candidate(List.of(source), List.of(UUID.randomUUID()), ChatProvider.Outcome.ANSWERED);
-        if (expected.equals("duplicate_citation"))
-            candidate(
-                    List.of(source),
-                    List.of(source.passageId(), source.passageId()),
-                    ChatProvider.Outcome.ANSWERED);
         if (expected.equals("source_unavailable"))
             when(documents.sources(any())).thenReturn(Map.of());
         var capture = InMemorySpanExporter.create();

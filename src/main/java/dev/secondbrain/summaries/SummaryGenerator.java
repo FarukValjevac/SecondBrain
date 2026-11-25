@@ -28,7 +28,8 @@ import java.util.UUID;
  */
 final class SummaryGenerator {
     static final String REQUEST =
-            "Summarize the main points of this document in at most five short sentences.";
+            "Summarize the main points of this document in at most five short sentences."
+                    + " Write the summary in the language the document is written in.";
     static final int MAXIMUM_SUMMARY_LENGTH = 4000;
     private final SearchService search;
     private final ChatProvider chat;
@@ -70,7 +71,15 @@ final class SummaryGenerator {
             return () -> EventHandler.Outcome.SKIPPED;
         }
         var cited = validate(reply, evidence);
-        var text = CitationMarkers.retainValid(reply.answer().strip(), cited.size());
+        // Repeats of a passage are merged; their markers move to its first number.
+        var unique = new java.util.LinkedHashMap<UUID, Integer>();
+        var numbers = new int[reply.citations().size()];
+        for (int index = 0; index < numbers.length; index++)
+            numbers[index] =
+                    unique.computeIfAbsent(reply.citations().get(index), id -> unique.size() + 1);
+        var text =
+                CitationMarkers.retainValid(
+                        CitationMarkers.renumber(reply.answer().strip(), numbers), cited.size());
         if (text.isBlank() || text.length() > MAXIMUM_SUMMARY_LENGTH) {
             count("failed");
             throw new DeliveryFailure(new IllegalArgumentException("Unusable summary length"));
@@ -110,13 +119,12 @@ final class SummaryGenerator {
         return selected;
     }
 
-    /** The same rules as answers: cite only supplied passages, each at most once. */
+    /** The same rules as answers: cite only supplied passages; repeats count once. */
     private List<UUID> validate(ChatProvider.Reply reply, List<ChatProvider.Passage> evidence) {
         var supplied = new HashSet<UUID>();
         for (var passage : evidence) supplied.add(passage.passageId());
-        var seen = new HashSet<UUID>();
         for (var citation : reply.citations())
-            if (!supplied.contains(citation) || !seen.add(citation)) {
+            if (!supplied.contains(citation)) {
                 count("failed");
                 throw new DeliveryFailure(new IllegalArgumentException("Invalid summary citation"));
             }
@@ -124,7 +132,7 @@ final class SummaryGenerator {
             count("failed");
             throw new DeliveryFailure(new IllegalArgumentException("Summary without citations"));
         }
-        return List.copyOf(reply.citations());
+        return List.copyOf(new java.util.LinkedHashSet<>(reply.citations()));
     }
 
     private void count(String outcome) {

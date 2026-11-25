@@ -107,7 +107,7 @@ final class JdbcDocumentRepository {
                     AND complete.first_sequence = 1 AND complete.last_sequence = i.passage_count
                 WHERE p.passage_id IN (:passages) AND d.deleted_at IS NULL
                     AND d.extraction_state = 'EXTRACTED' AND i.extraction_version = d.processing_version
-                    AND i.passage_configuration_version = 1 AND i.passage_count > 0
+                    AND i.passage_configuration_version IN (1, 2) AND i.passage_count > 0
                     AND i.embedding_model_id = :model AND i.embedding_dimensions = 1024
                 """)
                         .withQueryTimeout(5)

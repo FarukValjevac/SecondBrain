@@ -82,7 +82,8 @@ class ReleaseReferencePreparationTest {
                             .extract(metadata);
             var version = new IndexingVersion(id, 1, 1, AT);
             var prepared = new PassageSplitter().split(version, extraction);
-            assertThat(prepared.configurationVersion()).isEqualTo(1);
+            assertThat(prepared.configurationVersion())
+                    .isEqualTo(PassageSplitter.CONFIGURATION_VERSION);
             assertThat(prepared.passages()).hasSize(1);
             var passage = StoredPassage.from(version, prepared.passages().getFirst());
             var expectedId =

@@ -30,7 +30,7 @@ class PassageSplitterTest {
         var result = splitter.split(VERSION, extracted);
         var last = extracted.lines().getLast();
         assertThat(result.version()).isEqualTo(VERSION);
-        assertThat(result.configurationVersion()).isEqualTo(1);
+        assertThat(result.configurationVersion()).isEqualTo(2);
         assertThat(result.passages())
                 .containsExactly(
                         new PreparedPassages.Passage(
@@ -87,9 +87,9 @@ class PassageSplitterTest {
         var source = "Café 📚".repeat(200) + "終";
         var passages = splitter.split(VERSION, text(source)).passages();
         assertThat(passages).hasSize(2);
-        assertThat(passages.getFirst().text()).isEqualTo("Café 📚".repeat(200));
-        assertThat(passages.getFirst().location().endColumn()).isEqualTo(1200);
-        assertThat(passages.getLast().location().startColumn()).isEqualTo(1000);
+        // Windows end before a space and start at a word, never inside "Café" or the emoji.
+        assertThat(passages.getFirst().text()).endsWith("Café 📚Café").doesNotEndWith(" ");
+        assertThat(passages.getLast().text()).startsWith("📚Café").endsWith("📚終");
         assertThat(passages.getLast().location().endColumn()).isEqualTo(1201);
         for (var passage : passages) {
             var from = source.offsetByCodePoints(0, passage.location().startColumn());
@@ -150,13 +150,14 @@ class PassageSplitterTest {
     @Test
     void skipsWhitespaceOnlyWindowsWithoutTrimmingTextOrLeavingSequenceGaps() throws Exception {
         var result = splitter.split(VERSION, text(" ".repeat(1200) + "Note"));
+        // A passage never starts on whitespace: the next window begins at the word.
         assertThat(result.passages())
                 .containsExactly(
                         new PreparedPassages.Passage(
                                 1,
-                                " ".repeat(200) + "Note",
+                                "Note",
                                 new PreparedPassages.Location(
-                                        1, 1000, 1, 1204, OptionalInt.empty())));
+                                        1, 1200, 1, 1204, OptionalInt.empty())));
     }
 
     @Test
@@ -232,5 +233,37 @@ class PassageSplitterTest {
                         .mapToObj(index -> new ExtractedText.Line(index + 1, values[index]))
                         .toList();
         return new ExtractedText(DOCUMENT, 2, CREATED, lines);
+    }
+
+    @Test
+    void endsPassagesAtSentencesAndWordsAndStartsOverlapsAtAWord() throws Exception {
+        var sentence = "Lists keep their insertion order and allow duplicates. ";
+        var source = sentence.repeat(40).strip();
+        var passages = splitter.split(VERSION, text(source)).passages();
+        assertThat(passages).hasSizeGreaterThan(1);
+        for (var passage : passages) {
+            assertThat(passage.text().codePointCount(0, passage.text().length()))
+                    .isLessThanOrEqualTo(PassageSplitter.MAXIMUM_CODE_POINTS);
+            assertThat(passage.text()).doesNotStartWith(" ");
+            assertThat(
+                            Character.isUpperCase(passage.text().charAt(0))
+                                    || passage.text().startsWith("insertion")
+                                    || Character.isLetter(passage.text().charAt(0)))
+                    .isTrue();
+        }
+        // All but the last end on a full sentence; overlaps begin with a whole word.
+        for (var passage : passages.subList(0, passages.size() - 1))
+            assertThat(passage.text()).endsWith("duplicates.");
+        for (var passage : passages.subList(1, passages.size()))
+            assertThat(source)
+                    .contains(" " + passage.text().substring(0, passage.text().indexOf(' ')) + " ");
+    }
+
+    @Test
+    void prefersParagraphBreaksOverSentencesInTheLastPartOfAWindow() throws Exception {
+        var first = "word ".repeat(180).strip() + ".";
+        var second = "next ".repeat(100).strip() + ". " + "more ".repeat(100).strip();
+        var passages = splitter.split(VERSION, text(first + "\n\n" + second)).passages();
+        assertThat(passages.getFirst().text()).isEqualTo(first + "\n\n");
     }
 }

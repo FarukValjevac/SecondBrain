@@ -67,13 +67,10 @@ public final class QuestionAnswerService {
                 .orElseThrow()
                 .sources()
                 .forEach(source -> supplied.add(source.passageId()));
-        var seen = new HashSet<UUID>();
-        for (var citation : candidate.reply().citations()) {
+        // Repeating a supplied passage is harmless: the repeats are merged when resolving.
+        for (var citation : candidate.reply().citations())
             if (!supplied.contains(citation))
                 throw citationFailure(QuestionFailure.Reason.INVALID_CITATION);
-            if (!seen.add(citation))
-                throw citationFailure(QuestionFailure.Reason.DUPLICATE_CITATION);
-        }
     }
 
     private Answer resolve(QuestionService.Candidate candidate) {
@@ -93,10 +90,19 @@ public final class QuestionAnswerService {
         }
         if (candidate.reply().outcome() == ChatProvider.Outcome.INSUFFICIENT_INFORMATION)
             return Answer.insufficientInformation();
+        // Each passage is cited once; markers of a repeated citation move to its first number.
+        var cited = candidate.reply().citations();
+        var unique = new java.util.LinkedHashMap<UUID, Integer>();
+        var numbers = new int[cited.size()];
+        for (int index = 0; index < cited.size(); index++)
+            numbers[index] = unique.computeIfAbsent(cited.get(index), id -> unique.size() + 1);
         var citations = new ArrayList<DocumentInspectionService.PassageSource>();
-        for (var id : candidate.reply().citations()) citations.add(visible.get(id));
+        for (var id : unique.keySet()) citations.add(visible.get(id));
         // Citations are checked above; markers may only point at those accepted citations.
-        var text = CitationMarkers.retainValid(candidate.reply().answer(), citations.size());
+        var text =
+                CitationMarkers.retainValid(
+                        CitationMarkers.renumber(candidate.reply().answer(), numbers),
+                        citations.size());
         return new Answer(Outcome.ANSWERED, text, citations);
     }
 

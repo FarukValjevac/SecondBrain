@@ -1,5 +1,9 @@
 package dev.secondbrain.documents;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+import org.slf4j.LoggerFactory;
+
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +27,8 @@ final class TesseractOcrEngine implements OcrEngine {
     private final String command;
     private final String languages;
     private final Duration timeout;
+    // Cached result of the installation check; null until first needed.
+    private volatile Boolean usable;
 
     TesseractOcrEngine(String command, String languages, Duration timeout) {
         this.command = Objects.requireNonNull(command, "command");
@@ -69,9 +75,18 @@ final class TesseractOcrEngine implements OcrEngine {
                 process.destroyForcibly();
                 throw interrupted;
             }
-            // A non-zero exit means Tesseract or its language data is not usable.
-            if (process.exitValue() != 0)
-                throw new Unavailable("Tesseract failed with exit " + process.exitValue(), null);
+            if (process.exitValue() != 0) {
+                // A broken installation (program or language data) fails every page: permanent.
+                // A working program that cannot read this one page leaves it empty instead of
+                // failing the whole book.
+                if (!works()) throw new Unavailable("Tesseract is not usable", null);
+                LoggerFactory.getLogger(TesseractOcrEngine.class)
+                        .atWarn()
+                        .addKeyValue("operation", "text_recognition")
+                        .addKeyValue("code", "OCR_PAGE_UNREADABLE")
+                        .log("A scanned page could not be read and is left empty");
+                return "";
+            }
             if (Files.size(text) > MAXIMUM_TEXT_BYTES)
                 throw new PageFailed("Recognised text exceeds the page limit", null);
             return Files.readString(text, StandardCharsets.UTF_8);
@@ -80,6 +95,35 @@ final class TesseractOcrEngine implements OcrEngine {
         } finally {
             delete(directory);
         }
+    }
+
+    /** Whether the program and the configured languages run at all, checked once per engine. */
+    private boolean works() throws InterruptedException {
+        var known = usable;
+        if (known != null) return known;
+        boolean result;
+        try {
+            var check =
+                    new ProcessBuilder(List.of(command, "--list-langs"))
+                            .redirectErrorStream(true)
+                            .start();
+            var output = new String(check.getInputStream().readNBytes(64 * 1024), UTF_8);
+            if (!check.waitFor(30, TimeUnit.SECONDS)) {
+                check.destroyForcibly();
+                result = false;
+            } else {
+                result = check.exitValue() == 0;
+                for (var language : languages.split("\\+"))
+                    result =
+                            result
+                                    && output.lines()
+                                            .anyMatch(line -> line.strip().equals(language));
+            }
+        } catch (IOException missing) {
+            result = false;
+        }
+        usable = result;
+        return result;
     }
 
     private static void delete(Path directory) {

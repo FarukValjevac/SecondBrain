@@ -42,6 +42,30 @@ public final class CitationMarkers {
         return result.append(answer, position, answer.length()).toString();
     }
 
+    /**
+     * Rewrites marker numbers: marker {@code [n]} becomes {@code [numbers[n - 1]]}. Used when
+     * repeated citations are merged, so markers keep pointing at the same passage. Markers outside
+     * the table, or in code-like positions, are left as they are.
+     */
+    public static String renumber(String answer, int[] numbers) {
+        var result = new StringBuilder(answer.length());
+        int position = 0;
+        int previousEnd = -1;
+        var matcher = MARKER.matcher(answer);
+        while (matcher.find()) {
+            if (!markerPosition(answer, matcher.start(), previousEnd)) continue;
+            int number = Integer.parseInt(matcher.group(1));
+            if (number < 1 || number > numbers.length) continue;
+            result.append(answer, position, matcher.start())
+                    .append('[')
+                    .append(numbers[number - 1])
+                    .append(']');
+            previousEnd = matcher.end();
+            position = matcher.end();
+        }
+        return result.append(answer, position, answer.length()).toString();
+    }
+
     /** Splits accepted answer text for rendering; anything not a valid marker stays plain text. */
     public static List<Segment> segments(String answer, int citations) {
         var segments = new ArrayList<Segment>();

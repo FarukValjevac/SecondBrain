@@ -57,6 +57,26 @@ class TesseractOcrEngineTest {
     }
 
     @Test
+    void anUnreadablePageIsLeftEmptyWhenTesseractItselfWorks() throws Exception {
+        // The installation check lists the languages; only this page fails.
+        var command =
+                script(
+                        "if [ \"$1\" = \"--list-langs\" ]; then"
+                                + " printf 'List of available languages:\\ndeu\\neng\\n'; exit 0; fi;"
+                                + " exit 1");
+        assertThat(
+                        new TesseractOcrEngine(command, "deu+eng", Duration.ofSeconds(60))
+                                .recognise(page))
+                .isEmpty();
+        // A missing language is still an unusable installation.
+        assertThatThrownBy(
+                        () ->
+                                new TesseractOcrEngine(command, "deu+fra", Duration.ofSeconds(60))
+                                        .recognise(page))
+                .isInstanceOf(OcrEngine.Unavailable.class);
+    }
+
+    @Test
     void aSlowPageIsStoppedAndCanBeRetried() throws Exception {
         var command = script("sleep 10");
         long started = System.nanoTime();
