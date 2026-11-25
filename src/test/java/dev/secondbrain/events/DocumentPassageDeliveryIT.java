@@ -502,7 +502,7 @@ class DocumentPassageDeliveryIT {
                                 .sql(
                                         """
                 SELECT passage_count FROM document_index_versions
-                WHERE document_id = :id AND indexing_version = :version AND passage_configuration_version = 1
+                WHERE document_id = :id AND indexing_version = :version AND passage_configuration_version = 2
                 """)
                                 .param("id", lease.event().documentId())
                                 .param("version", lease.event().processingVersion())

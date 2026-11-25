@@ -247,7 +247,7 @@ class DocumentRepositoryIT {
                                         case GAP ->
                                                 "UPDATE document_passages SET sequence_number = 3 WHERE document_id = :id AND sequence_number = 2";
                                         case CONFIGURATION ->
-                                                "UPDATE document_index_versions SET passage_configuration_version = 2 WHERE document_id = :id AND indexing_version = 7";
+                                                "UPDATE document_index_versions SET passage_configuration_version = 3 WHERE document_id = :id AND indexing_version = 7";
                                         case UNBOUND ->
                                                 "DELETE FROM document_embeddings WHERE document_id = :id";
                                         case WRONG_DOCUMENT, UNKNOWN_PASSAGE -> "";

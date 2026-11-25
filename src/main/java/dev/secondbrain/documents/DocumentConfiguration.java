@@ -154,9 +154,11 @@ class DocumentConfiguration {
             EventPublisher events,
             ObjectProvider<DocumentPassageHandler> passages,
             ObjectProvider<DocumentEmbeddingHandler> embeddings,
-            ObjectProvider<DocumentIndexPublication> publication) {
+            ObjectProvider<DocumentIndexPublication> publication,
+            @Value("${secondbrain.documents.indexing.reprepare-passages:false}")
+                    boolean reprepare) {
         return new DocumentIndexingReconciliation(
-                indexes, indexing, events, passages, embeddings, publication);
+                indexes, indexing, events, passages, embeddings, publication, reprepare);
     }
 
     @Bean

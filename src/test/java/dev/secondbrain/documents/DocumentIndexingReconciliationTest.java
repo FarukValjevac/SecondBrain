@@ -86,4 +86,31 @@ class DocumentIndexingReconciliationTest {
         verify(publication).reconcile();
         verifyNoInteractions(indexing);
     }
+
+    @Test
+    void repreparesoutdatedPassagesOnlyWhenAskedTo() {
+        var indexes = mock(JdbcIndexingRepository.class);
+        var indexing = mock(DocumentIndexingService.class);
+        var events = mock(EventPublisher.class);
+        var beans = new StaticListableBeanFactory();
+        beans.addBean("passages", mock(DocumentPassageHandler.class));
+        var outdated = java.util.UUID.randomUUID();
+        when(indexes.findUnenrolled(100)).thenReturn(List.of());
+        when(indexes.findOutdatedPassages(5)).thenReturn(List.of(outdated));
+        for (boolean enabled : new boolean[] {false, true})
+            new DocumentIndexingReconciliation(
+                            indexes,
+                            indexing,
+                            events,
+                            beans.getBeanProvider(DocumentPassageHandler.class),
+                            beans.getBeanProvider(DocumentEmbeddingHandler.class),
+                            beans.getBeanProvider(DocumentIndexPublication.class),
+                            enabled)
+                    .reconcile();
+        // Only the opted-in pass asks for a new index generation.
+        verify(indexing, org.mockito.Mockito.times(1))
+                .requestNext(
+                        org.mockito.ArgumentMatchers.eq(outdated),
+                        org.mockito.ArgumentMatchers.any());
+    }
 }

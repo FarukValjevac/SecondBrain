@@ -130,7 +130,7 @@ class IndexPublicationIT {
                             .update();
             case UNKNOWN_CONFIGURATION ->
                     jdbc.sql(
-                                    "UPDATE document_index_versions SET passage_configuration_version = 2 WHERE document_id = :id")
+                                    "UPDATE document_index_versions SET passage_configuration_version = 3 WHERE document_id = :id")
                             .param("id", version.documentId())
                             .update();
             case UNPREPARED ->

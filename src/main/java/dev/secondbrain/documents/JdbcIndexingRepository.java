@@ -113,7 +113,7 @@ final class JdbcIndexingRepository {
                 jdbc.sql(
                                 """
                 SELECT COALESCE(
-                    i.passage_configuration_version = :configuration
+                    i.passage_configuration_version IN (1, 2)
                     AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
                     AND count(p.passage_id) = i.passage_count
                     AND min(p.sequence_number) = 1 AND max(p.sequence_number) = i.passage_count
@@ -130,7 +130,6 @@ final class JdbcIndexingRepository {
                          i.passage_count, i.embedding_model_id, i.embedding_dimensions
                 """)
                         .withQueryTimeout(5)
-                        .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
                         .param("model", model.id())
                         .param("dimensions", model.dimensions())
                         .param("id", version.documentId())
@@ -168,12 +167,11 @@ final class JdbcIndexingRepository {
                   ON i.document_id = d.document_id AND i.indexing_version = d.active_indexing_version
                 WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
                   AND i.extraction_version = d.processing_version
-                  AND i.passage_configuration_version = :configuration
+                  AND i.passage_configuration_version IN (1, 2)
                   AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
                   AND i.passage_count > 0
                 """)
                 .withQueryTimeout(5)
-                .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
                 .param("model", model.id())
                 .param("dimensions", model.dimensions())
                 .query(Long.class)
@@ -248,7 +246,7 @@ final class JdbcIndexingRepository {
                   AND (CAST(:document AS uuid) IS NULL OR d.document_id = CAST(:document AS uuid))
                   AND EXISTS (SELECT 1 FROM document_extractions x WHERE x.document_id = i.document_id
                                AND x.processing_version = i.extraction_version)
-                  AND i.passage_configuration_version = :configuration
+                  AND i.passage_configuration_version IN (1, 2)
                   AND i.embedding_model_id = :model AND i.embedding_dimensions = :dimensions
                   AND i.passage_count = (SELECT count(*) FROM document_passages p
                       WHERE p.document_id = i.document_id AND p.indexing_version = i.indexing_version)
@@ -268,7 +266,6 @@ final class JdbcIndexingRepository {
                 .param(
                         "document",
                         document.orElse(null)) // SQL NULL selects the bounded global batch.
-                .param("configuration", PassageSplitter.CONFIGURATION_VERSION)
                 .param("model", model.id())
                 .param("dimensions", model.dimensions())
                 .param("limit", limit)
@@ -295,6 +292,29 @@ final class JdbcIndexingRepository {
             Objects.requireNonNull(passagesEventId, "passagesEventId");
             Objects.requireNonNull(correlationId, "correlationId");
         }
+    }
+
+    /**
+     * Visible documents whose active index uses an older passage configuration and which have no
+     * newer generation in progress: candidates for re-preparing their passages.
+     */
+    List<UUID> findOutdatedPassages(int limit) {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("Invalid batch");
+        return jdbc.sql(
+                        """
+                SELECT d.document_id FROM documents d
+                JOIN document_index_versions i ON i.document_id = d.document_id
+                    AND i.indexing_version = d.active_indexing_version
+                WHERE d.deleted_at IS NULL AND d.extraction_state = 'EXTRACTED'
+                AND d.desired_indexing_version = d.active_indexing_version
+                AND i.passage_configuration_version < :current
+                ORDER BY d.created_at, d.document_id LIMIT :limit
+                """)
+                .withQueryTimeout(5)
+                .param("current", PassageSplitter.CONFIGURATION_VERSION)
+                .param("limit", limit)
+                .query(UUID.class)
+                .list();
     }
 
     List<UUID> findUnenrolled(int limit) {

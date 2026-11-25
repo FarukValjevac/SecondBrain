@@ -83,7 +83,7 @@ class PassageRepositoryIT {
                                 .param("id", prepared.version().documentId())
                                 .query(Integer.class)
                                 .single())
-                .isEqualTo(1);
+                .isEqualTo(PassageSplitter.CONFIGURATION_VERSION);
     }
 
     @Test
@@ -193,8 +193,12 @@ class PassageRepositoryIT {
         changed.set(0, new PreparedPassages.Passage(first.sequence(), "Changed", first.location()));
         for (var conflicting :
                 List.of(
-                        new PreparedPassages(prepared.version(), 2, prepared.passages()),
-                        new PreparedPassages(prepared.version(), 1, changed))) {
+                        // Stored with the current configuration: any other one conflicts.
+                        new PreparedPassages(prepared.version(), 1, prepared.passages()),
+                        new PreparedPassages(
+                                prepared.version(),
+                                PassageSplitter.CONFIGURATION_VERSION,
+                                changed))) {
             assertThatThrownBy(
                             () ->
                                     transaction.executeWithoutResult(
