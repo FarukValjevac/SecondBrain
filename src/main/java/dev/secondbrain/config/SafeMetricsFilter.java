@@ -52,43 +52,7 @@ final class SafeMetricsFilter implements MeterFilter {
                     "secondbrain.chat.requests",
                     "secondbrain.chat.tokens",
                     "secondbrain.chat.usage.reports");
-    private static final Set<String> OUTCOMES =
-            Set.of(
-                    "accepted",
-                    "rejected",
-                    "unavailable",
-                    "completed",
-                    "failed",
-                    "requested",
-                    "unchanged",
-                    "success",
-                    "retry",
-                    "skipped",
-                    "access_denied",
-                    "model_unavailable",
-                    "invalid_input",
-                    "invalid_response",
-                    "rate_limited",
-                    "quota_exhausted",
-                    "timed_out",
-                    "interrupted",
-                    "no_results",
-                    "empty_scope",
-                    "no_compatible_index",
-                    "database_unavailable",
-                    "incompatible_model",
-                    "invalid_embedding",
-                    "provider_unavailable",
-                    "candidate_answer",
-                    "insufficient_information",
-                    "no_evidence",
-                    "invalid_evidence",
-                    "output_limit",
-                    "answered",
-                    "missing_citations",
-                    "invalid_citation",
-                    "duplicate_citation",
-                    "source_unavailable");
+    private static final Set<String> OUTCOMES = TelemetryOutcomes.with("retry", "skipped");
 
     @Override
     public MeterFilterReply accept(Meter.Id id) {

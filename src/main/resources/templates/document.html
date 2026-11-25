@@ -100,17 +100,17 @@
         <th:block th:each="block : ${readingBlocks}">
           <span th:each="anchor : ${block.anchors}" th:id="${'line-' + anchor}" class="line-anchor"></span>
           <p th:if="${block.isPage()}" class="reading-page" th:text="|Page ${block.pageNumber}|">Page 2</p>
-          <h3 th:if="${block.isHeading() and block.level <= 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Heading</span></h3>
-          <h4 th:if="${block.isHeading() and block.level > 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Heading</span></h4>
-          <p th:if="${block.isParagraph() and !block.segments.isEmpty()}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Text</span></p>
-          <p th:if="${block.isItem()}" class="reading-item"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${#strings.trim((citedFrom != null and segment.line >= citedFrom and segment.line <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(segment.line) ? 'hl hl-' + highlightedLines.get(segment.line) : ''))}" th:text="${segment.text}">Item</span></p>
+          <h3 th:if="${block.isHeading() and block.level <= 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${marks.of(segment.line)}" th:text="${segment.text}">Heading</span></h3>
+          <h4 th:if="${block.isHeading() and block.level > 2}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${marks.of(segment.line)}" th:text="${segment.text}">Heading</span></h4>
+          <p th:if="${block.isParagraph() and !block.segments.isEmpty()}"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${marks.of(segment.line)}" th:text="${segment.text}">Text</span></p>
+          <p th:if="${block.isItem()}" class="reading-item"><span th:each="segment : ${block.segments}" th:id="${'line-' + segment.line}" th:classappend="${marks.of(segment.line)}" th:text="${segment.text}">Item</span></p>
         </th:block>
       </article>
 
       <th:block th:if="${view == 'lines' and document.state.name() == 'EXTRACTED'}">
         <p class="hint">Exact extracted lines, as used for search and source links.</p>
         <ol class="source-lines">
-          <li th:each="line, position : ${document.lines}" th:id="${'line-' + line.number}" th:classappend="${#strings.trim((citedFrom != null and line.number >= citedFrom and line.number <= citedTo ? 'cited ' : '') + (highlightedLines != null and highlightedLines.containsKey(line.number) ? 'hl hl-' + highlightedLines.get(line.number) : ''))}">
+          <li th:each="line, position : ${document.lines}" th:id="${'line-' + line.number}" th:classappend="${marks.of(line.number)}">
             <span class="line-page" th:if="${line.pageNumber.isPresent() and (position.first or !document.lines[position.index - 1].pageNumber.equals(line.pageNumber))}"
                   th:text="|Page ${line.pageNumber.getAsInt()}|">Page 1</span>
             <a th:href="${'#line-' + line.number}"

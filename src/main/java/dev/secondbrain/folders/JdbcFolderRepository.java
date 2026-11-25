@@ -51,7 +51,10 @@ final class JdbcFolderRepository {
     }
 
     int count() {
-        return jdbc.sql("SELECT count(*) FROM folders").query(Integer.class).single();
+        return jdbc.sql("SELECT count(*) FROM folders")
+                .withQueryTimeout(5)
+                .query(Integer.class)
+                .single();
     }
 
     boolean siblingNamed(Optional<UUID> parent, String name, Optional<UUID> except) {

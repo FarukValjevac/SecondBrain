@@ -22,7 +22,10 @@ final class DocumentExtractionReconciliation {
             events.scheduleMissing(DocumentAcceptedEvent.TYPE, DocumentExtractionHandler.ID, 100);
         } catch (RuntimeException unavailable) {
             LoggerFactory.getLogger(getClass())
-                    .warn("Extraction scheduling will retry code=DATABASE_OR_HANDLER_UNAVAILABLE");
+                    .atWarn()
+                    .addKeyValue("operation", "document_extraction_reconciliation")
+                    .addKeyValue("code", "DATABASE_OR_HANDLER_UNAVAILABLE")
+                    .log("Extraction scheduling will retry");
         }
     }
 }

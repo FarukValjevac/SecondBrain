@@ -16,6 +16,61 @@ import java.util.Set;
 
 @Configuration(proxyBeanMethods = false)
 class TelemetryConfiguration {
+    // Built once: these allowlists are checked on every HTTP request.
+    private static final Set<String> METHODS =
+            Set.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE");
+    private static final Set<String> ROUTES =
+            Set.of(
+                    "/",
+                    "/library",
+                    "/search",
+                    "/questions",
+                    "/questions/turn",
+                    "/chats",
+                    "/chats/{id}",
+                    "/chats/{id}/rename",
+                    "/chats/{id}/delete",
+                    "/chats/ask",
+                    "/chats/delete-all",
+                    "/documents/import",
+                    "/documents/{id}/summary",
+                    "/documents/{id}/folder",
+                    "/documents/{id}/original",
+                    "/documents/{id}/highlights",
+                    "/highlights/{id}",
+                    "/highlights/{id}/delete",
+                    "/notes",
+                    "/folders",
+                    "/folders/{id}",
+                    "/folders/{id}/delete",
+                    "/js/**",
+                    "/**",
+                    "/css/**",
+                    "/documents",
+                    "/documents/upload",
+                    "/documents/{id}",
+                    "/documents/{id}/retry",
+                    "/documents/{id}/delete",
+                    "/documents/cleanup",
+                    "/documents/cleanup/{id}/retry",
+                    "NOT_FOUND",
+                    "UNKNOWN",
+                    "REDIRECTION",
+                    "root",
+                    "/actuator/health",
+                    "/actuator/health/**",
+                    "/actuator/health/{*path}",
+                    "/actuator/metrics",
+                    "/actuator/metrics/{requiredMetricName}");
+    private static final Set<String> HTTP_OUTCOMES =
+            Set.of(
+                    "SUCCESS",
+                    "CLIENT_ERROR",
+                    "SERVER_ERROR",
+                    "INFORMATIONAL",
+                    "REDIRECTION",
+                    "UNKNOWN");
+
     @Bean(destroyMethod = "close")
     SpanExporter safeTraceExporter(
             @Value("${secondbrain.telemetry.otlp-endpoint:}") String endpoint) {
@@ -65,77 +120,12 @@ class TelemetryConfiguration {
                 for (var field : super.getLowCardinalityKeyValues(context)) {
                     String value = field.getValue();
                     switch (field.getKey()) {
-                        case "method" ->
-                                value =
-                                        Set.of(
-                                                                "GET", "HEAD", "POST", "PUT",
-                                                                "PATCH", "DELETE", "OPTIONS",
-                                                                "TRACE")
-                                                        .contains(value)
-                                                ? value
-                                                : "OTHER";
-                        case "uri" ->
-                                value =
-                                        Set.of(
-                                                                "/",
-                                                                "/library",
-                                                                "/search",
-                                                                "/questions",
-                                                                "/questions/turn",
-                                                                "/chats",
-                                                                "/chats/{id}",
-                                                                "/chats/{id}/rename",
-                                                                "/chats/{id}/delete",
-                                                                "/chats/ask",
-                                                                "/chats/delete-all",
-                                                                "/documents/import",
-                                                                "/documents/{id}/summary",
-                                                                "/documents/{id}/folder",
-                                                                "/documents/{id}/original",
-                                                                "/documents/{id}/highlights",
-                                                                "/highlights/{id}",
-                                                                "/highlights/{id}/delete",
-                                                                "/notes",
-                                                                "/folders",
-                                                                "/folders/{id}",
-                                                                "/folders/{id}/delete",
-                                                                "/js/**",
-                                                                "/**",
-                                                                "/css/**",
-                                                                "/documents",
-                                                                "/documents/upload",
-                                                                "/documents/{id}",
-                                                                "/documents/{id}/retry",
-                                                                "/documents/{id}/delete",
-                                                                "/documents/cleanup",
-                                                                "/documents/cleanup/{id}/retry",
-                                                                "NOT_FOUND",
-                                                                "UNKNOWN",
-                                                                "REDIRECTION",
-                                                                "root",
-                                                                "/actuator/health",
-                                                                "/actuator/health/**",
-                                                                "/actuator/health/{*path}",
-                                                                "/actuator/metrics",
-                                                                "/actuator/metrics/{requiredMetricName}")
-                                                        .contains(value)
-                                                ? value
-                                                : "OTHER";
+                        case "method" -> value = METHODS.contains(value) ? value : "OTHER";
+                        case "uri" -> value = ROUTES.contains(value) ? value : "OTHER";
                         case "error", "exception" ->
                                 value = value.equals("none") ? "none" : "failure";
                         case "status" -> value = value.matches("[1-5][0-9]{2}") ? value : "OTHER";
-                        case "outcome" ->
-                                value =
-                                        Set.of(
-                                                                "SUCCESS",
-                                                                "CLIENT_ERROR",
-                                                                "SERVER_ERROR",
-                                                                "INFORMATIONAL",
-                                                                "REDIRECTION",
-                                                                "UNKNOWN")
-                                                        .contains(value)
-                                                ? value
-                                                : "UNKNOWN";
+                        case "outcome" -> value = HTTP_OUTCOMES.contains(value) ? value : "UNKNOWN";
                         default -> {
                             continue;
                         }

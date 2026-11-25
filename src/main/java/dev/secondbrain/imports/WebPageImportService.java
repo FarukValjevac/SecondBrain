@@ -73,6 +73,7 @@ public final class WebPageImportService {
                         JOIN documents d ON d.document_id = s.document_id
                         WHERE s.document_id = :id AND d.deleted_at IS NULL
                         """)
+                .withQueryTimeout(5)
                 .param("id", documentId)
                 .query(
                         (row, index) ->

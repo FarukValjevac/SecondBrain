@@ -5,7 +5,7 @@ import dev.secondbrain.questions.QuestionFailure;
 import org.springframework.http.HttpStatus;
 
 /** Fixed presentation messages; never use provider bodies, query text or exception messages. */
-enum QuestionFeedback {
+enum QuestionFeedback implements PageFeedback {
     ANSWERED(
             HttpStatus.OK,
             "Answer from your documents",
@@ -127,6 +127,7 @@ enum QuestionFeedback {
         };
     }
 
+    @Override
     public HttpStatus getStatus() {
         return status;
     }
@@ -147,7 +148,8 @@ enum QuestionFeedback {
         return this == INVALID_QUESTION;
     }
 
-    boolean acceptsRetryHint() {
+    @Override
+    public boolean acceptsRetryHint() {
         return this == RATE_LIMIT || this == QUOTA || this == PROVIDER;
     }
 }

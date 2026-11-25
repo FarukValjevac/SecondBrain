@@ -103,6 +103,7 @@ final class JdbcProcessingRepository {
             UPDATE documents SET extraction_state = 'QUEUED', extraction_failure = NULL, updated_at = :now
             WHERE document_id = :id AND deleted_at IS NULL AND extraction_state <> 'EXTRACTED'
             """)
+                .withQueryTimeout(5)
                 .param("id", id)
                 .param("now", Timestamp.from(now))
                 .update();

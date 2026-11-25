@@ -102,6 +102,7 @@ public final class HighlightService {
                                                     "SELECT 1 FROM documents WHERE document_id = :id"
                                                             + " AND processing_version = :version"
                                                             + " AND deleted_at IS NULL FOR KEY SHARE")
+                                            .withQueryTimeout(5)
                                             .param("id", documentId)
                                             .param("version", processingVersion)
                                             .query(Integer.class)
@@ -117,6 +118,7 @@ public final class HighlightService {
                                             VALUES (:id, :document, :version, :start, :end, :quote,
                                                 :note, :color, :now, :now)
                                             """)
+                                    .withQueryTimeout(5)
                                     .param("id", id)
                                     .param("document", documentId)
                                     .param("version", processingVersion)
@@ -145,6 +147,7 @@ public final class HighlightService {
                                                     updated_at = :now WHERE highlight_id = :id
                                                 RETURNING document_id
                                                 """)
+                                        .withQueryTimeout(5)
                                         .param("id", highlightId)
                                         .param("note", cleanNote)
                                         .param("color", color.name())
@@ -162,6 +165,7 @@ public final class HighlightService {
                                 jdbc.sql(
                                                 "DELETE FROM document_highlights WHERE highlight_id = :id"
                                                         + " RETURNING document_id")
+                                        .withQueryTimeout(5)
                                         .param("id", highlightId)
                                         .query(UUID.class)
                                         .optional()));
