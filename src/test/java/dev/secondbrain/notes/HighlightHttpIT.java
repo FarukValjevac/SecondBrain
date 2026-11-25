@@ -64,7 +64,10 @@ class HighlightHttpIT {
                     .hasValueSatisfying(
                             l ->
                                     assertThat(l)
-                                            .endsWith("/documents/" + id + "?view=reading#line-3"));
+                                            .endsWith(
+                                                    "/documents/"
+                                                            + id
+                                                            + "?view=reading&at=3#line-3"));
 
             var page = get(client, origin, "/documents/" + id + "?view=reading").body();
             assertThat(page)

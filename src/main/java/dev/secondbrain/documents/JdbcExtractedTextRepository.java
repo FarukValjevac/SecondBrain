@@ -95,6 +95,75 @@ final class JdbcExtractedTextRepository {
                                         })));
     }
 
+    /** How long one stored version is: its last line, and its last PDF page if it has pages. */
+    record Extent(int lines, OptionalInt lastPage) {}
+
+    Extent extent(UUID documentId, long version) {
+        return Objects.requireNonNull(
+                jdbc.query(
+                        """
+                        SELECT max(line_number) AS lines, max(page_number) AS pages
+                        FROM document_text_lines WHERE document_id = ? AND processing_version = ?
+                        """,
+                        statement -> {
+                            statement.setQueryTimeout(5);
+                            statement.setObject(1, documentId);
+                            statement.setLong(2, version);
+                        },
+                        rows -> {
+                            rows.next();
+                            var lines = rows.getInt("lines");
+                            var pages = rows.getObject("pages", Integer.class);
+                            return new Extent(
+                                    lines,
+                                    pages == null ? OptionalInt.empty() : OptionalInt.of(pages));
+                        }));
+    }
+
+    /** The PDF page of one line, if the version has pages. */
+    OptionalInt pageOfLine(UUID documentId, long version, int line) {
+        var pages =
+                jdbc.query(
+                        """
+                        SELECT page_number FROM document_text_lines
+                        WHERE document_id = ? AND processing_version = ? AND line_number = ?
+                        """,
+                        statement -> {
+                            statement.setQueryTimeout(5);
+                            statement.setObject(1, documentId);
+                            statement.setLong(2, version);
+                            statement.setInt(3, line);
+                        },
+                        (row, index) -> row.getObject("page_number", Integer.class));
+        return pages.isEmpty() || pages.getFirst() == null
+                ? OptionalInt.empty()
+                : OptionalInt.of(pages.getFirst());
+    }
+
+    /** All lines on PDF pages {@code from..to} of one stored version, in order. */
+    List<ExtractedText.Line> linesOnPages(UUID documentId, long version, int from, int to) {
+        return jdbc.query(
+                """
+                SELECT line_number, line_text, page_number FROM document_text_lines
+                WHERE document_id = ? AND processing_version = ?
+                AND page_number BETWEEN ? AND ? ORDER BY line_number
+                """,
+                statement -> {
+                    statement.setQueryTimeout(5);
+                    statement.setObject(1, documentId);
+                    statement.setLong(2, version);
+                    statement.setInt(3, from);
+                    statement.setInt(4, to);
+                },
+                (row, index) -> {
+                    var page = row.getObject("page_number", Integer.class);
+                    return new ExtractedText.Line(
+                            row.getInt("line_number"),
+                            row.getString("line_text"),
+                            page == null ? OptionalInt.empty() : OptionalInt.of(page));
+                });
+    }
+
     /** Lines {@code from..to} of one stored version, in order; never the whole text. */
     List<ExtractedText.Line> linesBetween(UUID documentId, long version, int from, int to) {
         return jdbc.query(

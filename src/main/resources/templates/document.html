@@ -67,9 +67,9 @@
           <a th:if="${original != null and original.kind().name() == 'PDF'}"
              th:href="@{/documents/{id}(id=${document.documentId},view='original')}"
              th:aria-current="${view == 'original' ? 'page' : null}">Original</a>
-          <a th:href="@{/documents/{id}(id=${document.documentId},view='reading')}"
+          <a th:href="@{/documents/{id}(id=${document.documentId},view='reading',part=${section != null and section.split ? section.part : null})}"
              th:aria-current="${view == 'reading' ? 'page' : null}">Reading view</a>
-          <a th:href="@{/documents/{id}(id=${document.documentId},view='lines')}"
+          <a th:href="@{/documents/{id}(id=${document.documentId},view='lines',part=${section != null and section.split ? section.part : null})}"
              th:aria-current="${view == 'lines' ? 'page' : null}">Lines</a>
         </nav>
         <a class="download-link" th:if="${original != null}"
@@ -92,9 +92,29 @@
 
       <p class="hint" th:if="${view != 'original' and document.state.name() != 'EXTRACTED'}">The text appears here once extraction finishes.</p>
 
+<th:block th:with="position='top'">
+      <nav class="section-nav" aria-label="Parts of this document"
+           th:if="${section != null and section.split and view != 'original'}">
+        <a rel="prev" th:if="${section.part > 1}"
+           th:href="@{/documents/{id}(id=${document.documentId},view=${view},part=${section.part - 1})}">Previous</a>
+        <form method="get" th:action="@{/documents/{id}(id=${document.documentId})}" class="section-jump">
+          <input type="hidden" name="view" th:value="${view}">
+          <label th:for="|part-${position}|" class="visually-hidden">Part</label>
+          <select name="part" th:id="|part-${position}|">
+            <option th:each="label, step : ${section.labels}" th:value="${step.count}"
+                    th:selected="${step.count == section.part}" th:text="${label}">Pages 1–20</option>
+          </select>
+          <button type="submit" class="secondary-button">Go</button>
+        </form>
+        <span class="section-count" th:text="|Part ${section.part} of ${section.parts}|">Part 1 of 15</span>
+        <a rel="next" th:if="${section.part < section.parts}"
+           th:href="@{/documents/{id}(id=${document.documentId},view=${view},part=${section.part + 1})}">Next</a>
+      </nav>
+      </th:block>
+
       <p class="notice notice-info cited-note" th:if="${citedFrom != null and view != 'original'}">
         The cited passage is highlighted below.
-        <a th:href="@{/documents/{id}(id=${document.documentId},view=${view})}">Remove highlight</a>
+        <a th:href="@{/documents/{id}(id=${document.documentId},view=${view},part=${section != null and section.split ? section.part : null})}">Remove highlight</a>
       </p>
       <article class="reading" th:if="${view == 'reading' and readingBlocks != null}">
         <th:block th:each="block : ${readingBlocks}">
@@ -118,6 +138,25 @@
                th:text="${line.number}">1</a><pre th:text="${line.text}">Text</pre>
           </li>
         </ol>
+      </th:block>
+      <th:block th:with="position='bottom'">
+      <nav class="section-nav" aria-label="Parts of this document"
+           th:if="${section != null and section.split and view != 'original'}">
+        <a rel="prev" th:if="${section.part > 1}"
+           th:href="@{/documents/{id}(id=${document.documentId},view=${view},part=${section.part - 1})}">Previous</a>
+        <form method="get" th:action="@{/documents/{id}(id=${document.documentId})}" class="section-jump">
+          <input type="hidden" name="view" th:value="${view}">
+          <label th:for="|part-${position}|" class="visually-hidden">Part</label>
+          <select name="part" th:id="|part-${position}|">
+            <option th:each="label, step : ${section.labels}" th:value="${step.count}"
+                    th:selected="${step.count == section.part}" th:text="${label}">Pages 1–20</option>
+          </select>
+          <button type="submit" class="secondary-button">Go</button>
+        </form>
+        <span class="section-count" th:text="|Part ${section.part} of ${section.parts}|">Part 1 of 15</span>
+        <a rel="next" th:if="${section.part < section.parts}"
+           th:href="@{/documents/{id}(id=${document.documentId},view=${view},part=${section.part + 1})}">Next</a>
+      </nav>
       </th:block>
     </section>
     <section class="notice notice-success" role="status" data-toast th:if="${highlightMessage != null}"><p th:text="${highlightMessage}">Highlight saved.</p></section>

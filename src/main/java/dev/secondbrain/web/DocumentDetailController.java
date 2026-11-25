@@ -82,6 +82,10 @@ class DocumentDetailController {
                     String from,
             @org.springframework.web.bind.annotation.RequestParam(name = "to", required = false)
                     String to,
+            @org.springframework.web.bind.annotation.RequestParam(name = "part", required = false)
+                    String part,
+            @org.springframework.web.bind.annotation.RequestParam(name = "at", required = false)
+                    String at,
             Model model) {
         // PDFs open on the original; everything else on the reading view. Unknown views fall back.
         var original = Optional.<OriginalDocumentService.Original>empty();
@@ -99,10 +103,23 @@ class DocumentDetailController {
                                 ? "lines"
                                 : "reading".equals(view) || !pdf ? "reading" : "original";
         model.addAttribute("view", selected);
-        // The original PDF view shows the stored file, so the extracted text is not loaded.
-        var document =
-                (selected.equals("original") ? documents.findWithoutText(id) : documents.find(id))
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        // The original PDF view shows the stored file, so no text is loaded; the text views load
+        // one section (about 20 PDF pages), the one holding a cited or highlighted line if any.
+        final DocumentInspectionService.DocumentView document;
+        if (selected.equals("original")) {
+            document =
+                    documents
+                            .findWithoutText(id)
+                            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        } else {
+            var line = number(from).isPresent() ? number(from) : number(at);
+            var section =
+                    documents
+                            .findSection(id, number(part), line)
+                            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+            document = section.document();
+            model.addAttribute("section", section.section());
+        }
         model.addAttribute("document", document);
 
         // Each highlighted line gets the colour of its latest highlight.
@@ -279,6 +296,13 @@ class DocumentDetailController {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     ModelAndView invalidId() {
         return ErrorPage.of(HttpStatus.BAD_REQUEST, "Use a valid document ID.");
+    }
+
+    /** A positive number from a query parameter; anything else is ignored. */
+    private static java.util.OptionalInt number(String value) {
+        if (value == null || !value.matches("[0-9]{1,6}") || Integer.parseInt(value) < 1)
+            return java.util.OptionalInt.empty();
+        return java.util.OptionalInt.of(Integer.parseInt(value));
     }
 
     /** Lines {@code from..to} of a cited passage: positive, ordered, at most 500 lines. */

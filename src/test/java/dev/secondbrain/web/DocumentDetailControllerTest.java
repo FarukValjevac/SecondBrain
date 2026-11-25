@@ -42,6 +42,31 @@ import java.util.UUID;
 class DocumentDetailControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private DocumentInspectionService documents;
+
+    /** Sections come from the same stubbed document: one part holding all its lines. */
+    @org.junit.jupiter.api.BeforeEach
+    void sectionsFollowTheStubbedDocument() {
+        org.mockito.Mockito.when(
+                        documents.findSection(
+                                org.mockito.ArgumentMatchers.any(),
+                                org.mockito.ArgumentMatchers.any(),
+                                org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(
+                        call ->
+                                documents
+                                        .find(call.getArgument(0))
+                                        .map(
+                                                view ->
+                                                        new DocumentInspectionService.SectionView(
+                                                                view,
+                                                                new DocumentInspectionService
+                                                                        .Section(
+                                                                        1,
+                                                                        1,
+                                                                        java.util.List.of(
+                                                                                "Lines")))));
+    }
+
     @MockitoBean private DocumentDeletionService deletion;
     @MockitoBean private DocumentProcessingService processing;
     @MockitoBean private dev.secondbrain.documents.OriginalDocumentService originals;
