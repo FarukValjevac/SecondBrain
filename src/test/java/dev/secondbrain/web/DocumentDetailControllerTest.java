@@ -301,7 +301,10 @@ class DocumentDetailControllerTest {
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
-        assertThat(body).isEqualTo("Documents are temporarily unavailable. Try again later.");
+        assertThat(body)
+                .contains(
+                        "Documents are temporarily unavailable. Try again later.",
+                        "Open the library");
         assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
 

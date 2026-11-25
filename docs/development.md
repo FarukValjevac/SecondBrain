@@ -1457,6 +1457,12 @@ Logs stay on the console; no Logstash server or log file is configured. Maven's 
 
 `LocalRequestFilter` applies to every route, including health and metrics. A request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` receives `403`, which stops a rebound attacker domain from reading the library. A request other than `GET`/`HEAD` also receives `403` when the browser's `Sec-Fetch-Site` is not `same-origin`/`none`; this covers other websites and other local ports. `Sec-Fetch-Site` decides whenever it is present, because pages sent with `Referrer-Policy: no-referrer` (search, questions, sources, cleanup) make browsers send `Origin: null` even for their own forms. Only when it is absent must `Origin` match the address the request was sent to. The response is fixed text and the log records only `outcome=rejected` with `code=FOREIGN_HOST` or `FOREIGN_ORIGIN`, never the supplied values. Open the application through the same address you submit forms to. Check with:
 
+`SecurityHeadersFilter` adds to every response a content security policy (`default-src 'self'`, scripts, styles, fonts, frames and connections only from this application, `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'self'`), `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` (pages with private content still send `no-referrer`) and a `Permissions-Policy` that turns off camera, microphone, location and payment. Pages contain no inline scripts or styles, so nothing needs an exception; the original-file response keeps its own stricter policy. The session cookie, used only for one-time page messages, is `SameSite=Strict` and `HttpOnly`.
+
+Errors render `templates/error.html` inside the app shell: a status, a short heading, a fixed message and links back to the library and the ask page. Controllers pass their own fixed message through `ErrorPage.of(status, message)`; Spring's errors (unknown pages and anything uncaught) choose a message by status. Exception text and stack traces never reach a page (`server.error.include-message=never`, `include-stacktrace=never`), and clients that do not ask for HTML still get Spring's JSON error. Check with `./mvnw -Dit.test=SecurityHeadersIT verify`.
+
+Dependabot (`.github/dependabot.yml`) opens weekly update pull requests for Maven dependencies (Spring grouped) and the pinned GitHub Actions.
+
 ```sh
 curl -i -H 'Host: example.test' http://127.0.0.1:8080/
 curl -i -X POST -H 'Origin: https://example.test' http://127.0.0.1:8080/documents/upload

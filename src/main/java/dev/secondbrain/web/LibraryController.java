@@ -17,8 +17,6 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -111,16 +109,14 @@ class LibraryController {
         TransactionException.class,
         IllegalStateException.class
     })
-    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
-    @ResponseBody
-    String unavailable() {
-        return "Documents are temporarily unavailable. Try again later.";
+    org.springframework.web.servlet.ModelAndView unavailable() {
+        return ErrorPage.of(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Documents are temporarily unavailable. Try again later.");
     }
 
     @ExceptionHandler({IllegalArgumentException.class, MethodArgumentTypeMismatchException.class})
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    @ResponseBody
-    String invalidPage() {
-        return "Use a non-negative page number.";
+    org.springframework.web.servlet.ModelAndView invalidPage() {
+        return ErrorPage.of(HttpStatus.BAD_REQUEST, "Use a non-negative page number.");
     }
 }

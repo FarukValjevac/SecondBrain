@@ -224,7 +224,8 @@ class LibraryControllerTest {
                             .andReturn()
                             .getResponse()
                             .getContentAsString();
-            Assertions.assertThat(body).isEqualTo("Use a non-negative page number.");
+            Assertions.assertThat(body)
+                    .contains("Use a non-negative page number.", "Check the request");
         }
         verifyNoInteractions(inspection);
     }
@@ -240,7 +241,7 @@ class LibraryControllerTest {
                         .getResponse()
                         .getContentAsString();
         Assertions.assertThat(body)
-                .isEqualTo("Documents are temporarily unavailable. Try again later.");
+                .contains("Documents are temporarily unavailable. Try again later.");
         Assertions.assertThat(output.getAll()).doesNotContain("sentinel-private");
     }
 
