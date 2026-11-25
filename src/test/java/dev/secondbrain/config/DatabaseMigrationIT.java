@@ -51,9 +51,9 @@ class DatabaseMigrationIT {
             var flyway = context.getBean(Flyway.class);
             assertRetryMigration(jdbc, failedDelivery);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(25);
+            Assertions.assertThat(flyway.info().applied()).hasSize(26);
             firstMigration = flyway.info().current();
-            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("25");
+            Assertions.assertThat(firstMigration.getVersion().getVersion()).isEqualTo("26");
             Assertions.assertThat(
                             jdbc.sql("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
                                     .query(String.class)
@@ -74,6 +74,21 @@ class DatabaseMigrationIT {
                     .isEqualTo("QUEUED");
 
             assertExtractedLines(jdbc, documentId);
+            // Tables of removed features (answer ratings, flashcards, quizzes) are gone.
+            for (var table :
+                    java.util.List.of(
+                            "answer_feedback",
+                            "answer_feedback_sources",
+                            "flashcards",
+                            "quizzes",
+                            "quiz_questions"))
+                Assertions.assertThat(
+                                jdbc.sql("SELECT to_regclass(:table) IS NULL")
+                                        .param("table", table)
+                                        .query(Boolean.class)
+                                        .single())
+                        .as(table)
+                        .isTrue();
             Assertions.assertThat(
                             jdbc.sql(
                                             """
@@ -163,7 +178,7 @@ class DatabaseMigrationIT {
             var flyway = context.getBean(Flyway.class);
             assertRetryMigration(jdbc, failedDelivery);
 
-            Assertions.assertThat(flyway.info().applied()).hasSize(25);
+            Assertions.assertThat(flyway.info().applied()).hasSize(26);
             Assertions.assertThat(flyway.info().current().getInstalledOn())
                     .isEqualTo(firstMigration.getInstalledOn());
             Assertions.assertThat(
@@ -176,7 +191,7 @@ class DatabaseMigrationIT {
                             jdbc.sql("SELECT count(*) FROM flyway_schema_history WHERE success")
                                     .query(Integer.class)
                                     .single())
-                    .isEqualTo(25);
+                    .isEqualTo(26);
             assertExtractedLines(jdbc, documentId);
             Assertions.assertThat(
                             jdbc.sql(

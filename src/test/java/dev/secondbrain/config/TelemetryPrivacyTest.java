@@ -48,7 +48,6 @@ class TelemetryPrivacyTest {
                     "/documents",
                     "/documents/upload",
                     "/documents/{id}/delete",
-                    "/documents/{documentId}/passages/{passageId}"
                 }) {
             context.setPathPattern(route);
             Assertions.assertThat(convention.getLowCardinalityKeyValues(context))

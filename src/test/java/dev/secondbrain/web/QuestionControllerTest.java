@@ -44,9 +44,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 
-@WebMvcTest(
-        controllers = {QuestionController.class, DocumentSourceController.class},
-        properties = "spring.config.import=")
+@WebMvcTest(controllers = QuestionController.class, properties = "spring.config.import=")
 @ExtendWith(OutputCaptureExtension.class)
 class QuestionControllerTest {
     private static final String PRIVATE = "question-private-sentinel";
@@ -281,17 +279,8 @@ class QuestionControllerTest {
                         new SearchQuery(
                                 PRIVATE + "</textarea><script>question()</script>",
                                 SearchScope.all()));
-        var path = "/documents/" + owner + "/passages/" + passage;
-        mvc.perform(get(path))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Cache-Control", "no-store"));
-        var gone =
-                mvc.perform(get(path))
-                        .andExpect(status().isNotFound())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString();
-        assertThat(gone).contains("Source unavailable").doesNotContain(PRIVATE);
+        // Sources open the reading view at the cited lines (the old passage page is gone).
+        assertThat(html).contains("href=\"/documents/" + owner + "?view=reading");
         assertThat(result.getRequest().getSession(false)).isNull();
         assertThat(output).doesNotContain(PRIVATE);
     }

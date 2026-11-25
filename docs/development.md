@@ -69,6 +69,10 @@ java -jar target/secondbrain-0.1.0-SNAPSHOT.jar
 
 It serves the same local URL and reads configuration from the working directory, just like the Maven startup command.
 
+## Removed features and their data
+
+Answer ratings, flashcards and quizzes were removed from the application earlier; migration V26 (`drop_removed_feature_tables`) drops their tables (`answer_feedback`, `answer_feedback_sources`, `flashcards`, `quizzes`, `quiz_questions`) and trigger functions, so the private questions, answers and study text they held are deleted for good. The related-documents search and the standalone passage page were removed as well.
+
 ## Static files and caching
 
 `web.StaticResources` serves stylesheets, fonts and icons under content-hashed names (`/css/app-<md5>.css`); Thymeleaf `@{...}` links and `url(...)` references in the stylesheet are rewritten automatically. Those files are cached for a year (`Cache-Control: max-age=31536000, public, immutable`): a changed file gets a new name. Scripts are hashed too, but sent with `Cache-Control: no-cache`, because module imports such as `./dialogs.js` keep their plain names; browsers revalidate them (a cheap 304) and never run an outdated copy. The `dev` profile sets `secondbrain.web.static-max-age=0s`. Check with `./mvnw -Dit.test=StaticResourcesIT verify`.
@@ -175,7 +179,7 @@ The document page has a **Document** card with three views, switched by links (`
 
 - **Original** (PDFs, and their default): the stored original in the browser's own PDF viewer, in a tall frame fitted to the page width (`#view=FitH`), embedded from `GET /documents/{id}/original`. That endpoint streams only visible documents. PDFs go inline as `application/pdf`; everything else, and any `?download=1` request, goes as an `application/octet-stream` attachment, so an imported HTML page never runs in the app. Responses are `no-store`, `nosniff`, `no-referrer` and `frame-ancestors 'self'`. **Download original** is offered for every type. Phone and tablet browsers cannot show a PDF inside a page, so on narrow or touch screens the embedded viewer is replaced by **Open PDF** (the phone's own viewer) and **Read it here instead**; desktops keep the embedded viewer.
 - **Reading view** (default for other types): a book-like column rebuilt from the extracted lines. Wrapped lines join into paragraphs; a word split by a hyphen at a line break is rejoined; Markdown `#` headings and `-`/`1.` list items are recognised; the first short line becomes the title and short standalone lines that introduce text become headings; PDF page breaks are marked. Every source line keeps its `line-N` anchor (blank lines as empty anchors), so source links still land on the right place and highlight it.
-- **Cited passages**: source links in answers, saved chats, summaries and search results open the reading view with the cited line range (`?view=reading&from=12&to=18#line-12`). Those lines are highlighted and scrolled into view, with **Remove highlight** above the text; malformed or very long ranges (over 500 lines) are ignored. The older passage page (`/documents/{id}/passages/{passageId}`) still works but is no longer linked.
+- **Cited passages**: source links in answers, saved chats, summaries and search results open the reading view with the cited line range (`?view=reading&from=12&to=18#line-12`). Those lines are highlighted and scrolled into view, with **Remove highlight** above the text; malformed or very long ranges (over 500 lines) are ignored. The older passage page (`/documents/{id}/passages/{passageId}`) was removed (US-13-06); old bookmarks now show the styled 404 page.
 - **Lines**: the exact extracted lines with line numbers and a page label where a page starts, as used for search and citations.
 
 Word documents have no browser viewer, so they use the reading view and download.
@@ -533,7 +537,7 @@ After validation, the service rechecks **all supplied evidence**, including unci
 
 Each supplied passage must remain in the same visible, completed active generation with unchanged owner, ID, text and source coordinates. Missing, deleted, replaced or inconsistent evidence discards the entire response with `SOURCE_UNAVAILABLE` at stage `SOURCES`; database failures remain distinct. Only the model's validated cited sources are returned, in citation order, with fresh document names, exact excerpts, stable owner/passage IDs, generation and line/PDF locations. Insufficient information returns empty text and citations; no-evidence requests perform no source read.
 
-Existing links `/documents/{documentId}/passages/{passageId}` independently recheck eligibility when opened. A committed deletion before the final snapshot prevents returning the response; new source reads also exclude that document. A deletion committed after the final snapshot can make a later link unavailable. Already delivered browser/provider content cannot be recalled, and this API does not promise to freeze documents until a response reaches a browser.
+Source links open the reading view, which reads the document's current text when opened. A committed deletion before the final snapshot prevents returning the response; new source reads also exclude that document. A deletion committed after the final snapshot can make a later link unavailable. Already delivered browser/provider content cannot be recalled, and this API does not promise to freeze documents until a response reaches a browser.
 
 Citation identity and visibility are mechanical checks, **not a factual-support guarantee**. A test deliberately accepts a false claim citing a real, visible supplied passage that contradicts it. This proves that valid IDs alone cannot detect unsupported claims; semantic quality needs a separate evaluation. The question template escapes returned text and does not interpret it as HTML or Markdown.
 
@@ -1072,7 +1076,7 @@ For manual review with your configured provider and a disposable indexed note:
 
 ## Source passage links
 
-A result's **Open source passage** link uses `/documents/{documentId}/passages/{passageId}`. Opening or refreshing it resolves that document/passage pair from PostgreSQL rather than trusting text from the search page, session, URL or browser. The stable passage ID identifies its indexing generation; an old link never substitutes a different passage from a newer generation. The page displays the exact bounded excerpt, escaped filename, line range and physical PDF page if present, with a separate **Open full document** link.
+A result's **Open source passage** link opens the document's reading view at the passage's line range, highlighted. The search page shows the exact bounded excerpt, escaped filename, line range and physical PDF page if present.
 
 The source must belong to a visible extracted document, its current extraction and a complete active index with supported passage/model metadata and every expected passage/vector. A complete active index remains accessible while its desired replacement is staged. Deleted/physically removed documents, changed extraction sources, inactive/staged/replaced generations, incomplete indexes, unknown IDs and wrong document/passage pairs return HTTP 404 with the same content-free unavailable message. Malformed IDs return safe HTTP 400; read failures return safe HTTP 503 without an excerpt or private error.
 
@@ -1153,7 +1157,6 @@ The enabled search service uses the shared local registries and optional trace e
 | `secondbrain.search.requests` | Completed search operations, including failures and empty scopes | Fixed `outcome` |
 | `secondbrain.search.duration` | Whole operation through final visibility validation, in seconds | Fixed `outcome`; framework `error=none` |
 | `secondbrain.search.results` | Distribution of final visible match counts for completed searches | None; unit `passages` |
-| `secondbrain.search.related` | Related-document lookups on document pages (stored vectors only) | `outcome=found,none,unavailable` |
 
 Outcomes are `success`, `no_results`, `empty_scope` (an explicit empty selection, or a selection that names no visible document), `no_compatible_index`, `database_unavailable`, `incompatible_model`, `invalid_embedding`, `provider_unavailable`, `rate_limited`, `quota_exhausted`, `timed_out`, `interrupted`, `rejected`, and fallback `unavailable`. `rejected` covers a caller attempting an I/O search inside its transaction. Input validation occurs when constructing `SearchQuery`; failures before calling the service are outside these metrics. Use outcome for errors: no private exception is attached to the observation, so the timer's framework error tag stays `none`.
 

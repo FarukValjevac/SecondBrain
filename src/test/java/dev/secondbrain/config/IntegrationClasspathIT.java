@@ -36,7 +36,6 @@ class IntegrationClasspathIT {
                     "templates/document-cleanup.html",
                     "templates/search.html",
                     "templates/questions.html",
-                    "templates/document-source.html",
                     "templates/fragments/document-query.html",
                     "templates/fragments/processing.html",
                     "templates/folders.html",
